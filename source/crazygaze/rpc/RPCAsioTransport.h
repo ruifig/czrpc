@@ -96,7 +96,7 @@ public:
 
 	void connect(const char* ip, int port, std::function<void(bool)> callback)
 	{
-		printf("Client side transport = this=%p, ms=%p\n", this, m_s.get());
+		//printf("Client side transport = this=%p, ms=%p\n", this, m_s.get());
 		m_s = std::make_shared<ASIO::ip::tcp::socket>(m_io);
 		ASIO::ip::tcp::endpoint point(ASIO::ip::address::from_string(ip), port);
 		m_s->async_connect(
@@ -303,7 +303,7 @@ private:
 		auto trp = std::make_shared<AsioTransport>(m_io);
 		trp->m_s = std::move(socket);
 		trp->startReadSize();
-		printf("Server side transport = trp=%p, trp->m_s=%p\n", trp.get(), trp->m_s.get());
+		//printf("Server side transport = trp=%p, trp->m_s=%p\n", trp.get(), trp->m_s.get());
 
 		auto con = std::make_shared<ConnectionType>(&m_localObj, trp);
 		trp->m_con = con.get();

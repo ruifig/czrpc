@@ -29,7 +29,10 @@
     <ClCompile Include="testsPCH.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="tests.cpp">
+    <ClCompile Include="tests_rpc.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="tests_traits.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
