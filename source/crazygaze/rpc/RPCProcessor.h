@@ -5,6 +5,12 @@ namespace cz
 namespace rpc
 {
 
+class Exception : public std::exception
+{
+public:
+	Exception(const std::string& msg) : std::exception(msg.c_str()) {}
+};
+
 class BaseOutProcessor;
 
 template<typename F>
@@ -112,8 +118,8 @@ namespace details
 			{
 				std::string str;
 				in >> str;
-				throw std::runtime_error(
-					std::string("RPC returned an exception, and no exception handling was specified. Exception: ") +
+				throw Exception(
+					std::string("RPC returned an exception, and no exception handling was specified for that RPC. Exception message: ") +
 					str);
 			}
 		}
@@ -136,7 +142,7 @@ namespace details
 			{
 				std::string str;
 				in >> str;
-				handler(Expected<RetType>::from_exception(std::runtime_error(str)));
+				handler(Expected<RetType>::from_exception(Exception(str)));
 			}
 		}
 	};
@@ -156,7 +162,7 @@ namespace details
 			{
 				std::string str;
 				in >> str;
-				throw std::runtime_error(
+				throw Exception(
 					std::string("RPC returned an exception, and no exception handling was specified. Exception: ") +
 					str);
 			}
@@ -177,7 +183,7 @@ namespace details
 			{
 				std::string str;
 				in >> str;
-				handler(Expected<void>::from_exception(std::runtime_error(str)));
+				handler(Expected<void>::from_exception(Exception(str)));
 			}
 		}
 	};
