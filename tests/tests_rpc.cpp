@@ -30,7 +30,7 @@ public:
 		return "Tester";
 	}
 
-	void testClientAddCall(int a, int b);
+	int testClientAddCall(int a, int b);
 
 	void voidTestException(bool doThrow)
 	{
@@ -45,6 +45,8 @@ public:
 		else
 			return 128;
 	}
+
+	int clientCallRes = 0;
 };
 
 class TesterEx : public Tester
@@ -75,6 +77,7 @@ public:
 	REGISTERRPC(simple) \
 	REGISTERRPC(noParams) \
 	REGISTERRPC(add) \
+	REGISTERRPC(virtualFunc) \
 	REGISTERRPC(testClientAddCall) \
 	REGISTERRPC(voidTestException) \
 	REGISTERRPC(intTestException)
@@ -97,15 +100,18 @@ public:
 
 
 // Server side calls a RPC on the client...
-void Tester::testClientAddCall(int a, int b)
+int Tester::testClientAddCall(int a, int b)
 {
 	auto client = cz::rpc::Connection<Tester, TesterClient>::getCurrent();
 	CHECK(client != nullptr);
 	CZRPC_CALL(*client, clientAdd, a, b).async(
-		[r = a+b](int res)
+		[this, r = a+b](int res)
 	{
 		CHECK_EQUAL(r, res);
+		clientCallRes = res;
 	});
+
+	return a + b;
 }
 
 using namespace cz::rpc;
@@ -140,6 +146,8 @@ public:
 		m_io.stop();
 		m_th.join();
 	}
+
+	LOCAL& obj() { return m_obj;   }
 private:
 	ASIO::io_service m_io;
 	std::thread m_th;
@@ -328,7 +336,7 @@ TEST(ExceptionThrowing)
 	});
 
 	// RPC with exception and the client using a future
-	// This will cause the future to get a broken_promise
+	// This will cause the future to get a broken_promise:vsplit
 	expectedUnhandledExceptions.increment();
 	bool brokenPromise = false;
 	auto ft = CZRPC_CALL(*clientCon, voidTestException, true).ft();
@@ -349,5 +357,76 @@ TEST(ExceptionThrowing)
 	CHECK(brokenPromise);
 }
 
+
+// Having the server call a function on the client
+TEST(ClientCall)
+{
+	using namespace cz::rpc;
+	ServerProcess<Tester, TesterClient> server(TEST_PORT);
+
+	ASIO::io_service io;
+	std::thread iothread = std::thread([&io]
+	{
+		ASIO::io_service::work w(io);
+		io.run();
+	});
+
+	TesterClient clientObj;
+	auto clientCon = AsioTransport::create<TesterClient, Tester>(io, clientObj, "127.0.0.1", TEST_PORT).get();
+
+	ZeroSemaphore pending;
+
+	pending.increment();
+	CZRPC_CALL(*clientCon, testClientAddCall, 1,2).async(
+		[&](int res)
+	{
+		pending.decrement();
+		CHECK_EQUAL(3, res);
+	});
+
+	pending.wait();
+	// Make sure the server got the client reply
+	CHECK_EQUAL(3, server.obj().clientCallRes);
+	io.stop();
+	iothread.join();
+}
+
+
+// The server is running a specialize TesterEx that overrides some virtuals,
+// and the client connects asking for the Tester interface
+TEST(Inheritance)
+{
+	using namespace cz::rpc;
+
+	// The server is running a TesterEx
+	ServerProcess<TesterEx, void> server(TEST_PORT);
+
+	ASIO::io_service io;
+	std::thread iothread = std::thread([&io]
+	{
+		ASIO::io_service::work w(io);
+		io.run();
+	});
+
+	// The client connects as using Tester
+	auto clientCon = AsioTransport::create<void, Tester>(io, "127.0.0.1", TEST_PORT).get();
+
+	ZeroSemaphore pending;
+	pending.increment();
+	CZRPC_CALL(*clientCon, virtualFunc).async(
+		[&](const std::string& res)
+	{
+		pending.decrement();
+		CHECK_EQUAL("TesterEx", res.c_str());
+	});
+
+	pending.wait();
+	// Make sure the server got the client reply
+	io.stop();
+	iothread.join();
+
+}
+
+}
 
 
