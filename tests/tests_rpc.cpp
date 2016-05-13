@@ -286,19 +286,19 @@ TEST(ExceptionThrowing)
 	ServerProcess<Tester, void> server(TEST_PORT);
 
 	ASIO::io_service io;
-	int numUnhandledExceptions = false;
-	std::thread iothread = std::thread([&io, &numUnhandledExceptions]
+	ZeroSemaphore expectedUnhandledExceptions;
+	std::thread iothread = std::thread([&io, &expectedUnhandledExceptions]
 	{
 		while(true)
 		{
-			ASIO::io_service::work w(io);
 			try
 			{
+				ASIO::io_service::work w(io);
 				io.run();
 			}
 			catch (const Exception&)
 			{
-				numUnhandledExceptions++;
+				expectedUnhandledExceptions.decrement();
 				io.reset();
 				continue;
 			}
@@ -311,11 +311,11 @@ TEST(ExceptionThrowing)
 	ZeroSemaphore sem; // Used to make sure all rpcs were called
 
 	// Test with async
-	sem.increment();
+	expectedUnhandledExceptions.increment();
 	CZRPC_CALL(*clientCon, voidTestException,  true).async(
 		[&]()
 	{
-		sem.decrement();
+		// This is never called, because the RPC will throw an exception, and we are using .async instead of .asyncEx
 	});
 
 	sem.increment();
@@ -327,115 +327,26 @@ TEST(ExceptionThrowing)
 		CHECK_THROW(res.get(), Exception);
 	});
 
+	// RPC with exception and the client using a future
+	// This will cause the future to get a broken_promise
+	expectedUnhandledExceptions.increment();
+	bool brokenPromise = false;
+	auto ft = CZRPC_CALL(*clientCon, voidTestException, true).ft();
+	try
+	{
+		ft.get();
+	}
+	catch (std::future_error& e)
+	{
+		brokenPromise = true;
+		CHECK_EQUAL(std::future_errc::broken_promise, e.code());
+	}
+
 	sem.wait();
 	io.stop();
 	iothread.join();
-	CHECK_EQUAL(1, numUnhandledExceptions);
-}
-
-
-/*
-TEST(AsioTest)
-{
-	using namespace cz::rpc;
-
-	ASIO::io_service io;
-	std::thread iothread = std::thread([&io]
-	{
-		ASIO::io_service::work w(io);
-		io.run();
-	});
-
-	Calculator calc;
-	auto acceptor = std::make_shared<AsioTransportAcceptor<Calculator, void>>(io, calc);
-
-	std::shared_ptr<Connection<Calculator, void>> serverCon;
-	acceptor->start(9000, [&](std::shared_ptr<Connection<Calculator,void>> con)
-	{
-		serverCon = std::move(con);
-	});
-
-	auto clientCon = AsioTransport::create<void, Calculator>(io, "127.0.0.1", 9000).get();
-
-	auto ft1 = CZRPC_CALL(*clientCon, add, 1, 2).ft();
-	auto ft2 = CZRPC_CALL(*clientCon, add, 2, 2).ft();
-	auto ft3 = CZRPC_CALL(*clientCon, add, 3, 2).ft();
-
-	printf("Res = %d, %d, %d\n", ft1.get(), ft2.get(), ft3.get());
-
-	io.stop();
-	iothread.join();
-}
-
-TEST(AsioTest2)
-{
-	using namespace cz::rpc;
-
-	ASIO::io_service io;
-	std::thread iothread = std::thread([&io]
-	{
-		ASIO::io_service::work w(io);
-		io.run();
-	});
-
-	Calculator calc;
-	CalculatorClient calcClient;
-	auto acceptor = std::make_shared<AsioTransportAcceptor<Calculator, CalculatorClient>>(io, calc);
-
-	std::shared_ptr<Connection<Calculator, CalculatorClient>> serverCon;
-	acceptor->start(9000, [&](std::shared_ptr<Connection<Calculator,CalculatorClient>> con)
-	{
-		serverCon = std::move(con);
-	});
-
-	auto clientCon = AsioTransport::create<CalculatorClient, Calculator>(io, calcClient, "127.0.0.1", 9000).get();
-
-	auto ft1 = CZRPC_CALL(*clientCon, add, 1, 2).ft();
-	auto ft2 = CZRPC_CALL(*clientCon, add, 2, 2).ft();
-	auto ft3 = CZRPC_CALL(*clientCon, add, 3, 2).ft();
-	auto ft4 = CZRPC_CALL(*clientCon, testClientCall).ft();
-
-	printf("Res = %d, %d, %d\n", ft1.get(), ft2.get(), ft3.get());
-
-	io.stop();
-	iothread.join();
-}
-
-TEST(AsioTest3)
-{
-	using namespace cz::rpc;
-
-	ASIO::io_service io;
-	std::thread iothread = std::thread([&io]
-	{
-		ASIO::io_service::work w(io);
-		io.run();
-	});
-
-	AdvancedCalculator calc;
-	CalculatorClient calcClient;
-	auto acceptor = std::make_shared<AsioTransportAcceptor<AdvancedCalculator, CalculatorClient>>(io, calc);
-
-	std::shared_ptr<Connection<AdvancedCalculator, CalculatorClient>> serverCon;
-	acceptor->start(9000, [&](std::shared_ptr<Connection<AdvancedCalculator,CalculatorClient>> con)
-	{
-		serverCon = std::move(con);
-	});
-
-	auto clientCon = AsioTransport::create<CalculatorClient, AdvancedCalculator>(io, calcClient, "127.0.0.1", 9000).get();
-
-	auto ft1 = CZRPC_CALL(*clientCon, add, 1, 2).ft();
-	auto ft2 = CZRPC_CALL(*clientCon, add, 2, 2).ft();
-	auto ft3 = CZRPC_CALL(*clientCon, divide, 9, 3).ft();
-	auto ft4 = CZRPC_CALL(*clientCon, testClientCall).ft();
-
-	printf("Res = %d, %d, %d\n", ft1.get(), ft2.get(), ft3.get());
-
-	io.stop();
-	iothread.join();
-}
-*/
-
+	expectedUnhandledExceptions.wait();
+	CHECK(brokenPromise);
 }
 
 
