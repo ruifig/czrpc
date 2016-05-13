@@ -95,6 +95,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="Semaphore.h" />
     <ClInclude Include="testsPCH.h" />
     <ClInclude Include="targetver.h" />
   </ItemGroup>

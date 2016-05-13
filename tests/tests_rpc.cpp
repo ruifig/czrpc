@@ -1,13 +1,37 @@
 #include "testsPCH.h"
+#include "Semaphore.h"
 
 
-class Fake
+#define TEST_PORT 9000
+
+// Forward declaration, so the server side can use it
+class TesterClient;
+
+class Tester
 {
 public:
-	void clear()
+
+	void simple()
 	{
-		printf("Clear\n");
 	}
+
+	int noParams()
+	{
+		return 128;
+	}
+
+	int add(int a, int b)
+	{
+		return a+b;
+	}
+
+	virtual const char* virtualFunc()
+	{
+		return "Tester";
+	}
+
+	void testClientAddCall(int a, int b);
+
 	void voidTestException(bool doThrow)
 	{
 		if (doThrow)
@@ -19,247 +43,298 @@ public:
 		if (doThrow)
 			throw std::exception("Testing exception");
 		else
-			return 10;
-	}
-
-	int addBase(int a, int b)
-	{
-		return a+b;
-	}
-	int multiply(int a, int b)
-	{
-		return a*b;
+			return 128;
 	}
 };
 
-class CalculatorClient;
-
-class Calculator : public Fake
-{
-public:
-
-	void clear()
-	{
-	}
-
-	int add(int a, int b)
-	{
-		return a+b;
-	}
-	int multiply(int a, int b)
-	{
-		return a*b;
-	}
-
-	void testClientCall();
-};
-
-class AdvancedCalculator : public Calculator
+class TesterEx : public Tester
 {
 public:
 	int leftShift(int v, int bits)
 	{
 		return v << bits;
 	}
+
+	virtual const char* virtualFunc()
+	{
+		return "TesterEx";
+	}
 };
 
-class CalculatorClient
+class TesterClient
 {
 public:
-	void clientClear()
-	{
-		printf("clientClear\n");
-	}
 	int clientAdd(int a, int b)
 	{
-		printf("clientAdd(%d, %d)\n", a, b);
 		return a + b;
 	}
 };
 
-#define RPCTABLE_CALCULATOR_CONTENTS \
-	REGISTERRPC(clear) \
-	REGISTERRPC(voidTestException) \
-	REGISTERRPC(intTestException) \
+// Gather all the RPCs for Tester, but not define the Table right now, since we need to reuse the define 
+#define RPCTABLE_TESTER_CONTENTS \
+	REGISTERRPC(simple) \
+	REGISTERRPC(noParams) \
 	REGISTERRPC(add) \
-	REGISTERRPC(multiply) \
-	REGISTERRPC(testClientCall)
+	REGISTERRPC(testClientAddCall) \
+	REGISTERRPC(voidTestException) \
+	REGISTERRPC(intTestException)
 
-#define RPCTABLE_CLASS Calculator
-	#define RPCTABLE_CONTENTS RPCTABLE_CALCULATOR_CONTENTS
+#define RPCTABLE_CLASS Tester
+	#define RPCTABLE_CONTENTS RPCTABLE_TESTER_CONTENTS
 #include "crazygaze/rpc/RPCGenerate.h"
 
-#define RPCTABLE_CLASS AdvancedCalculator
+// Inheritance is done by reusing defines, therefore putting together all the RPCs needed
+#define RPCTABLE_CLASS TesterEx
 	#define RPCTABLE_CONTENTS \
-		RPCTABLE_CALCULATOR_CONTENTS \
-		REGISTERRPC(divide)
+		RPCTABLE_TESTER_CONTENTS \
+		REGISTERRPC(leftShift)
 #include "crazygaze/rpc/RPCGenerate.h"
 
-#define RPCTABLE_CLASS CalculatorClient
+#define RPCTABLE_CLASS TesterClient
 #define RPCTABLE_CONTENTS \
-	REGISTERRPC(clientClear) \
 	REGISTERRPC(clientAdd)
 #include "crazygaze/rpc/RPCGenerate.h"
 
 
-void Calculator::testClientCall()
+// Server side calls a RPC on the client...
+void Tester::testClientAddCall(int a, int b)
 {
-	auto cl = cz::rpc::Connection<Calculator, CalculatorClient>::getCurrent();
-	if (!cl)
-		return;
-
-	CZRPC_CALL(*cl, clientAdd, 2, 3).async(
-		[](int res)
+	auto client = cz::rpc::Connection<Tester, TesterClient>::getCurrent();
+	CHECK(client != nullptr);
+	CZRPC_CALL(*client, clientAdd, a, b).async(
+		[r = a+b](int res)
 	{
-		printf("ClientAdd=%d\n", res);
+		CHECK_EQUAL(r, res);
 	});
 }
 
+using namespace cz::rpc;
 
+//
+// To simulate a server process, serving one single object instance
+//
+template<typename LOCAL, typename REMOTE>
+class ServerProcess
+{
+public:
+	using Local = LOCAL;
+	using Remote = REMOTE;
 
+	ServerProcess(int port)
+	{
+		m_th = std::thread([this]
+		{
+			ASIO::io_service::work w(m_io);
+			m_io.run();
+		});
 
+		m_acceptor = std::make_shared<AsioTransportAcceptor<Local, Remote>>(m_io, m_obj);
+		m_acceptor->start(port, [&](std::shared_ptr<Connection<Local, Remote>> con)
+		{
+			m_cons.push_back(std::move(con));
+		});
+	}
+
+	~ServerProcess()
+	{
+		m_io.stop();
+		m_th.join();
+	}
+private:
+	ASIO::io_service m_io;
+	std::thread m_th;
+	LOCAL m_obj;
+	std::shared_ptr<AsioTransportAcceptor<Local, Remote>> m_acceptor;
+	std::vector<std::shared_ptr<Connection<Local, Remote>>> m_cons;
+};
 
 SUITE(RPCTraits)
 {
 
-/*
-TEST(RPC1)
+// RPC without return value or parameters
+TEST(Simple)
 {
-	using namespace cz;
-	using namespace rpc;
+	using namespace cz::rpc;
+	ServerProcess<Tester, void> server(TEST_PORT);
 
-	std::queue<BaseConnection*> rpcQueue;
-
-	auto clientTrp = std::make_shared<TestTransport>();
-	auto serverTrp = std::make_shared<TestTransport>();
-	clientTrp->setPeer(*serverTrp);
-	serverTrp->setPeer(*clientTrp);
-
-	Connection<void, Calculator> client(nullptr, clientTrp);
-	Calculator calc;
-	Connection<Calculator, void> server(&calc, serverTrp);
-	clientTrp->setReceiveNotification([&]()
+	ASIO::io_service io;
+	std::thread iothread = std::thread([&io]
 	{
-		rpcQueue.push(&client);
-	});
-	serverTrp->setReceiveNotification([&]()
-	{
-		rpcQueue.push(&server);
+		ASIO::io_service::work w(io);
+		io.run();
 	});
 
-	CZRPC_CALL(client, clear)
-		.async([]()
-	{
-		printf("Clear\n");
-	});
+	auto clientCon = AsioTransport::create<void, Tester>(io, "127.0.0.1", TEST_PORT).get();
 
-	CZRPC_CALL(client, add, 1, 2)
-		.async([](auto res)
-	{
-		CHECK(res == 3);
-		printf("Res = %d\n", res);
-	});
+	ZeroSemaphore sem; // Used to make sure all rpcs were called
+	sem.increment();
 
-	CZRPC_CALL(client, add, 1, 2)
-		.asyncEx([](auto res)
+	// Test with async
+	CZRPC_CALL(*clientCon, simple).async(
+		[&]()
 	{
-		CHECK(*res == 3);
-		printf("Res = %d\n", *res);
+		sem.decrement();
 	});
-
-	CZRPC_CALL(client, voidTestException, false)
-		.asyncEx([](Expected<void> res)
+	// Test with exception handling
+	sem.increment();
+	CZRPC_CALL(*clientCon, simple).asyncEx(
+		[&](Expected<void> res)
 	{
+		sem.decrement();
 		CHECK(res.valid());
-		printf("voidTestException 1\n");
 	});
 
-	CZRPC_CALL(client, voidTestException, true)
-		.asyncEx([](Expected<void> res)
-	{
-		CHECK(!res.valid());
-		printf("voidTestException 2\n");
-	});
+	// Test with future
+	CZRPC_CALL(*clientCon, simple).ft().get();
 
-	CZRPC_CALL(client, intTestException, false)
-		.asyncEx([](Expected<int> res)
-	{
-		CHECK(res);
-		printf("intTestException 1\n");
-	});
-
-	CZRPC_CALL(client, intTestException, true)
-		.asyncEx([](Expected<int> res)
-	{
-		CHECK(!res);
-		printf("intTestException 2\n");
-	});
-
-	CZRPC_CALL(client, intTestException, false)
-		.async([](int res)
-	{
-		CHECK(res == 10);
-		printf("intTestException 3\n");
-	});
-
-	CZRPC_CALL(client, intTestException, true)
-		.async([](int res)
-	{
-		CHECK(res == 10);
-		printf("intTestException 4\n");
-	});
-
-	auto ft1 = CZRPC_CALL(client, clear).ft();
-	auto ft2 = CZRPC_CALL(client, multiply, 3, 2).ft();
-
-	while (rpcQueue.size())
-	{
-		rpcQueue.front()->process();
-		rpcQueue.pop();
-	}
-
-	ft1.get();
-	printf("Res multiply=%d\n", ft2.get());
-	printf("\n");
+	sem.wait();
+	io.stop();
+	iothread.join();
 }
 
-TEST(RPC2)
+TEST(NoParams)
 {
-	using namespace cz;
-	using namespace rpc;
+	using namespace cz::rpc;
+	ServerProcess<Tester, void> server(TEST_PORT);
 
-	auto clientTrp = std::make_shared<TestTransport>();
-	auto serverTrp = std::make_shared<TestTransport>();
-	clientTrp->setPeer(*serverTrp);
-	serverTrp->setPeer(*clientTrp);
-
-	CalculatorClient calcClient;
-	Connection<CalculatorClient, Calculator> client(&calcClient, clientTrp);
-	Calculator calc;
-	Connection<Calculator, CalculatorClient> server(&calc, serverTrp);
-
-
-	CZRPC_CALL(client, add, 1, 2).async(
-		[](int res)
+	ASIO::io_service io;
+	std::thread iothread = std::thread([&io]
 	{
-		printf("Add=%d\n", res);
+		ASIO::io_service::work w(io);
+		io.run();
 	});
 
-	CZRPC_CALL(client, testClientCall).async(
-		[]()
+	auto clientCon = AsioTransport::create<void, Tester>(io, "127.0.0.1", TEST_PORT).get();
+
+	ZeroSemaphore sem; // Used to make sure all rpcs were called
+	sem.increment();
+
+	// Test with async
+	CZRPC_CALL(*clientCon, noParams).async(
+		[&](int res)
 	{
-		printf("testClientCall reply received\n");
+		sem.decrement();
+		CHECK_EQUAL(128, res);
 	});
 
-	server.process();
-	client.process();
-	server.process();
+	// Test with exception handling
+	sem.increment();
+	CZRPC_CALL(*clientCon, noParams).asyncEx(
+		[&](Expected<int> res)
+	{
+		sem.decrement();
+		CHECK_EQUAL(128, *res);
+	});
 
-	printf("\n");
+	// Test with future
+	int res = CZRPC_CALL(*clientCon, noParams).ft().get();
+	CHECK_EQUAL(128, res);
 
+	sem.wait();
+	io.stop();
+	iothread.join();
 }
-*/
 
+// Test with simple parameters and return value
+TEST(WithParams)
+{
+	using namespace cz::rpc;
+	ServerProcess<Tester, void> server(TEST_PORT);
+
+	ASIO::io_service io;
+	std::thread iothread = std::thread([&io]
+	{
+		ASIO::io_service::work w(io);
+		io.run();
+	});
+
+	auto clientCon = AsioTransport::create<void, Tester>(io, "127.0.0.1", TEST_PORT).get();
+
+	ZeroSemaphore sem; // Used to make sure all rpcs were called
+	sem.increment();
+
+	// Test with async
+	CZRPC_CALL(*clientCon, add, 1,2).async(
+		[&](int res)
+	{
+		sem.decrement();
+		CHECK_EQUAL(3, res);
+	});
+
+	// Test with exception handling
+	sem.increment();
+	CZRPC_CALL(*clientCon, add, 1,2).asyncEx(
+		[&](Expected<int> res)
+	{
+		sem.decrement();
+		CHECK_EQUAL(3, *res);
+	});
+
+	// Test with future
+	int res = CZRPC_CALL(*clientCon, add, 1, 2).ft().get();
+	CHECK_EQUAL(3, res);
+
+	sem.wait();
+	io.stop();
+	iothread.join();
+}
+
+// Test RPCs throwing exceptions
+TEST(ExceptionThrowing)
+{
+	using namespace cz::rpc;
+	ServerProcess<Tester, void> server(TEST_PORT);
+
+	ASIO::io_service io;
+	int numUnhandledExceptions = false;
+	std::thread iothread = std::thread([&io, &numUnhandledExceptions]
+	{
+		while(true)
+		{
+			ASIO::io_service::work w(io);
+			try
+			{
+				io.run();
+			}
+			catch (const Exception&)
+			{
+				numUnhandledExceptions++;
+				io.reset();
+				continue;
+			}
+			break;
+		}
+	});
+
+	auto clientCon = AsioTransport::create<void, Tester>(io, "127.0.0.1", TEST_PORT).get();
+
+	ZeroSemaphore sem; // Used to make sure all rpcs were called
+
+	// Test with async
+	sem.increment();
+	CZRPC_CALL(*clientCon, voidTestException,  true).async(
+		[&]()
+	{
+		sem.decrement();
+	});
+
+	sem.increment();
+	CZRPC_CALL(*clientCon, voidTestException, true).asyncEx(
+		[&](Expected<void> res)
+	{
+		sem.decrement();
+		CHECK(!res.valid());
+		CHECK_THROW(res.get(), Exception);
+	});
+
+	sem.wait();
+	io.stop();
+	iothread.join();
+	CHECK_EQUAL(1, numUnhandledExceptions);
+}
+
+
+/*
 TEST(AsioTest)
 {
 	using namespace cz::rpc;
@@ -359,6 +434,7 @@ TEST(AsioTest3)
 	io.stop();
 	iothread.join();
 }
+*/
 
 }
 
