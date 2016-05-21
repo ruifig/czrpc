@@ -90,9 +90,6 @@ struct ParamTraits<void> {
     static constexpr bool valid = true;
 };
 
-template <typename T>
-struct PODTraits : DefaultParamTraits<T> {};
-
 // arithmetic types
 template <typename T>
 struct ParamTraits<T,
