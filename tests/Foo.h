@@ -6,19 +6,16 @@ struct Foo
 	explicit Foo(int val = 0) : val(val)
 	{
 		++ms_defaultCalls;
-		//printf("%p: Foo::Foo(%d)\n", this, val);
 	}
 	Foo(Foo&& other) : val(other.val)
 	{
 		++ms_moveCalls;
 		other.val = -1;
-		//printf("%p: Foo::Foo(&& %p %d)\n", this, &other, val);
 	}
 
 	Foo(const Foo& other) : val(other.val)
 	{
 		++ms_copyCalls;
-		//printf("%p: Foo::Foo(const& %p %d)\n", this, &other, val);
 	}
 
 	static void resetCounters()
@@ -28,7 +25,7 @@ struct Foo
 		ms_copyCalls = 0;
 	}
 
-	bool check(int defaultCalls, int moveCalls, int copyCalls)
+	static void check(int defaultCalls, int moveCalls, int copyCalls)
 	{
 		CHECK(ms_defaultCalls == defaultCalls);
 		CHECK(ms_moveCalls == moveCalls);

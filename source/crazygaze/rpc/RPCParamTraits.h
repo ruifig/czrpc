@@ -216,7 +216,7 @@ struct ParamTraits<std::vector<T>> {
         }
     }
 
-	static std::vector<T> get(std::vector<T>& v)
+	static std::vector<T>&& get(std::vector<T>&& v)
 	{
 		return std::move(v);
 	}
