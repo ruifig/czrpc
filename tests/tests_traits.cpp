@@ -1,48 +1,9 @@
 #include "testsPCH.h"
+#include "Foo.h"
 
 
 // Allow "const T&" RPC parameters, for any valid T
 CZRPC_ALLOW_CONST_LVALUE_REFS;
-
-struct Foo
-{
-	int val;
-	explicit Foo(int val = 0) : val(val)
-	{
-		//printf("%p: Foo::Foo(%d)\n", this, val);
-	}
-	Foo(Foo&& other) : val(other.val)
-	{
-		other.val = -1;
-		//printf("%p: Foo::Foo(&& %p %d)\n", this, &other, val);
-	}
-
-	Foo(const Foo& other) : val(other.val)
-	{
-		//printf("%p: Foo::Foo(const& %p %d)\n", this, &other, val);
-	}
-};
-
-//
-// Make Foo instances usable as RPC parameters
-template<>
-struct cz::rpc::ParamTraits<Foo> : public cz::rpc::DefaultParamTraits<Foo>
-{
-	template<typename S>
-	static void write(S& s, const Foo& v) {
-		s << v.val;
-	}
-	template<typename S>
-	static void read(S&s, Foo& v) {
-		s >> v.val;
-	}
-};
-
-//
-// Allow "const Foo&", "Foo&", and "Foo&&" as RPC parameters
-CZRPC_DEFINE_CONST_LVALUE_REF(Foo);
-CZRPC_DEFINE_NON_CONST_LVALUE_REF(Foo);
-CZRPC_DEFINE_RVALUE_REF(Foo);
 
 //
 // Make "int*" usable as RPC parameters, for testing

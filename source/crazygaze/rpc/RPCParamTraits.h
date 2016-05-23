@@ -215,6 +215,11 @@ struct ParamTraits<std::vector<T>> {
             v.push_back(std::move(i));
         }
     }
+
+	static std::vector<T> get(std::vector<T>& v)
+	{
+		return std::move(v);
+	}
 };
 
 //
