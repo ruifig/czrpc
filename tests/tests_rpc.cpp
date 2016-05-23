@@ -48,9 +48,24 @@ public:
 	}
 
 
-	std::vector<int> testVector(std::vector<int> v)
+	std::vector<int> testVector1(std::vector<int> v)
 	{
 		return v;
+	}
+
+	std::vector<int> testVector2(const std::vector<int>& v)
+	{
+		return v;
+	}
+
+	bool testFoo1(const Foo& f)
+	{
+		return true;
+	}
+
+	bool testFoo2(Foo f)
+	{
+		return true;
 	}
 
 	int clientCallRes = 0;
@@ -88,7 +103,10 @@ public:
 	REGISTERRPC(testClientAddCall) \
 	REGISTERRPC(voidTestException) \
 	REGISTERRPC(intTestException) \
-	REGISTERRPC(testVector)
+	REGISTERRPC(testVector1) \
+	REGISTERRPC(testVector2) \
+	REGISTERRPC(testFoo1) \
+	REGISTERRPC(testFoo2)
 
 #define RPCTABLE_CLASS Tester
 	#define RPCTABLE_CONTENTS RPCTABLE_TESTER_CONTENTS
@@ -124,6 +142,7 @@ int Tester::testClientAddCall(int a, int b)
 
 using namespace cz::rpc;
 
+CZRPC_DEFINE_CONST_LVALUE_REF(std::vector<typename>)
 
 //
 // To simulate a server process, serving one single object instance
@@ -293,7 +312,9 @@ TEST(WithParams)
 
 	// Test with vector
 	std::vector<int> vec{ 1,2,3 };
-	auto v = CZRPC_CALL(*clientCon, testVector, vec).ft().get();
+	auto v = CZRPC_CALL(*clientCon, testVector1, vec).ft().get();
+	CHECK_ARRAY_EQUAL(vec, v, 3);
+	v = CZRPC_CALL(*clientCon, testVector2, vec).ft().get();
 	CHECK_ARRAY_EQUAL(vec, v, 3);
 
 
@@ -446,6 +467,33 @@ TEST(Constructors)
 	using namespace cz::rpc;
 	// #TODO : Create a unit test to check that I'm not creating more copies than necessary of an object when calling
 	// RPCs
+
+	ServerProcess<Tester, void> server(TEST_PORT);
+
+	ASIO::io_service io;
+	std::thread iothread = std::thread([&io]
+	{
+		ASIO::io_service::work w(io);
+		io.run();
+	});
+
+	auto clientCon = AsioTransport::create<void, Tester>(io, "127.0.0.1", TEST_PORT).get();
+
+	Foo foo(1);
+	Foo::resetCounters();
+	auto ft = CZRPC_CALL(*clientCon, testFoo1, foo).ft();
+	CHECK(ft.get() == true);
+	Foo::check(1, 0, 0);
+
+	Foo::resetCounters();
+	ft = CZRPC_CALL(*clientCon, testFoo2, foo).ft();
+	CHECK(ft.get() == true);
+	Foo::check(1, 1, 0);
+
+	// Make sure the server got the client reply
+	io.stop();
+	iothread.join();
+
 }
 
 }
