@@ -1,5 +1,6 @@
 #include "testsPCH.h"
 #include "Semaphore.h"
+#include "Foo.h"
 
 
 #define TEST_PORT 9000
@@ -46,6 +47,12 @@ public:
 			return 128;
 	}
 
+
+	std::vector<int> testVector(std::vector<int> v)
+	{
+		return v;
+	}
+
 	int clientCallRes = 0;
 };
 
@@ -80,7 +87,8 @@ public:
 	REGISTERRPC(virtualFunc) \
 	REGISTERRPC(testClientAddCall) \
 	REGISTERRPC(voidTestException) \
-	REGISTERRPC(intTestException)
+	REGISTERRPC(intTestException) \
+	REGISTERRPC(testVector)
 
 #define RPCTABLE_CLASS Tester
 	#define RPCTABLE_CONTENTS RPCTABLE_TESTER_CONTENTS
@@ -115,6 +123,7 @@ int Tester::testClientAddCall(int a, int b)
 }
 
 using namespace cz::rpc;
+
 
 //
 // To simulate a server process, serving one single object instance
@@ -282,6 +291,12 @@ TEST(WithParams)
 	int res = CZRPC_CALL(*clientCon, add, 1, 2).ft().get();
 	CHECK_EQUAL(3, res);
 
+	// Test with vector
+	std::vector<int> vec{ 1,2,3 };
+	auto v = CZRPC_CALL(*clientCon, testVector, vec).ft().get();
+	CHECK_ARRAY_EQUAL(vec, v, 3);
+
+
 	sem.wait();
 	io.stop();
 	iothread.join();
@@ -424,7 +439,13 @@ TEST(Inheritance)
 	// Make sure the server got the client reply
 	io.stop();
 	iothread.join();
+}
 
+TEST(Constructors)
+{
+	using namespace cz::rpc;
+	// #TODO : Create a unit test to check that I'm not creating more copies than necessary of an object when calling
+	// RPCs
 }
 
 }

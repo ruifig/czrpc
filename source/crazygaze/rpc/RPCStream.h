@@ -27,7 +27,7 @@ public:
 	void read(void* dst, int size)
 	{
 		auto p = reinterpret_cast<char*>(dst);
-		assert(m_buf.size() - m_readpos >= size);
+		assert(static_cast<int>(m_buf.size()) - m_readpos >= size);
 		memcpy(p, &m_buf[m_readpos], size);
 		m_readpos += size;
 	}

@@ -95,11 +95,13 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="Foo.h" />
     <ClInclude Include="Semaphore.h" />
     <ClInclude Include="testsPCH.h" />
     <ClInclude Include="targetver.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="Foo.cpp" />
     <ClCompile Include="tests_main.cpp" />
     <ClCompile Include="testsPCH.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
