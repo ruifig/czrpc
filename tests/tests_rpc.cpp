@@ -58,6 +58,11 @@ public:
 		return v;
 	}
 
+	std::tuple<int, std::string> testTuple(std::tuple<int, std::string> v)
+	{
+		return v;
+	}
+
 	bool testFoo1(const Foo& f)
 	{
 		return true;
@@ -105,6 +110,7 @@ public:
 	REGISTERRPC(intTestException) \
 	REGISTERRPC(testVector1) \
 	REGISTERRPC(testVector2) \
+	REGISTERRPC(testTuple) \
 	REGISTERRPC(testFoo1) \
 	REGISTERRPC(testFoo2)
 
@@ -316,6 +322,11 @@ TEST(WithParams)
 	CHECK_ARRAY_EQUAL(vec, v, 3);
 	v = CZRPC_CALL(*clientCon, testVector2, vec).ft().get();
 	CHECK_ARRAY_EQUAL(vec, v, 3);
+
+	// Test with tuple
+	auto tp = std::make_tuple(1, std::string("Test"));
+	tp = CZRPC_CALL(*clientCon, testTuple, tp).ft().get();
+	CHECK(std::get<0>(tp) == 1 && std::get<1>(tp) == "Test");
 
 
 	sem.wait();

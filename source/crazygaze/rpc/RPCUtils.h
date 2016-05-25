@@ -100,7 +100,7 @@ decltype(auto) callMethod(typename FunctionTraits<F>::class_type& obj, F f, Tupl
 namespace details
 {
 	template<typename F, int N>
-	struct call_helper
+	struct Parameters
 	{
 		template<typename S>
 		static void serialize(S&) {}
@@ -109,7 +109,7 @@ namespace details
 		{
 			using Traits = ParamTraits<typename FunctionTraits<F>::template argument<N>::type>;
 			Traits::write(s, std::forward<First>(first));
-			call_helper<F, N+1>::serialize(s, std::forward<Rest>(rest)...);
+			Parameters<F, N+1>::serialize(s, std::forward<Rest>(rest)...);
 		}
 	};
 }
@@ -120,7 +120,7 @@ void serializeMethod(Stream& s, Args&&... args)
 	using Traits = FunctionTraits<F>;
 	static_assert(Traits::valid, "Function signature not valid for RPC calls. Check if parameter types are valid");
 	static_assert(Traits::arity == sizeof...(Args), "Invalid number of parameters for RPC call.");
-	details::call_helper<F, 0>::serialize(s, std::forward<Args>(args)...);
+	details::Parameters<F, 0>::serialize(s, std::forward<Args>(args)...);
 }
 
 } // namespace rpc
