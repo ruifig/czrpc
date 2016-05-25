@@ -36,8 +36,6 @@ public:
 	}
 };
 
-
-
 #undef REGISTERRPC
 #undef RPCTABLE_START
 #undef RPCTABLE_END
