@@ -222,6 +222,7 @@ struct ParamTraits<std::vector<T>> {
 	}
 };
 
+
 //
 // Validate if all parameters types in a parameter pack can be used for RPC
 // calls
@@ -240,6 +241,69 @@ template <typename First, typename... Rest>
 struct ParamPack<First, Rest...> {
     static constexpr bool valid =
         ParamTraits<First>::valid && ParamPack<Rest...>::valid;
+};
+
+//
+// std::tuple
+//
+namespace details
+{
+template <typename T, bool Done, int N>
+struct Tuple
+{
+	template <typename S>
+	static void deserialize(S& s, T& v)
+	{
+		s >> std::get<N>(v);
+		Tuple<T, N == std::tuple_size<T>::value - 1, N + 1>::deserialize(s, v);
+	}
+
+	template <typename S>
+	static void serialize(S& s, const T& v)
+	{
+		s << std::get<N>(v);
+		Tuple<T, N == std::tuple_size<T>::value - 1, N + 1>::serialize(s, v);
+	}
+};
+
+template <typename T, int N>
+struct Tuple<T, true, N>
+{
+	template <typename S>
+	static void deserialize(S&, T&)
+	{
+	}
+	template <typename S>
+	static void serialize(S&, const T&)
+	{
+	}
+};
+}  // namespace details
+
+template <typename... T>
+struct ParamTraits<std::tuple<T...>>
+{
+	// for internal use
+	using tuple_type = std::tuple<T...>;
+
+	using store_type = tuple_type;
+	static constexpr bool valid = ParamPack<T...>::valid;
+
+	static_assert(ParamPack<T...>::valid == true, "One or more tuple elements is not a valid RPC parameter type.");
+
+	template <typename S>
+	static void write(S& s, const tuple_type& v)
+	{
+		details::Tuple<tuple_type, std::tuple_size<tuple_type>::value == 0, 0>::serialize(s, v);
+	}
+
+	template <typename S>
+	static void read(S& s, tuple_type& v)
+	{
+		details::Tuple<tuple_type, std::tuple_size<tuple_type>::value == 0, 0>::deserialize(s, v);
+	}
+
+	static tuple_type&& get(tuple_type&& v) { return std::move(v); }
 };
 
 }  // namespace rpc
