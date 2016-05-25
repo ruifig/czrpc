@@ -4,7 +4,6 @@ namespace cz
 {
 namespace rpc
 {
-
 //! Small utility struct to make it easier to work with the RPC headers
 struct RPCHeader
 {
@@ -25,13 +24,12 @@ struct RPCHeader
 		uint32_t size : kSizeBits;
 		unsigned counter : kCounterBits;
 		unsigned rpcid : kRPCIdBits;
-		unsigned isReply : 1; // Is it a reply to a RPC call ?
-		unsigned success : 1; // Was the RPC call a success ?
+		unsigned isReply : 1;  // Is it a reply to a RPC call ?
+		unsigned success : 1;  // Was the RPC call a success ?
 	};
 
 	uint32_t key() const { return (bits.counter << kRPCIdBits) | bits.rpcid; }
-	union
-	{
+	union {
 		Bits bits;
 		uint64_t all_;
 	};
@@ -43,56 +41,60 @@ inline Stream& operator<<(Stream& s, const RPCHeader& v)
 	return s;
 }
 
-inline Stream& operator >> (Stream& s, RPCHeader& v)
+inline Stream& operator>>(Stream& s, RPCHeader& v)
 {
 	s >> v.all_;
 	return s;
 }
 
+//
+// Helper code to dispatch a call.
+namespace details
+{
+// Handle RPCs with return values
+template <typename R>
+struct Call
+{
+	template <typename OBJ, typename F, typename P>
+	static void impl(OBJ& obj, F f, P&& params, Stream& out)
+	{
+		out << callMethod(obj, f, std::move(params));
+	}
+};
+
+// Handle void RPCs
+template <>
+struct Call<void>
+{
+	template <typename OBJ, typename F, typename P>
+	static void impl(OBJ& obj, F f, P&& params, Stream& out)
+	{
+		callMethod(obj, f, std::move(params));
+	}
+};
+}
+
 struct BaseRPCInfo
 {
 	BaseRPCInfo() {}
-	virtual ~BaseRPCInfo() {};
+	virtual ~BaseRPCInfo(){};
 	std::string name;
 };
 
-namespace details
-{
-	template<typename R>
-	struct Call
-	{
-		template<typename OBJ, typename F, typename P>
-		static void impl(OBJ& obj, F f, P&& params, Stream& out)
-		{
-			out << callMethod(obj, f, std::move(params));
-		}
-	};
-
-	template<>
-	struct Call<void>
-	{
-		template<typename OBJ, typename F, typename P>
-		static void impl(OBJ& obj, F f, P&& params, Stream& out)
-		{
-			callMethod(obj, f, std::move(params));
-		}
-	};
-}
-
 class BaseTable
 {
-public:
+  public:
 	BaseTable() {}
 	virtual ~BaseTable() {}
 	bool isValid(uint32_t rpcid) const { return rpcid < m_rpcs.size(); }
-protected:
+  protected:
 	std::vector<std::unique_ptr<BaseRPCInfo>> m_rpcs;
 };
 
-template<typename T>
+template <typename T>
 class TableImpl : public BaseTable
 {
-public:
+  public:
 	using Type = T;
 
 	struct RPCInfo : public BaseRPCInfo
@@ -100,14 +102,13 @@ public:
 		std::function<void(Type&, Stream& in, Stream& out)> dispatcher;
 	};
 
-	template<typename F>
+	template <typename F>
 	void registerRPC(uint32_t rpcid, const char* name, F f)
 	{
 		assert(rpcid == m_rpcs.size());
 		auto info = std::make_unique<RPCInfo>();
 		info->name = name;
-		info->dispatcher = [f](Type& obj, Stream& in, Stream& out)
-		{
+		info->dispatcher = [f](Type& obj, Stream& in, Stream& out) {
 			using Traits = FunctionTraits<F>;
 			typename Traits::param_tuple params;
 			in >> params;
@@ -116,7 +117,6 @@ public:
 		};
 		m_rpcs.push_back(std::move(info));
 	}
-
 };
 
 template <typename T>
@@ -125,6 +125,5 @@ class Table : public TableImpl<T>
 	static_assert(sizeof(T) == 0, "RPC Table not specified for the type.");
 };
 
-} // namespace rpc
-} // namespace cz
-
+}  // namespace rpc
+}  // namespace cz
