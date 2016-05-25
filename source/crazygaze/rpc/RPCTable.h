@@ -25,10 +25,8 @@ struct RPCHeader
 		uint32_t size : kSizeBits;
 		unsigned counter : kCounterBits;
 		unsigned rpcid : kRPCIdBits;
-		// Is it a reply to a RPC call ?
-		unsigned isReply : 1;
-		// Was the RPC call a success ?
-		unsigned success : 1;
+		unsigned isReply : 1; // Is it a reply to a RPC call ?
+		unsigned success : 1; // Was the RPC call a success ?
 	};
 
 	uint32_t key() const { return (bits.counter << kRPCIdBits) | bits.rpcid; }
@@ -37,9 +35,6 @@ struct RPCHeader
 		Bits bits;
 		uint64_t all_;
 	};
-
-	friend Stream& operator<<(Stream& s, const RPCHeader& v);
-	friend Stream& operator >> (Stream& s, RPCHeader& v);
 };
 
 inline Stream& operator<<(Stream& s, const RPCHeader& v)
