@@ -10,10 +10,10 @@
 #define RPCTABLE_TOOMANYRPCS_STRINGIFY(arg) #arg
 #define RPCTABLE_TOOMANYRPCS(arg) RPCTABLE_TOOMANYRPCS_STRINGIFY(arg)
 
-template<> struct cz::rpc::Table<RPCTABLE_CLASS> : cz::rpc::TableImpl<RPCTABLE_CLASS>
+template<> class cz::rpc::Table<RPCTABLE_CLASS> : cz::rpc::TableImpl<RPCTABLE_CLASS>
 {
 public:
-	typedef RPCTABLE_CLASS Type;
+	using Type = RPCTABLE_CLASS;
 	#define REGISTERRPC(rpc) rpc,
 	enum class RPCId {
 		RPCTABLE_CONTENTS
