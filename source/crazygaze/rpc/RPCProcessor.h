@@ -260,15 +260,14 @@ protected:
 
 };
 
-template<>
+// Specialization for when there is no outgoing RPC calls
+// If we have no outgoing RPC calls, receiving a reply is therefore an error.
+template <>
 class OutProcessor<void>
 {
-public:
+  public:
 	OutProcessor() {}
-	void processReply(Stream&, RPCHeader)
-	{
-		assert(0 && "incoming replies not allowed for OutProcessor<void>");
-	}
+	void processReply(Stream&, RPCHeader) { assert(0 && "Incoming replies not allowed for OutProcessor<void>"); }
 };
 
 class BaseInProcessor
