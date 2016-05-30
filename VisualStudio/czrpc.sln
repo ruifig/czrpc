@@ -7,13 +7,20 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "unittestpp_vs2015", "..\Uni
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "czrpc", "..\source\czrpc.vcxproj", "{7D25A457-D684-45DB-A979-F5A18B0B44BC}"
 EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Posts", "Posts", "{1C6B74E9-45A5-4B05-BF48-6FAE975EB01F}"
-	ProjectSection(SolutionItems) = preProject
-		..\part_1.mkd = ..\part_1.mkd
-		..\TODO.txt = ..\TODO.txt
-	EndProjectSection
-EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "tests", "..\tests\tests.vcxproj", "{86B201A7-B7C1-4851-A16A-9158D1E3181E}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Samples", "Samples", "{25896DB9-DC5C-41EB-8FE7-81894648ECD2}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Chat", "Chat", "{B55F6C7B-84DC-4884-8541-398132C16D82}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "ChatServer", "..\samples\Chat\ChatServer\ChatServer.vcxproj", "{29EAE0E1-B508-4D9D-99C2-A9BFF8CA43B7}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "ChatClient", "..\samples\Chat\ChatClient\ChatClient.vcxproj", "{2A09C6EC-ECE8-4628-9B24-B5FD099B837D}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "ChatCommon", "ChatCommon", "{ED58F2C4-30E1-4E14-A2A6-231BC2B8904B}"
+	ProjectSection(SolutionItems) = preProject
+		..\samples\Chat\ChatCommon\ChatInterface.h = ..\samples\Chat\ChatCommon\ChatInterface.h
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -41,8 +48,26 @@ Global
 		{86B201A7-B7C1-4851-A16A-9158D1E3181E}.Release|x64.ActiveCfg = Release|x64
 		{86B201A7-B7C1-4851-A16A-9158D1E3181E}.Release|x64.Build.0 = Release|x64
 		{86B201A7-B7C1-4851-A16A-9158D1E3181E}.Release|x86.ActiveCfg = Release|x64
+		{29EAE0E1-B508-4D9D-99C2-A9BFF8CA43B7}.Debug|x64.ActiveCfg = Debug|x64
+		{29EAE0E1-B508-4D9D-99C2-A9BFF8CA43B7}.Debug|x64.Build.0 = Debug|x64
+		{29EAE0E1-B508-4D9D-99C2-A9BFF8CA43B7}.Debug|x86.ActiveCfg = Debug|x64
+		{29EAE0E1-B508-4D9D-99C2-A9BFF8CA43B7}.Release|x64.ActiveCfg = Release|x64
+		{29EAE0E1-B508-4D9D-99C2-A9BFF8CA43B7}.Release|x64.Build.0 = Release|x64
+		{29EAE0E1-B508-4D9D-99C2-A9BFF8CA43B7}.Release|x86.ActiveCfg = Release|x64
+		{2A09C6EC-ECE8-4628-9B24-B5FD099B837D}.Debug|x64.ActiveCfg = Debug|x64
+		{2A09C6EC-ECE8-4628-9B24-B5FD099B837D}.Debug|x64.Build.0 = Debug|x64
+		{2A09C6EC-ECE8-4628-9B24-B5FD099B837D}.Debug|x86.ActiveCfg = Debug|x64
+		{2A09C6EC-ECE8-4628-9B24-B5FD099B837D}.Release|x64.ActiveCfg = Release|x64
+		{2A09C6EC-ECE8-4628-9B24-B5FD099B837D}.Release|x64.Build.0 = Release|x64
+		{2A09C6EC-ECE8-4628-9B24-B5FD099B837D}.Release|x86.ActiveCfg = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{B55F6C7B-84DC-4884-8541-398132C16D82} = {25896DB9-DC5C-41EB-8FE7-81894648ECD2}
+		{29EAE0E1-B508-4D9D-99C2-A9BFF8CA43B7} = {B55F6C7B-84DC-4884-8541-398132C16D82}
+		{2A09C6EC-ECE8-4628-9B24-B5FD099B837D} = {B55F6C7B-84DC-4884-8541-398132C16D82}
+		{ED58F2C4-30E1-4E14-A2A6-231BC2B8904B} = {B55F6C7B-84DC-4884-8541-398132C16D82}
 	EndGlobalSection
 EndGlobal
