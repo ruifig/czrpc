@@ -16,6 +16,26 @@ class BaseOutProcessor;
 template<typename F>
 class Call
 {
+private:
+
+	// Helper to create an empty handler
+	template<typename R>
+	struct EmptyHandler
+	{
+		static auto get()
+		{
+			return [](ParamTraits<R>::store_type&&) {};
+		}
+	};
+	template<>
+	struct EmptyHandler<void>
+	{
+		static auto get()
+		{
+			return []() {};
+		}
+	};
+
 public:
 
 	Call(Call&& other)
@@ -30,10 +50,17 @@ public:
 	Call& operator=(const Call&) = delete;
 	Call& operator=(Call&&) = delete;
 
+	~Call()
+	{
+		if (m_data.writeSize() && !m_commited)
+			async(EmptyHandler<typename FunctionTraits<F>::return_type>::get());
+	}
+
 	template<typename H>
 	void async(H&& handler)
 	{
 		m_outer.commit<F, false>(m_transport, m_rpcid, m_data, std::forward<H>(handler));
+		m_commited = true;
 	}
 
 	// same as 'async' but allows to check for exceptions
@@ -41,6 +68,7 @@ public:
 	void asyncEx(H&& handler)
 	{
 		m_outer.commit<F,true>(m_transport, m_rpcid, m_data, std::forward<H>(handler));
+		m_commited = true;
 	}
 
 	// For RPCs that return something
@@ -94,6 +122,8 @@ protected:
 	Transport& m_transport;
 	uint32_t m_rpcid;
 	Stream m_data;
+	// Used in the destructor to do a commit with an empty handler if the rpc was not committed.
+	bool m_commited = false;
 };
 
 namespace details

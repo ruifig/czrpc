@@ -7,6 +7,7 @@ namespace rpc
 
 struct BaseConnection
 {
+	virtual ~BaseConnection() { }
 	virtual uint32_t process() = 0;
 };
 

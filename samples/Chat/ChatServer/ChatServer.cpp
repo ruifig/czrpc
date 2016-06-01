@@ -1,43 +1,12 @@
 // ChatServer.cpp : Defines the entry point for the console application.
 //
 
-#include "stdafx.h"
+#include "ChatServerPCH.h"
+#include "../ChatCommon/Utils.inl"
 
 using namespace cz::rpc;
 
-#define CZ_TEMPORARY_STRING_MAX_SIZE 512
-#define CZ_TEMPORARY_STRING_MAX_NESTING 20
-
-char* getTemporaryString()
-{
-	// Use several static strings, and keep picking the next one, so that callers can hold the string for a while without risk of it
-	// being changed by another call.
-	__declspec( thread ) static char bufs[CZ_TEMPORARY_STRING_MAX_NESTING][CZ_TEMPORARY_STRING_MAX_SIZE];
-	__declspec( thread ) static int nBufIndex=0;
-
-	char* buf = bufs[nBufIndex];
-	nBufIndex++;
-	if (nBufIndex==CZ_TEMPORARY_STRING_MAX_NESTING)
-		nBufIndex = 0;
-
-	return buf;
-}
-
-char* formatStringVA(const char* format, va_list argptr)
-{
-	char* buf = getTemporaryString();
-	if (_vsnprintf(buf, CZ_TEMPORARY_STRING_MAX_SIZE, format, argptr) == CZ_TEMPORARY_STRING_MAX_SIZE)
-		buf[CZ_TEMPORARY_STRING_MAX_SIZE-1] = 0;
-	return buf;
-}
-const char* formatString(const char* format, ...)
-{
-	va_list args;
-	va_start(args, format);
-	const char *str= formatStringVA(format, args);
-	va_end(args);
-	return str;
-}
+#define LOG(fmt, ...) printf("LOG: " fmt "\n", __VA_ARGS__)
 
 #define BROADCAST_RPC(excludedClient, func, ...)             \
 	{                                                        \
@@ -53,7 +22,8 @@ const char* formatString(const char* format, ...)
 struct ClientInfo
 {
 	std::shared_ptr<Connection<ChatServerInterface, ChatClientInterface>> con;
-	bool isAdmin = false;
+	std::string name;
+	bool admin = false;
 };
 
 class ChatServer : public ChatServerInterface
@@ -72,6 +42,7 @@ public:
 		m_acceptor = std::make_shared<AsioTransportAcceptor<ChatServerInterface, ChatClientInterface>>(m_io, *this);
 		m_acceptor->start(port, [&](std::shared_ptr<ConType> con)
 		{
+			LOG("Client connected.");
 			auto info = std::make_shared<ClientInfo>();
 			info->con = con;
 			m_clients.insert(std::make_pair(con.get(), info));
@@ -89,31 +60,80 @@ private:
 
 	// ChatServerInterface
 	//
-	virtual std::string login(const std::string& user, const std::string& pass) override
+	virtual std::string login(const std::string& name, const std::string& pass) override
 	{
+		LOG("RPC:login:%s,%s", name.c_str(), pass.c_str());
 		if (pass != "pass")
 			return "Wrong password";
 		// #TODO
 
-		BROADCAST_RPC(nullptr, onMsg, "", formatString("%s joined the chat", user.c_str()));
+		auto user = getCurrentUser();
+		user->name = name;
+		if (name == "Admin")
+			user->admin = true;
+
+		BROADCAST_RPC(nullptr, onMsg, "", formatString("%s joined the chat", name.c_str()));
 		return "OK";
 	}
 
 	virtual void sendMsg(const std::string& msg) override
 	{
+		LOG("RPC:sendMsg:%s", msg.c_str());
 		// #TODO
-		BROADCAST_RPC(nullptr, onMsg, "rui", "msg");
+		auto user = getCurrentUser();
+		if (!user)
+			return;
+		BROADCAST_RPC(nullptr, onMsg, user->name, msg);
 	}
 
-	virtual void kick(const std::string& user) override
+	virtual void kick(const std::string& name) override
 	{
-		// #TODO
+		LOG("RPC:kick:%s", name.c_str());
+
+		auto user = getCurrentUser();
+		if (!user->admin)
+		{
+			CZRPC_CALL(*user->con, onMsg, "", "You do not have admin rights");
+			return;
+		}
+
+		// Remove the kicked player if it exists
+		std::shared_ptr<ClientInfo> kicked;
+		for(auto it = m_clients.begin(); it!= m_clients.end(); ++it)
+		{
+			if (it->second->name==name)
+			{
+				kicked = std::move(it->second);
+				m_clients.erase(it);
+				break;
+			}
+		}
+
+		if (!kicked)
+		{
+			CZRPC_CALL(*user->con, onMsg, "", formatString("User %s not found", name.c_str()));
+			return;
+		}
+
+		// Inform the kicked player that he was kicked
+		CZRPC_CALL(*kicked->con, onMsg, "", "You were kicked").async(
+			[kicked,this] ()
+		{
+			// "kicked" is captured, to keep it alive while we need it
+			printf("\n");
+		});
+
 	}
 
 	ClientInfo* getCurrentUser()
 	{
 		if (ConType::getCurrent())
-			return m_clients[ConType::getCurrent()].get();
+		{
+			auto it = m_clients.find(ConType::getCurrent());
+			return (it == m_clients.end()) ? nullptr : it->second.get();
+			if (it == m_clients.end())
+				return nullptr;
+		}
 		else
 			return nullptr;
 	}
@@ -124,10 +144,24 @@ private:
 	std::unordered_map<ConType*, std::shared_ptr<ClientInfo>> m_clients;
 };
 
-
-
 int main()
 {
-    return 0;
+	try
+	{
+		printf("Running ChatServer on port %d.\n", CHATSERVER_DEFAULT_PORT);
+		printf("Type any key to quit.\n");
+		ChatServer server(CHATSERVER_DEFAULT_PORT);
+		while (true)
+		{
+			if (getch())
+				break;
+		}
+	}
+	catch (const std::exception& e)
+	{
+		printf("Exception: %s\n", e.what());
+
+	}
+	return 0;
 }
 
