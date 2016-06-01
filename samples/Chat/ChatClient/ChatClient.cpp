@@ -31,7 +31,7 @@ public:
 
 	int run(const std::string& name, const std::string& pass)
 	{
-		auto res = CZRPC_CALL(*m_con, login, name, pass).ft().get();
+		auto res = CZRPC_CALL(*m_con, login, name, pass).ft().get().get();
 		if (res!="OK")
 		{
 			printf("LOGIN ERROR: %s\n", res.c_str());
@@ -72,9 +72,27 @@ private:
 };
 
 
-int main()
+int main(int argc, char *argv[])
 {
 	ChatClient client("127.0.0.1", CHATSERVER_DEFAULT_PORT);
-	return client.run("Admin", "pass");
+	std::string name;
+	std::string pass;
+
+	char buf[512];
+	if (argc==3)
+	{
+		name = argv[1];
+		pass = argv[2];
+	}
+	else
+	{
+		printf("Enter your name: ");
+		scanf("%s", buf);
+		name = buf;
+		printf("Enter pass: ");
+		scanf("%s", buf);
+		pass = buf;
+	}
+	return client.run(name, pass);
 }
 

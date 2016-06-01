@@ -3,6 +3,7 @@
 
 #include "ChatServerPCH.h"
 #include "../ChatCommon/Utils.inl"
+#include "crazygaze/rpc/RPCReply.h"
 
 using namespace cz::rpc;
 
@@ -28,8 +29,7 @@ struct ClientInfo
 
 class ChatServer : public ChatServerInterface
 {
-public:
-	using ConType = Connection<ChatServerInterface, ChatClientInterface>;
+public:using ConType = Connection<ChatServerInterface, ChatClientInterface>;
 
 	ChatServer(int port)
 	{
@@ -45,6 +45,11 @@ public:
 			LOG("Client connected.");
 			auto info = std::make_shared<ClientInfo>();
 			info->con = con;
+			reinterpret_cast<AsioTransport*>(info->con->transport.get())->setOnClosed(
+				[this, info]() mutable
+			{
+				onDisconnect(info);
+			});
 			m_clients.insert(std::make_pair(con.get(), info));
 		});
 	}
@@ -56,12 +61,59 @@ public:
 	}
 
 private:
-	//
 
+	void onDisconnect(std::shared_ptr<ClientInfo> info)
+	{
+		for (auto it = m_clients.begin(); it != m_clients.end(); ++it)
+		{
+			if (it->second == info)
+			{
+				LOG("User %s disconnected", info->name.c_str());
+				m_clients.erase(it);
+				break;
+			}
+		}
+
+		BROADCAST_RPC(nullptr, onMsg, "", formatString("user %s disconnected"));
+	}
+
+	ClientInfo* getCurrentUser()
+	{
+		if (ConType::getCurrent())
+		{
+			auto it = m_clients.find(ConType::getCurrent());
+			return (it == m_clients.end()) ? nullptr : it->second.get();
+			if (it == m_clients.end())
+				return nullptr;
+		}
+		else
+			return nullptr;
+	}
+
+	std::shared_ptr<ClientInfo> getUser(const std::string& name)
+	{
+		for(auto it = m_clients.begin(); it!= m_clients.end(); ++it)
+		{
+			if (it->second->name==name)
+			{
+				return it->second;
+			}
+		}
+		return nullptr;
+	};
+
+
+	//
 	// ChatServerInterface
 	//
 	virtual std::string login(const std::string& name, const std::string& pass) override
 	{
+		auto info = getUser(name);
+		if (info)
+		{
+			return "A user with the same name is already logged in.\n";
+		}
+
 		LOG("RPC:login:%s,%s", name.c_str(), pass.c_str());
 		if (pass != "pass")
 			return "Wrong password";
@@ -97,17 +149,7 @@ private:
 			return;
 		}
 
-		// Remove the kicked player if it exists
-		std::shared_ptr<ClientInfo> kicked;
-		for(auto it = m_clients.begin(); it!= m_clients.end(); ++it)
-		{
-			if (it->second->name==name)
-			{
-				kicked = std::move(it->second);
-				m_clients.erase(it);
-				break;
-			}
-		}
+		std::shared_ptr<ClientInfo> kicked = getUser(name);
 
 		if (!kicked)
 		{
@@ -117,25 +159,11 @@ private:
 
 		// Inform the kicked player that he was kicked
 		CZRPC_CALL(*kicked->con, onMsg, "", "You were kicked").async(
-			[kicked,this] ()
+			[kicked,this] (Reply<void> r)
 		{
-			// "kicked" is captured, to keep it alive while we need it
-			printf("\n");
+			kicked->con->transport->close();
 		});
 
-	}
-
-	ClientInfo* getCurrentUser()
-	{
-		if (ConType::getCurrent())
-		{
-			auto it = m_clients.find(ConType::getCurrent());
-			return (it == m_clients.end()) ? nullptr : it->second.get();
-			if (it == m_clients.end())
-				return nullptr;
-		}
-		else
-			return nullptr;
 	}
 
 	ASIO::io_service m_io;

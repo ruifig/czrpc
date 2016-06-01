@@ -8,7 +8,10 @@ namespace rpc
 struct BaseConnection
 {
 	virtual ~BaseConnection() { }
-	virtual uint32_t process() = 0;
+
+	//! Process any incoming RPCs or replies
+	// Return true if the connection is still alive, false otherwise
+	virtual bool process() = 0;
 };
 
 template<typename LOCAL, typename REMOTE>
@@ -35,18 +38,23 @@ struct Connection : public BaseConnection
 		return (*it)==nullptr ? nullptr : (*it)->getKey();
 	}
 
-	virtual uint32_t process() override
+	virtual bool process() override
 	{
         // Place a callstack marker, so other code can detect we are serving an
         // RPC
         typename Callstack<ThisType>::Context ctx(this);
-		uint32_t count = 0;
-
 		std::vector<char> data;
-		while (transport->receive(data))
+		while(true)
 		{
-			count++;
-			RPCHeader hdr;
+			if (!transport->receive(data))
+			{
+				return false; // Transport is closed
+			}
+
+			if (data.size() == 0)
+				return true; // No more pending data to process
+
+			Header hdr;
 			Stream in(std::move(data));
 			in >> hdr;
 
@@ -59,7 +67,6 @@ struct Connection : public BaseConnection
 				localPrc.processCall(*transport, in, hdr);
 			}
 		}
-		return count;
 	}
 
 	InProcessor<Local> localPrc;

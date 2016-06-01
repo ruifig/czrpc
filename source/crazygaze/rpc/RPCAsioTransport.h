@@ -56,7 +56,6 @@ public:
 
 	~AsioTransport()
 	{
-		close();
 	}
 
 	virtual void send(std::vector<char> data) override
@@ -83,12 +82,15 @@ public:
 
 	virtual bool receive(std::vector<char>& dst) override
 	{
+		if (m_closed)
+			return false;
+
 		return m_in([&dst](In& in) -> bool
 		{
 			if (in.q.size() == 0)
 			{
 				dst.clear();
-				return false;
+				return true;
 			}
 			else
 			{
@@ -103,6 +105,7 @@ public:
 	{
 		m_io.post([this_=shared_from_this()]()
 		{
+			this_->m_closed = true;
 			if (this_->m_s)
 			{
 				this_->m_s->shutdown(ASIO::ip::tcp::socket::shutdown_both);
@@ -125,6 +128,11 @@ public:
 		startReadSize();
 	}
 
+
+	void setOnClosed(std::function<void()> h)
+	{
+		m_onClosed = std::move(h);
+	}
 
 	template<typename LOCAL, typename REMOTE>
 	static std::future<
@@ -155,7 +163,7 @@ private:
 		trp->connect(ip, port, [pr, trp, localObj](bool result)
 		{
 			auto con = std::make_shared<Connection<LOCAL, REMOTE>>(localObj, trp);
-			trp->m_con = con.get();
+			trp->m_con = con;
 			pr->set_value(std::move(con));
 		});
 
@@ -164,7 +172,9 @@ private:
 	template<typename, typename> friend class AsioTransportAcceptor;
 	std::shared_ptr<ASIO::ip::tcp::socket> m_s;
 	ASIO::io_service& m_io;
-	BaseConnection* m_con;
+	bool m_closed = false;
+	std::weak_ptr<BaseConnection> m_con;
+	std::function<void()> m_onClosed;
 
 	struct Out
 	{
@@ -193,7 +203,8 @@ private:
 		{
 			if (ec)
 			{
-				// #TODO : How to handle shutdown?
+				if (m_onClosed)
+					m_onClosed();
 				return;
 			}
 
@@ -212,16 +223,18 @@ private:
 		{
 			if (ec)
 			{
-				// #TODO : How to handle shutdown
+				if (m_onClosed)
+					m_onClosed();
 				return;
 			}
+			auto con = m_con.lock();
 			assert(bytesTransfered == m_incoming.size() - 4);
 			m_in([this](In& in)
 			{
 				in.q.push(std::move(m_incoming));
 			});
 			startReadSize();
-			m_con->process();
+			con->process();
 		});
 	}
 
@@ -239,7 +252,8 @@ private:
 	{
 		if (ec)
 		{
-			// #TODO : How to shutdown ?
+			if (m_onClosed)
+				m_onClosed();
 			return;
 		}
 		assert(bytesTransfered == m_outgoing.size());
@@ -323,7 +337,7 @@ private:
 		//printf("Server side transport = trp=%p, trp->m_s=%p\n", trp.get(), trp->m_s.get());
 
 		auto con = std::make_shared<ConnectionType>(&m_localObj, trp);
-		trp->m_con = con.get();
+		trp->m_con = con;
 
 		if (m_newConnectionCallback)
 			m_newConnectionCallback(std::move(con));
