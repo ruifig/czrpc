@@ -1,5 +1,7 @@
 #pragma once
 
+#define CHATSERVER_DEFAULT_PORT 9000
+
 // To allow RPC parameters in the form of "const T&", for any valid T
 CZRPC_ALLOW_CONST_LVALUE_REFS;
 
@@ -10,10 +12,10 @@ public:
 	//
 	// \return
 	// "OK" if login accepted, or failure reason
-	virtual std::string login(const std::string& user, const std::string& pass) = 0;
+	virtual std::string login(const std::string& name, const std::string& pass) = 0;
 
 	virtual void sendMsg(const std::string& msg) = 0;
-	virtual void kick(const std::string& user) = 0;
+	virtual void kick(const std::string& name) = 0;
 };
 
 #define RPCTABLE_CLASS ChatServerInterface
@@ -26,13 +28,13 @@ public:
 class ChatClientInterface
 {
 public:
-	// The server calls this if the client was kicked
-	virtual void onMsg(const std::string& user, const std::string& msg) = 0;
-	virtual void onSystemMsg(const std::string& msg) = 0;
+	
+	// The server calls this when another user types something.
+	// If "name" is empty, it's a system message
+	virtual void onMsg(const std::string& name, const std::string& msg) = 0;
 };
 
 #define RPCTABLE_CLASS ChatClientInterface
 #define RPCTABLE_CONTENTS \
-	REGISTERRPC(onMsg) \
-	REGISTERRPC(onSystemMsg)
+	REGISTERRPC(onMsg)
 #include "crazygaze/rpc/RPCGenerate.h"

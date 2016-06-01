@@ -20,6 +20,7 @@ EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "ChatCommon", "ChatCommon", "{ED58F2C4-30E1-4E14-A2A6-231BC2B8904B}"
 	ProjectSection(SolutionItems) = preProject
 		..\samples\Chat\ChatCommon\ChatInterface.h = ..\samples\Chat\ChatCommon\ChatInterface.h
+		..\samples\Chat\ChatCommon\Utils.inl = ..\samples\Chat\ChatCommon\Utils.inl
 	EndProjectSection
 EndProject
 Global

@@ -54,6 +54,11 @@ public:
 	{
 	}
 
+	~AsioTransport()
+	{
+		close();
+	}
+
 	virtual void send(std::vector<char> data) override
 	{
 		auto trigger = m_out([&](Out& out)
@@ -90,6 +95,18 @@ public:
 				dst = std::move(in.q.front());
 				in.q.pop();
 				return true;
+			}
+		});
+	}
+
+	virtual void close() override
+	{
+		m_io.post([this_=shared_from_this()]()
+		{
+			if (this_->m_s)
+			{
+				this_->m_s->shutdown(ASIO::ip::tcp::socket::shutdown_both);
+				this_->m_s->close();
 			}
 		});
 	}
