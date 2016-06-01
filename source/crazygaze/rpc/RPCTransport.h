@@ -15,9 +15,8 @@ public:
 
 	//! Receive one single RPC
 	// \param dst
-	//	If an rpc was received, this contains the RPC data.
-	//	Any existing data is cleared (if there is an RPC or not)
-	// \return true if RPC received, false if no RPC
+	//	Data for 1 RPC, or empty if no RPC available
+	// \return true if the transport is still alive, false if the transport is dead/closed
 	virtual bool receive(std::vector<char>& dst) = 0;
 
 	//! Close connection to the peer

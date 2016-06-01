@@ -49,5 +49,6 @@
     <ClInclude Include="crazygaze\rpc\RPC.h">
       <Filter>crazygaze\rpc</Filter>
     </ClInclude>
+    <ClInclude Include="crazygaze\rpc\RPCReply.h" />
   </ItemGroup>
 </Project>

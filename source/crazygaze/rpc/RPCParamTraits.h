@@ -88,6 +88,7 @@ struct ParamTraits {
 template <>
 struct ParamTraits<void> {
     static constexpr bool valid = true;
+	using store_type = void;
 };
 
 // arithmetic types
@@ -133,9 +134,12 @@ struct StringTraits {
         int len;
         s.read(&len, sizeof(len));
         v.clear();
-        v.reserve(len);
-        v.append(len, 0);
-        s.read(&v[0], len);
+		if (len)
+		{
+			v.reserve(len);
+			v.append(len, 0);
+			s.read(&v[0], len);
+		}
     }
 };
 }

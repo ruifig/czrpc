@@ -5,7 +5,7 @@ namespace cz
 namespace rpc
 {
 //! Small utility struct to make it easier to work with the RPC headers
-struct RPCHeader
+struct Header
 {
 	enum
 	{
@@ -13,7 +13,7 @@ struct RPCHeader
 		kRPCIdBits = 8,
 		kCounterBits = 22,
 	};
-	explicit RPCHeader()
+	explicit Header()
 	{
 		static_assert(sizeof(*this) == sizeof(uint64_t), "Invalid size. Check the bitfields");
 		all_ = 0;
@@ -35,13 +35,13 @@ struct RPCHeader
 	};
 };
 
-inline Stream& operator<<(Stream& s, const RPCHeader& v)
+inline Stream& operator<<(Stream& s, const Header& v)
 {
 	s << v.all_;
 	return s;
 }
 
-inline Stream& operator>>(Stream& s, RPCHeader& v)
+inline Stream& operator>>(Stream& s, Header& v)
 {
 	s >> v.all_;
 	return s;
