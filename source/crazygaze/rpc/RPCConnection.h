@@ -48,7 +48,9 @@ struct Connection : public BaseConnection
 		{
 			if (!transport->receive(data))
 			{
-				return false; // Transport is closed
+				// Transport is closed
+				remotePrc.abortReplies();
+				return false;
 			}
 
 			if (data.size() == 0)

@@ -101,11 +101,12 @@ public:
 		});
 	}
 
+	// This only causes the asio sockets to close, which in turn will cause our asio handlers
+	// to fail, therefore signaling our close cleanup code (to abort RPC replies)
 	virtual void close() override
 	{
 		m_io.post([this_=shared_from_this()]()
 		{
-			this_->m_closed = true;
 			if (this_->m_s)
 			{
 				this_->m_s->shutdown(ASIO::ip::tcp::socket::shutdown_both);
@@ -165,7 +166,7 @@ private:
 			if (result)
 			{
 				auto con = std::make_shared<Connection<LOCAL, REMOTE>>(localObj, trp);
-				trp->m_con = con;
+				trp->m_con = con.get();
 				pr->set_value(std::move(con));
 			}
 			else
@@ -180,7 +181,7 @@ private:
 	std::shared_ptr<ASIO::ip::tcp::socket> m_s;
 	ASIO::io_service& m_io;
 	bool m_closed = false;
-	std::weak_ptr<BaseConnection> m_con;
+	BaseConnection* m_con;
 	std::function<void()> m_onClosed;
 
 	struct Out
@@ -200,6 +201,22 @@ private:
 	// Hold the currently outgoing RPC data
 	std::vector<char> m_outgoing;
 
+	void onClosed()
+	{
+		if (m_closed)
+			return;
+
+		m_closed = true;
+		// One last call to abort pending replies, since the transport is closed now
+		m_con->process();
+
+		if (m_onClosed)
+		{
+			m_onClosed();
+			// To free any resources used by the handler
+			m_onClosed = nullptr;
+		}
+	}
 	void startReadSize()
 	{
 		assert(m_incoming.size() == 0);
@@ -210,8 +227,7 @@ private:
 		{
 			if (ec)
 			{
-				if (m_onClosed)
-					m_onClosed();
+				onClosed();
 				return;
 			}
 
@@ -230,18 +246,16 @@ private:
 		{
 			if (ec)
 			{
-				if (m_onClosed)
-					m_onClosed();
+				onClosed();
 				return;
 			}
-			auto con = m_con.lock();
 			assert(bytesTransfered == m_incoming.size() - 4);
 			m_in([this](In& in)
 			{
 				in.q.push(std::move(m_incoming));
 			});
 			startReadSize();
-			con->process();
+			m_con->process();
 		});
 	}
 
@@ -259,8 +273,7 @@ private:
 	{
 		if (ec)
 		{
-			if (m_onClosed)
-				m_onClosed();
+			onClosed();
 			return;
 		}
 		assert(bytesTransfered == m_outgoing.size());
@@ -344,7 +357,7 @@ private:
 		//printf("Server side transport = trp=%p, trp->m_s=%p\n", trp.get(), trp->m_s.get());
 
 		auto con = std::make_shared<ConnectionType>(&m_localObj, trp);
-		trp->m_con = con;
+		trp->m_con = con.get();
 
 		if (m_newConnectionCallback)
 			m_newConnectionCallback(std::move(con));
