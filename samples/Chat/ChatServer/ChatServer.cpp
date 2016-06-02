@@ -153,12 +153,15 @@ private:
 			return;
 		}
 
+		/*
 		if (user->name == name)
 		{
 			CZRPC_CALL(*user->con, onMsg, "", "You cannot kick yourself");
 			return;
 
 		}
+		*/
+
 		std::shared_ptr<ClientInfo> kicked = getUser(name);
 
 		if (!kicked)
@@ -166,6 +169,7 @@ private:
 			CZRPC_CALL(*user->con, onMsg, "", formatString("User %s not found", name.c_str()));
 			return;
 		}
+
 
 		// Inform the kicked player that he was kicked
 		CZRPC_CALL(*kicked->con, onMsg, "", "You were kicked").async(

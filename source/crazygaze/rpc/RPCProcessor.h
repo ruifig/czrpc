@@ -95,18 +95,26 @@ protected:
 		hdr.bits.counter = ++m_replyIdCounter;
 		hdr.bits.rpcid = rpcid;
 		*reinterpret_cast<Header*>(data.ptr(0)) = hdr;
-		m_replies[hdr.key()] = [handler = std::move(handler)](Stream& in, Header hdr)
+		m_replies[hdr.key()] = [handler = std::move(handler)](Stream* in, Header hdr)
 		{
 			using R = typename ParamTraits<typename FunctionTraits<F>::return_type>::store_type;
-			if (hdr.bits.success)
+			if (in)
 			{
-				handler(Reply<R>::fromStream((in)));
+				if (hdr.bits.success)
+				{
+					handler(Reply<R>::fromStream((*in)));
+				}
+				else
+				{
+					std::string str;
+					(*in) >> str;
+					handler(Reply<R>::fromException(std::move(str)));
+				}
 			}
 			else
 			{
-				std::string str;
-				in >> str;
-				handler(Reply<R>::fromException(std::move(str)));
+				// if the stream is nullptr, it means the reply is being aborted
+				handler(Reply<R>());
 			}
 		};
 		lk.unlock();
@@ -116,7 +124,7 @@ protected:
 
 	void processReply(Stream& in, Header hdr)
 	{
-		std::function<void(Stream&, Header)> h;
+		std::function<void(Stream*, Header)> h;
 		{
 			std::unique_lock<std::mutex> lk(m_mtx);
 			auto it = m_replies.find(hdr.key());
@@ -125,12 +133,27 @@ protected:
 			m_replies.erase(it);
 		}
 
-		h(in, hdr);
+		h(&in, hdr);
 	}
+
+
+	void abortReplies()
+	{
+		decltype(m_replies) replies;
+		{
+			std::unique_lock<std::mutex> lk(m_mtx);
+			replies = std::move(m_replies);
+		}
+
+		for (auto&& r : replies)
+		{
+			r.second(nullptr, Header());
+		}
+	};
 
 	std::mutex m_mtx;
 	uint32_t m_replyIdCounter = 0;
-	std::unordered_map<uint32_t, std::function<void(Stream&, Header)>> m_replies;
+	std::unordered_map<uint32_t, std::function<void(Stream*, Header)>> m_replies;
 };
 
 template<typename T>
@@ -165,6 +188,7 @@ class OutProcessor<void>
   public:
 	OutProcessor() {}
 	void processReply(Stream&, Header) { assert(0 && "Incoming replies not allowed for OutProcessor<void>"); }
+	void abortReplies() {}
 };
 
 class BaseInProcessor
