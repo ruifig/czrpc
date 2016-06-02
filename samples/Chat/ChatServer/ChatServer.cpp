@@ -68,13 +68,15 @@ private:
 		{
 			if (it->second == info)
 			{
-				LOG("User %s disconnected", info->name.c_str());
 				m_clients.erase(it);
-				break;
+				LOG("User %s disconnected", info->name.c_str());
+
+				if (info->name.size())
+					BROADCAST_RPC(nullptr, onMsg, "", formatString("user %s disconnected", info->name.c_str()));
+				return;
 			}
 		}
 
-		BROADCAST_RPC(nullptr, onMsg, "", formatString("user %s disconnected"));
 	}
 
 	ClientInfo* getCurrentUser()
@@ -87,7 +89,9 @@ private:
 				return nullptr;
 		}
 		else
+		{
 			return nullptr;
+		}
 	}
 
 	std::shared_ptr<ClientInfo> getUser(const std::string& name)
@@ -149,6 +153,12 @@ private:
 			return;
 		}
 
+		if (user->name == name)
+		{
+			CZRPC_CALL(*user->con, onMsg, "", "You cannot kick yourself");
+			return;
+
+		}
 		std::shared_ptr<ClientInfo> kicked = getUser(name);
 
 		if (!kicked)
@@ -164,6 +174,14 @@ private:
 			kicked->con->transport->close();
 		});
 
+	}
+
+	virtual std::vector<std::string> getUserList() override
+	{
+		std::vector<std::string> users;
+		for (auto&& u : m_clients)
+			users.push_back(u.second->name);
+		return users;
 	}
 
 	ASIO::io_service m_io;

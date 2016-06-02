@@ -5,6 +5,8 @@
 
 #define TEST_PORT 9000
 
+using namespace cz::rpc;
+
 // Forward declaration, so the server side can use it
 class TesterClient;
 
@@ -137,16 +139,15 @@ int Tester::testClientAddCall(int a, int b)
 	auto client = cz::rpc::Connection<Tester, TesterClient>::getCurrent();
 	CHECK(client != nullptr);
 	CZRPC_CALL(*client, clientAdd, a, b).async(
-		[this, r = a+b](int res)
+		[this, r = a+b](Reply<int> res)
 	{
-		CHECK_EQUAL(r, res);
-		clientCallRes = res;
+		CHECK_EQUAL(r, res.get());
+		clientCallRes = res.get();
 	});
 
 	return a + b;
 }
 
-using namespace cz::rpc;
 
 CZRPC_DEFINE_CONST_LVALUE_REF(std::vector<typename>)
 
@@ -213,21 +214,13 @@ TEST(Simple)
 
 	// Test with async
 	CZRPC_CALL(*clientCon, simple).async(
-		[&]()
+		[&](auto)
 	{
 		sem.decrement();
-	});
-	// Test with exception handling
-	sem.increment();
-	CZRPC_CALL(*clientCon, simple).asyncEx(
-		[&](Expected<void> res)
-	{
-		sem.decrement();
-		CHECK(res.valid());
 	});
 
 	// Test with future
-	CZRPC_CALL(*clientCon, simple).ft().get();
+	CZRPC_CALL(*clientCon, simple).ft().get().get();
 
 	sem.wait();
 	io.stop();
@@ -253,23 +246,14 @@ TEST(NoParams)
 
 	// Test with async
 	CZRPC_CALL(*clientCon, noParams).async(
-		[&](int res)
+		[&](Reply<int> res)
 	{
 		sem.decrement();
-		CHECK_EQUAL(128, res);
-	});
-
-	// Test with exception handling
-	sem.increment();
-	CZRPC_CALL(*clientCon, noParams).asyncEx(
-		[&](Expected<int> res)
-	{
-		sem.decrement();
-		CHECK_EQUAL(128, *res);
+		CHECK_EQUAL(128, res.get());
 	});
 
 	// Test with future
-	int res = CZRPC_CALL(*clientCon, noParams).ft().get();
+	int res = CZRPC_CALL(*clientCon, noParams).ft().get().get();
 	CHECK_EQUAL(128, res);
 
 	sem.wait();
@@ -293,39 +277,30 @@ TEST(WithParams)
 	auto clientCon = AsioTransport::create<void, Tester>(io, "127.0.0.1", TEST_PORT).get();
 
 	ZeroSemaphore sem; // Used to make sure all rpcs were called
-	sem.increment();
 
 	// Test with async
-	CZRPC_CALL(*clientCon, add, 1,2).async(
-		[&](int res)
-	{
-		sem.decrement();
-		CHECK_EQUAL(3, res);
-	});
-
-	// Test with exception handling
 	sem.increment();
-	CZRPC_CALL(*clientCon, add, 1,2).asyncEx(
-		[&](Expected<int> res)
+	CZRPC_CALL(*clientCon, add, 1,2).async(
+		[&](Reply<int> res)
 	{
 		sem.decrement();
-		CHECK_EQUAL(3, *res);
+		CHECK_EQUAL(3, res.get());
 	});
 
 	// Test with future
-	int res = CZRPC_CALL(*clientCon, add, 1, 2).ft().get();
+	int res = CZRPC_CALL(*clientCon, add, 1, 2).ft().get().get();
 	CHECK_EQUAL(3, res);
 
 	// Test with vector
 	std::vector<int> vec{ 1,2,3 };
-	auto v = CZRPC_CALL(*clientCon, testVector1, vec).ft().get();
+	auto v = CZRPC_CALL(*clientCon, testVector1, vec).ft().get().get();
 	CHECK_ARRAY_EQUAL(vec, v, 3);
-	v = CZRPC_CALL(*clientCon, testVector2, vec).ft().get();
+	v = CZRPC_CALL(*clientCon, testVector2, vec).ft().get().get();
 	CHECK_ARRAY_EQUAL(vec, v, 3);
 
 	// Test with tuple
 	auto tp = std::make_tuple(1, std::string("Test"));
-	tp = CZRPC_CALL(*clientCon, testTuple, tp).ft().get();
+	tp = CZRPC_CALL(*clientCon, testTuple, tp).ft().get().get();
 	CHECK(std::get<0>(tp) == 1 && std::get<1>(tp) == "Test");
 
 
@@ -368,18 +343,9 @@ TEST(ExceptionThrowing)
 	// Test with async
 	expectedUnhandledExceptions.increment();
 	CZRPC_CALL(*clientCon, voidTestException,  true).async(
-		[&]()
+		[&](auto res)
 	{
-		// This is never called, because the RPC will throw an exception, and we are using .async instead of .asyncEx
-	});
-
-	sem.increment();
-	CZRPC_CALL(*clientCon, voidTestException, true).asyncEx(
-		[&](Expected<void> res)
-	{
-		sem.decrement();
-		CHECK(!res.valid());
-		CHECK_THROW(res.get(), Exception);
+		res.get(); // this will throw an exception, because the RPC returned an exception
 	});
 
 	// RPC with exception and the client using a future
@@ -389,19 +355,17 @@ TEST(ExceptionThrowing)
 	auto ft = CZRPC_CALL(*clientCon, voidTestException, true).ft();
 	try
 	{
-		ft.get();
+		ft.get().get(); // This will throw, because the RPC returned an exception
 	}
-	catch (std::future_error& e)
+	catch (Exception&)
 	{
-		brokenPromise = true;
-		CHECK_EQUAL(std::future_errc::broken_promise, e.code());
+		expectedUnhandledExceptions.decrement();
 	}
 
 	sem.wait();
 	io.stop();
 	iothread.join();
 	expectedUnhandledExceptions.wait();
-	CHECK(brokenPromise);
 }
 
 
@@ -425,10 +389,10 @@ TEST(ClientCall)
 
 	pending.increment();
 	CZRPC_CALL(*clientCon, testClientAddCall, 1,2).async(
-		[&](int res)
+		[&](Reply<int> res)
 	{
 		pending.decrement();
-		CHECK_EQUAL(3, res);
+		CHECK_EQUAL(3, res.get());
 	});
 
 	pending.wait();
@@ -461,10 +425,10 @@ TEST(Inheritance)
 	ZeroSemaphore pending;
 	pending.increment();
 	CZRPC_CALL(*clientCon, virtualFunc).async(
-		[&](const std::string& res)
+		[&](const Reply<std::string>& res)
 	{
 		pending.decrement();
-		CHECK_EQUAL("TesterEx", res.c_str());
+		CHECK_EQUAL("TesterEx", res.get().c_str());
 	});
 
 	pending.wait();
@@ -493,12 +457,12 @@ TEST(Constructors)
 	Foo foo(1);
 	Foo::resetCounters();
 	auto ft = CZRPC_CALL(*clientCon, testFoo1, foo).ft();
-	CHECK(ft.get() == true);
+	CHECK(ft.get().get() == true);
 	Foo::check(1, 0, 0);
 
 	Foo::resetCounters();
 	ft = CZRPC_CALL(*clientCon, testFoo2, foo).ft();
-	CHECK(ft.get() == true);
+	CHECK(ft.get().get() == true);
 	Foo::check(1, 1, 0);
 
 	// Make sure the server got the client reply

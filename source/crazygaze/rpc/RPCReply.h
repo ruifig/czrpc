@@ -9,6 +9,12 @@ namespace rpc
 // destructor was implicitly defined as deleted because a base class destructor is inaccessible or deleted
 #pragma warning(disable : 4624)
 
+class Exception : public std::exception
+{
+public:
+	Exception(const std::string& msg) : std::exception(msg.c_str()) {}
+};
+
 template<typename T>
 class Reply
 {
@@ -138,26 +144,27 @@ public:
 	Reply() : m_state(State::Aborted) {}
 
 	Reply(Reply&& other)
-		: m_state(other.m_state)
 	{
-		if (m_state == State::Exception)
-			new (&m_ex) std::string(std::move(other.m_ex));
+		moveFrom(std::move(other));
 	}
 
 	Reply(const Reply& other)
-		: m_state(other.m_state)
 	{
-		if (m_state == State::Exception)
-			new (&m_ex) std::string(other.m_ex);
+		copyFrom(other);
 	}
 
 	~Reply()
 	{
-		if (m_state == State::Exception)
-		{
-			using String = std::string;
-			m_ex.~String();
-		}
+		destroy();
+	}
+
+	Reply& operator=(Reply&& other)
+	{
+		if (this == &other)
+			return *this;
+		destroy();
+		moveFrom(std::move(other));
+		return *this;
 	}
 
 	// Construction from an exception needs to be separate. so RPCReply<std::string> works.
@@ -188,7 +195,36 @@ public:
 		return m_ex;
 	};
 
+	void get() const
+	{
+		if (!isValid())
+			throw Exception(isException() ? m_ex : "RPC reply was aborted");
+	}
 private:
+
+	void destroy()
+	{
+		if (m_state == State::Exception)
+		{
+			using String = std::string;
+			m_ex.~String();
+		}
+		m_state = State::Aborted;
+	}
+
+	void moveFrom(Reply&& other)
+	{
+		m_state = other.m_state;
+		if (m_state == State::Exception)
+			new (&m_ex) std::string(std::move(other.m_ex));
+	}
+
+	void copyFrom(const Reply& other)
+	{
+		m_state = other.m_state;
+		if (m_state == State::Exception)
+			new (&m_ex) std::string(other.m_ex);
+	}
 
 	enum class State { Valid, Aborted, Exception };
 

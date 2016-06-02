@@ -16,13 +16,15 @@ public:
 
 	virtual void sendMsg(const std::string& msg) = 0;
 	virtual void kick(const std::string& name) = 0;
+	virtual std::vector<std::string> getUserList() = 0;
 };
 
 #define RPCTABLE_CLASS ChatServerInterface
 #define RPCTABLE_CONTENTS \
 		REGISTERRPC(login) \
 		REGISTERRPC(sendMsg) \
-		REGISTERRPC(kick)
+		REGISTERRPC(kick) \
+		REGISTERRPC(getUserList)
 #include "crazygaze/rpc/RPCGenerate.h"
 
 class ChatClientInterface

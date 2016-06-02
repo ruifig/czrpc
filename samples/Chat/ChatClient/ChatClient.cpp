@@ -20,6 +20,16 @@ public:
 		});
 
 		m_con = AsioTransport::create<ChatClientInterface, ChatServerInterface>(m_io, *this, "127.0.0.1", port).get();
+		if (!m_con)
+		{
+			printf("Failed to connect to %s:%d\n", ip.c_str(), port);
+			exit(0);
+		}
+		reinterpret_cast<AsioTransport*>(m_con->transport.get())->setOnClosed([]
+		{
+			printf("Disconnected\n");
+			exit(0);
+		});
 		printf("SYSTEM: Connected to server %s:%d\n", ip.c_str(), port);
 	}
 
@@ -51,7 +61,17 @@ public:
 			{
 				CZRPC_CALL(*m_con, kick, std::string(msg.begin() + strlen("/kick "), msg.end()));
 			}
-			else
+			else if (strncmp(msg.c_str(), "/userlist", strlen("/userlist")) == 0)
+			{
+				Reply<std::vector<std::string>> res = CZRPC_CALL(*m_con, getUserList).ft().get();
+				if (res.isValid())
+				{
+					printf("%d users.\n", (int)res.get().size());
+					for (auto&& u : res.get())
+						printf("    %s\n", u.c_str());
+				}
+			}
+			else if (msg.size())
 			{
 				CZRPC_CALL(*m_con, sendMsg, msg);
 			}
@@ -71,10 +91,8 @@ private:
 	std::shared_ptr<ConType> m_con;
 };
 
-
 int main(int argc, char *argv[])
 {
-	ChatClient client("127.0.0.1", CHATSERVER_DEFAULT_PORT);
 	std::string name;
 	std::string pass;
 
@@ -87,12 +105,14 @@ int main(int argc, char *argv[])
 	else
 	{
 		printf("Enter your name: ");
-		scanf("%s", buf);
+		scanf("\n%s", buf);
 		name = buf;
 		printf("Enter pass: ");
 		scanf("%s", buf);
 		pass = buf;
 	}
+	printf("Logging in as %s\n", name.c_str());
+	ChatClient client("127.0.0.1", CHATSERVER_DEFAULT_PORT);
 	return client.run(name, pass);
 }
 
