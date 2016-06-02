@@ -5,12 +5,6 @@ namespace cz
 namespace rpc
 {
 
-class Exception : public std::exception
-{
-public:
-	Exception(const std::string& msg) : std::exception(msg.c_str()) {}
-};
-
 class BaseOutProcessor;
 
 template<typename F>

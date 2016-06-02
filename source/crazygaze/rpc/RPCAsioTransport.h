@@ -162,9 +162,16 @@ private:
 		auto pr = std::make_shared<std::promise<std::shared_ptr<Connection<LOCAL, REMOTE>>>>();
 		trp->connect(ip, port, [pr, trp, localObj](bool result)
 		{
-			auto con = std::make_shared<Connection<LOCAL, REMOTE>>(localObj, trp);
-			trp->m_con = con;
-			pr->set_value(std::move(con));
+			if (result)
+			{
+				auto con = std::make_shared<Connection<LOCAL, REMOTE>>(localObj, trp);
+				trp->m_con = con;
+				pr->set_value(std::move(con));
+			}
+			else
+			{
+				pr->set_value(nullptr);
+			}
 		});
 
 		return pr->get_future();
