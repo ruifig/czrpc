@@ -195,37 +195,37 @@ struct ParamTraits<std::string> : ParamTraits<const char*> {
 // std::vector
 //
 template <typename T>
-struct ParamTraits<std::vector<T>> {
-    using store_type = std::vector<T>;
-    static constexpr bool valid = ParamTraits<T>::valid;
-    static_assert(ParamTraits<T>::valid == true,
-                  "T is not valid RPC parameter type.");
+struct ParamTraits<std::vector<T>>
+{
+	using store_type = std::vector<T>;
+	static constexpr bool valid = ParamTraits<T>::valid;
+	static_assert(ParamTraits<T>::valid == true, "T is not valid RPC parameter type.");
 
-    template <typename S>
-    static void write(S& s, const std::vector<T>& v) {
-        int len = static_cast<int>(v.size());
-        s.write(&len, sizeof(len));
-        for (auto&& i : v) ParamTraits<T>::write(s, i);
-    }
-
-    template <typename S>
-    static void read(S& s, std::vector<T>& v) {
-        int len;
-        s.read(&len, sizeof(len));
-        v.clear();
-        while (len--) {
-            T i;
-            ParamTraits<T>::read(s, i);
-            v.push_back(std::move(i));
-        }
-    }
-
-	static std::vector<T>&& get(std::vector<T>&& v)
+	// std::vector serialization is done by writing the vector size, followed by  each element
+	template <typename S>
+	static void write(S& s, const std::vector<T>& v)
 	{
-		return std::move(v);
+		int len = static_cast<int>(v.size());
+		s.write(&len, sizeof(len));
+		for (auto&& i : v) ParamTraits<T>::write(s, i);
 	}
-};
 
+	template <typename S>
+	static void read(S& s, std::vector<T>& v)
+	{
+		int len;
+		s.read(&len, sizeof(len));
+		v.clear();
+		while (len--)
+		{
+			T i;
+			ParamTraits<T>::read(s, i);
+			v.push_back(std::move(i));
+		}
+	}
+
+	static std::vector<T>&& get(std::vector<T>&& v) { return std::move(v); }
+};
 
 //
 // Validate if all parameters types in a parameter pack can be used for RPC
