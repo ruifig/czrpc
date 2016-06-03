@@ -53,7 +53,7 @@ namespace details
 {
 // Handle RPCs with return values
 template <typename R>
-struct Call
+struct CallHelper
 {
 	template <typename OBJ, typename F, typename P>
 	static void impl(OBJ& obj, F f, P&& params, Stream& out)
@@ -64,7 +64,7 @@ struct Call
 
 // Handle void RPCs
 template <>
-struct Call<void>
+struct CallHelper<void>
 {
 	template <typename OBJ, typename F, typename P>
 	static void impl(OBJ& obj, F f, P&& params, Stream& out)
@@ -113,7 +113,7 @@ class TableImpl : public BaseTable
 			typename Traits::param_tuple params;
 			in >> params;
 			using R = typename Traits::return_type;
-			details::Call<R>::impl(obj, f, std::move(params), out);
+			details::CallHelper<R>::impl(obj, f, std::move(params), out);
 		};
 		m_rpcs.push_back(std::move(info));
 	}

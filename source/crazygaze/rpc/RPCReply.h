@@ -5,10 +5,6 @@ namespace cz
 namespace rpc
 {
 
-#pragma warning(push)
-// destructor was implicitly defined as deleted because a base class destructor is inaccessible or deleted
-#pragma warning(disable : 4624)
-
 class Exception : public std::exception
 {
 public:
@@ -137,6 +133,7 @@ private:
 	};
 };
 
+// void specialization
 template<>
 class Reply<void>
 {
@@ -236,7 +233,5 @@ private:
 	};
 };
 
-#pragma warning(pop)
-
-}
-}
+} // namespace rpc
+} // namespace cz
