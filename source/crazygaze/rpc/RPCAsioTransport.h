@@ -217,6 +217,7 @@ private:
 			m_onClosed = nullptr;
 		}
 	}
+
 	void startReadSize()
 	{
 		assert(m_incoming.size() == 0);
