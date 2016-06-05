@@ -22,7 +22,8 @@ public:
 
 	Table()
 	{
-		static_assert((unsigned)((int)RPCId::NUMRPCS-1)<(1<<Header::kRPCIdBits), RPCTABLE_TOOMANYRPCS(Too many RPCs registered for class RPCTABLE_CLASS));
+		static_assert((unsigned)((int)RPCId::NUMRPCS-1)<(1<<Header::kRPCIdBits),
+			RPCTABLE_TOOMANYRPCS(Too many RPCs registered for class RPCTABLE_CLASS));
 		#undef REGISTERRPC
 		#define REGISTERRPC(func) registerRPC((uint32_t)RPCId::func, #func, &Type::func);
 		RPCTABLE_CONTENTS

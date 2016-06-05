@@ -7,22 +7,20 @@ namespace rpc
 
 class Transport
 {
-public:
+  public:
 	virtual ~Transport() {}
 
-	//! Send one single RPC
+	// Send one single RPC
 	virtual void send(std::vector<char> data) = 0;
 
-	//! Receive one single RPC
-	// \param dst
-	//	Data for 1 RPC, or empty if no RPC available
-	// \return true if the transport is still alive, false if the transport is dead/closed
+	// Receive one single RPC
+	// dst : Will contain the data for one single RPC, or empty if no RPC available
+	// return: true if the transport is still alive, false if the transport closed
 	virtual bool receive(std::vector<char>& dst) = 0;
 
-	//! Close connection to the peer
+	// Close connection to the peer
 	virtual void close() = 0;
 };
-
 }
 }
 
