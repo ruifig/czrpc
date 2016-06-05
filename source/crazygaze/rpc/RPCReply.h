@@ -164,8 +164,6 @@ public:
 		return *this;
 	}
 
-	// Construction from an exception needs to be separate. so RPCReply<std::string> works.
-	// Otherwise we would have no way to tell if constructing from a value, or from an exception
 	static Reply fromException(std::string ex)
 	{
 		Reply r;

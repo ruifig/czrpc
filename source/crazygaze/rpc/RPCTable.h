@@ -4,7 +4,8 @@ namespace cz
 {
 namespace rpc
 {
-//! Small utility struct to make it easier to work with the RPC headers
+
+// Small utility struct to make it easier to work with the RPC headers
 struct Header
 {
 	enum
