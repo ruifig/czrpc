@@ -169,7 +169,7 @@ public:
 			m_io.run();
 		});
 
-		m_acceptor = std::make_shared<AsioTransportAcceptor<Local, Remote>>(m_io, m_obj);
+		m_acceptor = AsioTransportAcceptor<Local, Remote>::create(m_io, m_obj);
 		m_acceptor->start(port, [&](std::shared_ptr<Connection<Local, Remote>> con)
 		{
 			m_cons.push_back(std::move(con));
@@ -207,7 +207,7 @@ TEST(Simple)
 		io.run();
 	});
 
-	auto clientCon = AsioTransport::create<void, Tester>(io, "127.0.0.1", TEST_PORT).get();
+	auto clientCon = AsioTransport<void,Tester>::create(io, "127.0.0.1", TEST_PORT).get();
 
 	ZeroSemaphore sem; // Used to make sure all rpcs were called
 	sem.increment();
@@ -239,7 +239,7 @@ TEST(NoParams)
 		io.run();
 	});
 
-	auto clientCon = AsioTransport::create<void, Tester>(io, "127.0.0.1", TEST_PORT).get();
+	auto clientCon = AsioTransport<void, Tester>::create(io, "127.0.0.1", TEST_PORT).get();
 
 	ZeroSemaphore sem; // Used to make sure all rpcs were called
 	sem.increment();
@@ -274,7 +274,7 @@ TEST(WithParams)
 		io.run();
 	});
 
-	auto clientCon = AsioTransport::create<void, Tester>(io, "127.0.0.1", TEST_PORT).get();
+	auto clientCon = AsioTransport<void, Tester>::create(io, "127.0.0.1", TEST_PORT).get();
 
 	ZeroSemaphore sem; // Used to make sure all rpcs were called
 
@@ -336,7 +336,7 @@ TEST(ExceptionThrowing)
 		}
 	});
 
-	auto clientCon = AsioTransport::create<void, Tester>(io, "127.0.0.1", TEST_PORT).get();
+	auto clientCon = AsioTransport<void, Tester>::create(io, "127.0.0.1", TEST_PORT).get();
 
 	ZeroSemaphore sem; // Used to make sure all rpcs were called
 
@@ -383,7 +383,7 @@ TEST(ClientCall)
 	});
 
 	TesterClient clientObj;
-	auto clientCon = AsioTransport::create<TesterClient, Tester>(io, clientObj, "127.0.0.1", TEST_PORT).get();
+	auto clientCon = AsioTransport<TesterClient, Tester>::create(io, clientObj, "127.0.0.1", TEST_PORT).get();
 
 	ZeroSemaphore pending;
 
@@ -420,7 +420,7 @@ TEST(Inheritance)
 	});
 
 	// The client connects as using Tester
-	auto clientCon = AsioTransport::create<void, Tester>(io, "127.0.0.1", TEST_PORT).get();
+	auto clientCon = AsioTransport<void, Tester>::create(io, "127.0.0.1", TEST_PORT).get();
 
 	ZeroSemaphore pending;
 	pending.increment();
@@ -452,7 +452,7 @@ TEST(Constructors)
 		io.run();
 	});
 
-	auto clientCon = AsioTransport::create<void, Tester>(io, "127.0.0.1", TEST_PORT).get();
+	auto clientCon = AsioTransport<void, Tester>::create(io, "127.0.0.1", TEST_PORT).get();
 
 	Foo foo(1);
 	Foo::resetCounters();
@@ -518,6 +518,7 @@ TEST(BlogArticleSample)
 
 //////////////////////////////////////////////////////////////////////////
 // Useless RPC-agnostic class that performs calculations.
+//////////////////////////////////////////////////////////////////////////
 namespace Calc {
 	class Calculator
 	{
@@ -529,11 +530,16 @@ namespace Calc {
 //////////////////////////////////////////////////////////////////////////
 // Define the RPC table for the Calculator class
 // This needs to be seen by both the server and client code
+//////////////////////////////////////////////////////////////////////////
 #define RPCTABLE_CLASS Calc::Calculator
 #define RPCTABLE_CONTENTS \
 	REGISTERRPC(add)
 #include "crazygaze/rpc/RPCGenerate.h"
 
+//////////////////////////////////////////////////////////////////////////
+// A Server that that only accepts 1 client, then shuts down
+// when the client disconnects
+//////////////////////////////////////////////////////////////////////////
 void RunServer()
 {
 	using namespace Calc;
@@ -555,17 +561,25 @@ void RunServer()
 	auto acceptor = AsioTransportAcceptor<Calculator,void>::create(io, calc);
 	// Start listening on port 9000.
 	// For simplicity, we are only expecting 1 client
-	std::shared_ptr<Connection<Calculator, void>> con;
-	acceptor->start(9000, [&](auto con_)
+	using ConType = Connection<Calculator, void>;
+	std::shared_ptr<ConType> con;
+	acceptor->start(9000, [&io,&con](std::shared_ptr<ConType> con_)
 	{
 		con = con_;
+		// Since this is just a sample, close the server once the first client disconnects
+		reinterpret_cast<BaseAsioTransport*>(con->transport.get())->setOnClosed([&io]
+		{
+			io.stop();
+		});
 	});
 
-	Sleep(500000);
-	io.stop();
 	th.join();
 }
 
+//////////////////////////////////////////////////////////////////////////
+// A client that connects to the server, calls 1 RPC
+// then disconnects, causing everything to shut down
+//////////////////////////////////////////////////////////////////////////
 void RunClient()
 {
 	using namespace Calc;
@@ -578,17 +592,29 @@ void RunClient()
 	});
 
 	// Connect to the server (localhost, port 9000)
-	auto con = AsioTransport::create<void, Calculator>(io, "127.0.0.1", 9000).get();
+	auto con = AsioTransport<void, Calculator>::create(io, "127.0.0.1", 9000).get();
 
 	// Call one RPC (the add method), specifying an asynchronous handler for when the result arrives
-	CZRPC_CALL(*con, add, 1, 2).async([](Reply<double> res)
+	CZRPC_CALL(*con, add, 1, 2).async([&io](Reply<double> res)
 	{
 		printf("Result = %f\n", res.get());
+		// Since this is a just a sample, stop the io_service after we get the result,
+		// so everything shuts down
+		io.stop();
 	});
 
-	Sleep(1000);
-	io.stop();
 	th.join();
+}
+
+// For testing simplicity, run both the server and client on the same machine,
+// using the same io_service
+void RunServerAndClient()
+{
+	auto a = std::thread([] { RunServer(); });
+	Sleep(100);
+	auto b = std::thread([] { RunClient(); });
+	a.join();
+	b.join();
 }
 
 SUITE(ArticleSamples)
@@ -596,10 +622,6 @@ SUITE(ArticleSamples)
 
 TEST(ArticleSample)
 {
-	auto a = std::thread([] { RunServer(); });
-	Sleep(100);
-	auto b = std::thread([] { RunClient(); });
-	a.join();
-	b.join();
+	RunServerAndClient();
 }
 }

@@ -39,13 +39,13 @@ public:using ConType = Connection<ChatServerInterface, ChatClientInterface>;
 			m_io.run();
 		});
 
-		m_acceptor = std::make_shared<AsioTransportAcceptor<ChatServerInterface, ChatClientInterface>>(m_io, *this);
+		m_acceptor = AsioTransportAcceptor<ChatServerInterface, ChatClientInterface>::create(m_io, *this);
 		m_acceptor->start(port, [&](std::shared_ptr<ConType> con)
 		{
 			LOG("Client connected.");
 			auto info = std::make_shared<ClientInfo>();
 			info->con = con;
-			reinterpret_cast<AsioTransport*>(info->con->transport.get())->setOnClosed(
+			reinterpret_cast<BaseAsioTransport*>(info->con->transport.get())->setOnClosed(
 				[this, info]() mutable
 			{
 				onDisconnect(info);

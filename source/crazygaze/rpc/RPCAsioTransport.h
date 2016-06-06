@@ -47,10 +47,19 @@ namespace details
 	};
 }
 
-class AsioTransport : public Transport, public std::enable_shared_from_this<AsioTransport>
+class BaseAsioTransport : public Transport, public std::enable_shared_from_this<BaseAsioTransport>
 {
+private:
+	// A dummy struct, to force the users to use the create functions, since the transport needs
+	// to be created in the heap and tracked by std::shared_ptr
+	struct ConstructorCookie { };
 public:
-	~AsioTransport()
+
+	virtual ~BaseAsioTransport()
+	{
+	}
+
+	BaseAsioTransport(ConstructorCookie, ASIO::io_service& io) : m_io(io)
 	{
 	}
 
@@ -125,41 +134,18 @@ public:
 		startReadSize();
 	}
 
-
 	void setOnClosed(std::function<void()> h)
 	{
 		m_onClosed = std::move(h);
 	}
 
-	template<typename LOCAL, typename REMOTE>
-	static std::future<
-		typename std::enable_if<!std::is_void<LOCAL>::value, std::shared_ptr<Connection<LOCAL, REMOTE>>>::type
-	>
-		create(ASIO::io_service& io, LOCAL& localObj, const char* ip, int port)
-	{
-		return createImpl<LOCAL, REMOTE>(io, &localObj, ip, port);
-	}
-
-	template<typename LOCAL, typename REMOTE>
-	static std::future<
-		typename std::enable_if<std::is_void<LOCAL>::value, std::shared_ptr<Connection<LOCAL, REMOTE>>>::type
-	>
-		create(ASIO::io_service& io, const char* ip, int port)
-	{
-		return createImpl<void, REMOTE>(io, nullptr, ip, port);
-	}
-
-private:
-
-	AsioTransport(ASIO::io_service& io) : m_io(io)
-	{
-	}
+protected:
 
 	template<typename LOCAL, typename REMOTE>
 	static std::future<std::shared_ptr<Connection<LOCAL, REMOTE>>>
 		createImpl(ASIO::io_service& io, LOCAL* localObj, const char* ip, int port)
 	{
-		auto trp = std::make_shared<AsioTransport>(io);
+		auto trp = std::make_shared<BaseAsioTransport>(ConstructorCookie(), io);
 		auto pr = std::make_shared<std::promise<std::shared_ptr<Connection<LOCAL, REMOTE>>>>();
 		trp->connect(ip, port, [pr, trp, localObj](bool result)
 		{
@@ -299,6 +285,28 @@ private:
 	}
 };
 
+template<typename LOCAL, typename REMOTE>
+class AsioTransport : public BaseAsioTransport
+{
+public:
+	static std::future<std::shared_ptr<Connection<LOCAL, REMOTE>>>
+		create(ASIO::io_service& io, LOCAL& localObj, const char* ip, int port)
+	{
+		return createImpl<LOCAL, REMOTE>(io, &localObj, ip, port);
+	}
+};
+
+template<typename REMOTE>
+class AsioTransport<void, REMOTE> : public BaseAsioTransport
+{
+public:
+	static std::future<std::shared_ptr<Connection<void, REMOTE>>>
+		create(ASIO::io_service& io, const char* ip, int port)
+	{
+		return createImpl<void, REMOTE>(io, nullptr, ip, port);
+	}
+};
+
 class BaseAsioTransportAcceptor
 {
 public:
@@ -322,12 +330,22 @@ protected:
 template<typename LOCAL, typename REMOTE>
 class AsioTransportAcceptor : public BaseAsioTransportAcceptor, public std::enable_shared_from_this<AsioTransportAcceptor<LOCAL,REMOTE>>
 {
+private:
+	// A dummy struct, to force the users to use the create functions, since the transport needs
+	// to be created in the heap and tracked by std::shared_ptr
+	struct ConstructorCookie { };
 public:
 	using LocalType = LOCAL;
 	using RemoteType = REMOTE;
 	using ConnectionType = Connection<LocalType, RemoteType>;
 
 	virtual ~AsioTransportAcceptor() {}
+
+	AsioTransportAcceptor(ConstructorCookie, ASIO::io_service& io, LocalType& localObj)
+		: BaseAsioTransportAcceptor(io)
+		, m_localObj(localObj)
+	{
+	}
 
 	void start(int port, std::function<void(std::shared_ptr<ConnectionType>)> newConnectionCallback)
 	{
@@ -340,23 +358,10 @@ public:
 	// We have a create static method, to enforce creating it as std::shared_ptr,
 	static std::shared_ptr<AsioTransportAcceptor<LOCAL,REMOTE>> create(ASIO::io_service& io, LocalType& localObj)
 	{
-		return std::make_shared<AsioTransportAcceptor>(io, localObj);
+		return std::make_shared<AsioTransportAcceptor>(ConstructorCookie(), io, localObj);
 	}
 
 private:
-/*
-	friend std::shared_ptr<AsioTransportAcceptor<LocalType, RemoteType>>
-		make_AsioTransportAcceptor(ASIO::io_service& io, LocalType& obj)
-	{
-		return std::make_shared<AsioTransportAcceptor>(io, localObj);
-	}
-	*/
-
-	AsioTransportAcceptor(ASIO::io_service& io, LocalType& localObj)
-		: BaseAsioTransportAcceptor(io)
-		, m_localObj(localObj)
-	{
-	}
 
 	void setupAccept()
 	{
@@ -374,7 +379,7 @@ private:
 		if (ec)
 			return;
 
-		auto trp = std::make_shared<AsioTransport>(m_io);
+		auto trp = std::make_shared<BaseAsioTransport>(BaseAsioTransport::ConstructorCookie(), m_io);
 		trp->m_s = std::move(socket);
 		trp->startReadSize();
 		//printf("Server side transport = trp=%p, trp->m_s=%p\n", trp.get(), trp->m_s.get());

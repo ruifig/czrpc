@@ -19,13 +19,13 @@ public:
 			m_io.run();
 		});
 
-		m_con = AsioTransport::create<ChatClientInterface, ChatServerInterface>(m_io, *this, "127.0.0.1", port).get();
+		m_con = AsioTransport<ChatClientInterface, ChatServerInterface>::create(m_io, *this, "127.0.0.1", port).get();
 		if (!m_con)
 		{
 			printf("Failed to connect to %s:%d\n", ip.c_str(), port);
 			exit(0);
 		}
-		reinterpret_cast<AsioTransport*>(m_con->transport.get())->setOnClosed([]
+		reinterpret_cast<BaseAsioTransport*>(m_con->transport.get())->setOnClosed([]
 		{
 			printf("Disconnected\n");
 			exit(0);
