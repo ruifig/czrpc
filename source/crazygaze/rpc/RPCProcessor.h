@@ -31,7 +31,7 @@ public:
 	~Call()
 	{
 		if (m_data.writeSize() && !m_commited)
-			async([](Reply<RTraits::store_type>&) {});
+			async([](Result<RTraits::store_type>&) {});
 	}
 
 	template<typename H>
@@ -41,11 +41,11 @@ public:
 		m_commited = true;
 	}
 
-	std::future<typename Reply<typename RTraits::store_type>> ft()
+	std::future<typename Result<typename RTraits::store_type>> ft()
 	{
-		auto pr = std::make_shared<std::promise<Reply<RTraits::store_type>>>();
+		auto pr = std::make_shared<std::promise<Result<RTraits::store_type>>>();
 		auto ft = pr->get_future();
-		async([pr=std::move(pr)](Reply<RTraits::store_type>&& res) 
+		async([pr=std::move(pr)](Result<RTraits::store_type>&& res) 
 		{
 			pr->set_value(std::move(res));
 		});
@@ -102,19 +102,19 @@ protected:
 			{
 				if (hdr.bits.success)
 				{
-					handler(Reply<R>::fromStream((*in)));
+					handler(Result<R>::fromStream((*in)));
 				}
 				else
 				{
 					std::string str;
 					(*in) >> str;
-					handler(Reply<R>::fromException(std::move(str)));
+					handler(Result<R>::fromException(std::move(str)));
 				}
 			}
 			else
 			{
 				// if the stream is nullptr, it means the reply is being aborted
-				handler(Reply<R>());
+				handler(Result<R>());
 			}
 		};
 		lk.unlock();

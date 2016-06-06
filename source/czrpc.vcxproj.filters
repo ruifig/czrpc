@@ -50,5 +50,8 @@
       <Filter>crazygaze\rpc</Filter>
     </ClInclude>
     <ClInclude Include="crazygaze\rpc\RPCReply.h" />
+    <ClInclude Include="crazygaze\rpc\RPCResult.h">
+      <Filter>crazygaze\rpc</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

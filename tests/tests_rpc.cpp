@@ -139,7 +139,7 @@ int Tester::testClientAddCall(int a, int b)
 	auto client = cz::rpc::Connection<Tester, TesterClient>::getCurrent();
 	CHECK(client != nullptr);
 	CZRPC_CALL(*client, clientAdd, a, b).async(
-		[this, r = a+b](Reply<int> res)
+		[this, r = a+b](Result<int> res)
 	{
 		CHECK_EQUAL(r, res.get());
 		clientCallRes = res.get();
@@ -246,7 +246,7 @@ TEST(NoParams)
 
 	// Test with async
 	CZRPC_CALL(*clientCon, noParams).async(
-		[&](Reply<int> res)
+		[&](Result<int> res)
 	{
 		sem.decrement();
 		CHECK_EQUAL(128, res.get());
@@ -281,7 +281,7 @@ TEST(WithParams)
 	// Test with async
 	sem.increment();
 	CZRPC_CALL(*clientCon, add, 1,2).async(
-		[&](Reply<int> res)
+		[&](Result<int> res)
 	{
 		sem.decrement();
 		CHECK_EQUAL(3, res.get());
@@ -389,7 +389,7 @@ TEST(ClientCall)
 
 	pending.increment();
 	CZRPC_CALL(*clientCon, testClientAddCall, 1,2).async(
-		[&](Reply<int> res)
+		[&](Result<int> res)
 	{
 		pending.decrement();
 		CHECK_EQUAL(3, res.get());
@@ -425,7 +425,7 @@ TEST(Inheritance)
 	ZeroSemaphore pending;
 	pending.increment();
 	CZRPC_CALL(*clientCon, virtualFunc).async(
-		[&](const Reply<std::string>& res)
+		[&](const Result<std::string>& res)
 	{
 		pending.decrement();
 		CHECK_EQUAL("TesterEx", res.get().c_str());
@@ -591,7 +591,7 @@ void RunClient()
 	auto con = AsioTransport<void, Calculator>::create(io, "127.0.0.1", 9000).get();
 
 	// Call one RPC (the add method), specifying an asynchronous handler for when the result arrives
-	CZRPC_CALL(*con, add, 1, 2).async([&io](Reply<double> res)
+	CZRPC_CALL(*con, add, 1, 2).async([&io](Result<double> res)
 	{
 		printf("Result=%f\n", res.get()); // Prints 3.0
 		// Since this is a just a sample, stop the io_service after we get the result,
