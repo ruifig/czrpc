@@ -519,19 +519,17 @@ TEST(BlogArticleSample)
 //////////////////////////////////////////////////////////////////////////
 // Useless RPC-agnostic class that performs calculations.
 //////////////////////////////////////////////////////////////////////////
-namespace Calc {
-	class Calculator
-	{
-	public:
-		double add(double a, double b) { return a + b; }
-	};
-}
+class Calculator
+{
+public:
+	double add(double a, double b) { return a + b; }
+};
 
 //////////////////////////////////////////////////////////////////////////
 // Define the RPC table for the Calculator class
 // This needs to be seen by both the server and client code
 //////////////////////////////////////////////////////////////////////////
-#define RPCTABLE_CLASS Calc::Calculator
+#define RPCTABLE_CLASS Calculator
 #define RPCTABLE_CONTENTS \
 	REGISTERRPC(add)
 #include "crazygaze/rpc/RPCGenerate.h"
@@ -542,7 +540,6 @@ namespace Calc {
 //////////////////////////////////////////////////////////////////////////
 void RunServer()
 {
-	using namespace Calc;
 	asio::io_service io;
 	// Start thread to run Asio's the io_service
 	// we will be using for the server
@@ -552,7 +549,7 @@ void RunServer()
 		io.run();
 	});
 
-	// Instance we will be using to serve RPC.
+	// Instance we will be using to serve RPC calls.
 	// Note that it's an object that knows nothing about RPCs
 	Calculator calc;
 
@@ -582,7 +579,6 @@ void RunServer()
 //////////////////////////////////////////////////////////////////////////
 void RunClient()
 {
-	using namespace Calc;
 	// Start a thread to run our Asio io_service
 	asio::io_service io;
 	std::thread th = std::thread([&io]
@@ -597,7 +593,7 @@ void RunClient()
 	// Call one RPC (the add method), specifying an asynchronous handler for when the result arrives
 	CZRPC_CALL(*con, add, 1, 2).async([&io](Reply<double> res)
 	{
-		printf("Result = %f\n", res.get());
+		printf("Result=%f\n", res.get()); // Prints 3.0
 		// Since this is a just a sample, stop the io_service after we get the result,
 		// so everything shuts down
 		io.stop();
@@ -607,11 +603,9 @@ void RunClient()
 }
 
 // For testing simplicity, run both the server and client on the same machine,
-// using the same io_service
 void RunServerAndClient()
 {
 	auto a = std::thread([] { RunServer(); });
-	Sleep(100);
 	auto b = std::thread([] { RunClient(); });
 	a.join();
 	b.join();
