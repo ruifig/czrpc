@@ -228,7 +228,7 @@ struct ParamTraits<std::vector<T>>
 };
 
 //
-// Validate if all parameters types in a parameter pack can be used for RPC
+// Validate if all parameter types in a parameter pack can be used for RPC
 // calls
 //
 template <typename... T>
