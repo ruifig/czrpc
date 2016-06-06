@@ -12,35 +12,35 @@ public:
 };
 
 template<typename T>
-class Reply
+class Result
 {
 public:
 	using Type = T;
 
-	Reply() : m_state(State::Aborted) {}
+	Result() : m_state(State::Aborted) {}
 
-	explicit Reply(Type&& val)
+	explicit Result(Type&& val)
 		: m_state(State::Valid)
 		, m_val(std::move(val))
 	{
 	}
 
-	Reply(Reply&& other)
+	Result(Result&& other)
 	{
 		moveFrom(std::move(other));
 	}
 
-	Reply(const Reply& other)
+	Result(const Result& other)
 	{
 		copyFrom(other);
 	}
 
-	~Reply()
+	~Result()
 	{
 		destroy();
 	}
 
-	Reply& operator=(Reply&& other)
+	Result& operator=(Result&& other)
 	{
 		if (this == &other)
 			return *this;
@@ -51,20 +51,20 @@ public:
 
 	// Construction from an exception needs to be separate. so RPCReply<std::string> works.po
 	// Otherwise we would have no way to tell if constructing from a value, or from an exception
-	static Reply fromException(std::string ex)
+	static Result fromException(std::string ex)
 	{
-		Reply r;
+		Result r;
 		r.m_state = State::Exception;
 		new (&r.m_ex) std::string(std::move(ex));
 		return r;
 	}
 
 	template<typename S>
-	static Reply fromStream(S& s)
+	static Result fromStream(S& s)
 	{
 		Type v;
 		s >> v;
-		return Reply(std::move(v));
+		return Result(std::move(v));
 	};
 
 	bool isValid() const { return m_state == State::Valid; }
@@ -105,7 +105,7 @@ private:
 		m_state = State::Aborted;
 	}
 
-	void moveFrom(Reply&& other)
+	void moveFrom(Result&& other)
 	{
 		m_state = other.m_state;
 		if (m_state == State::Valid)
@@ -114,7 +114,7 @@ private:
 			new (&m_ex) std::string(std::move(other.m_ex));
 	}
 
-	void copyFrom(const Reply& other)
+	void copyFrom(const Result& other)
 	{
 		m_state = other.m_state;
 		if (m_state == State::Valid)
@@ -135,27 +135,27 @@ private:
 
 // void specialization
 template<>
-class Reply<void>
+class Result<void>
 {
 public:
-	Reply() : m_state(State::Aborted) {}
+	Result() : m_state(State::Aborted) {}
 
-	Reply(Reply&& other)
+	Result(Result&& other)
 	{
 		moveFrom(std::move(other));
 	}
 
-	Reply(const Reply& other)
+	Result(const Result& other)
 	{
 		copyFrom(other);
 	}
 
-	~Reply()
+	~Result()
 	{
 		destroy();
 	}
 
-	Reply& operator=(Reply&& other)
+	Result& operator=(Result&& other)
 	{
 		if (this == &other)
 			return *this;
@@ -164,18 +164,18 @@ public:
 		return *this;
 	}
 
-	static Reply fromException(std::string ex)
+	static Result fromException(std::string ex)
 	{
-		Reply r;
+		Result r;
 		r.m_state = State::Exception;
 		new (&r.m_ex) std::string(std::move(ex));
 		return r;
 	}
 
 	template<typename S>
-	static Reply fromStream(S& s)
+	static Result fromStream(S& s)
 	{
-		Reply r;
+		Result r;
 		r.m_state = State::Valid;
 		return r;
 	}
@@ -207,14 +207,14 @@ private:
 		m_state = State::Aborted;
 	}
 
-	void moveFrom(Reply&& other)
+	void moveFrom(Result&& other)
 	{
 		m_state = other.m_state;
 		if (m_state == State::Exception)
 			new (&m_ex) std::string(std::move(other.m_ex));
 	}
 
-	void copyFrom(const Reply& other)
+	void copyFrom(const Result& other)
 	{
 		m_state = other.m_state;
 		if (m_state == State::Exception)

@@ -63,7 +63,7 @@ public:
 			}
 			else if (strncmp(msg.c_str(), "/userlist", strlen("/userlist")) == 0)
 			{
-				Reply<std::vector<std::string>> res = CZRPC_CALL(*m_con, getUserList).ft().get();
+				Result<std::vector<std::string>> res = CZRPC_CALL(*m_con, getUserList).ft().get();
 				if (res.isValid())
 				{
 					printf("%d users.\n", (int)res.get().size());

@@ -3,7 +3,6 @@
 
 #include "ChatServerPCH.h"
 #include "../ChatCommon/Utils.inl"
-#include "crazygaze/rpc/RPCReply.h"
 
 using namespace cz::rpc;
 
@@ -163,7 +162,7 @@ private:
 
 		// Inform the kicked player that he was kicked
 		CZRPC_CALL(*kicked->con, onMsg, "", "You were kicked").async(
-			[kicked,this] (Reply<void> r)
+			[kicked,this] (Result<void> r)
 		{
 			kicked->con->transport->close();
 		});
