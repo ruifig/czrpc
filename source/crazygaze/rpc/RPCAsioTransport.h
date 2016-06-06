@@ -50,10 +50,6 @@ namespace details
 class AsioTransport : public Transport, public std::enable_shared_from_this<AsioTransport>
 {
 public:
-	AsioTransport(ASIO::io_service& io) : m_io(io)
-	{
-	}
-
 	~AsioTransport()
 	{
 	}
@@ -154,6 +150,10 @@ public:
 	}
 
 private:
+
+	AsioTransport(ASIO::io_service& io) : m_io(io)
+	{
+	}
 
 	template<typename LOCAL, typename REMOTE>
 	static std::future<std::shared_ptr<Connection<LOCAL, REMOTE>>>
@@ -311,6 +311,14 @@ protected:
 	std::shared_ptr<ASIO::ip::tcp::acceptor> m_acceptor;
 };
 
+
+
+// Forward declaration
+//template<typename LOCAL, typename REMOTE> class AsioTransportAcceptor;
+
+//template<typename LOCAL, typename REMOTE>
+//std::shared_ptr<AsioTransportAcceptor<LOCAL, REMOTE>> make_AsioTransportAcceptor(ASIO::io_service& io, LOCAL& obj);
+
 template<typename LOCAL, typename REMOTE>
 class AsioTransportAcceptor : public BaseAsioTransportAcceptor, public std::enable_shared_from_this<AsioTransportAcceptor<LOCAL,REMOTE>>
 {
@@ -319,11 +327,6 @@ public:
 	using RemoteType = REMOTE;
 	using ConnectionType = Connection<LocalType, RemoteType>;
 
-	AsioTransportAcceptor(ASIO::io_service& io, LocalType& localObj)
-		: BaseAsioTransportAcceptor(io)
-		, m_localObj(localObj)
-	{
-	}
 	virtual ~AsioTransportAcceptor() {}
 
 	void start(int port, std::function<void(std::shared_ptr<ConnectionType>)> newConnectionCallback)
@@ -334,7 +337,26 @@ public:
 		setupAccept();
 	}
 
+	// We have a create static method, to enforce creating it as std::shared_ptr,
+	static std::shared_ptr<AsioTransportAcceptor<LOCAL,REMOTE>> create(ASIO::io_service& io, LocalType& localObj)
+	{
+		return std::make_shared<AsioTransportAcceptor>(io, localObj);
+	}
+
 private:
+/*
+	friend std::shared_ptr<AsioTransportAcceptor<LocalType, RemoteType>>
+		make_AsioTransportAcceptor(ASIO::io_service& io, LocalType& obj)
+	{
+		return std::make_shared<AsioTransportAcceptor>(io, localObj);
+	}
+	*/
+
+	AsioTransportAcceptor(ASIO::io_service& io, LocalType& localObj)
+		: BaseAsioTransportAcceptor(io)
+		, m_localObj(localObj)
+	{
+	}
 
 	void setupAccept()
 	{

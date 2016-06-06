@@ -471,6 +471,135 @@ TEST(Constructors)
 
 }
 
+/*
+// Sample shown http://www.crazygaze.com/blog/2016/06/06/modern-c-lightweight-binary-rpc-framework-without-code-generation/
+
+//////////////////////////////////////////////////////////////////////////
+// Useless RPC-agnostic class that performs calculations.
+class Calculator
+{
+public:
+  double add(double a, double b) { return a + b; }
+};
+
+// Define the RPC table for the Calculator class
+#define RPCTABLE_CLASS Calculator
+#define RPCTABLE_CONTENTS \
+	REGISTERRPC(add)
+#include "crazygaze/rpc/RPCGenerate.h"
+
+
+void RunServer()
+{
+
+}
+
+void RunClient()
+{
+}
+
+TEST(BlogArticleSample)
+{
+	// SERVER
+	using namespace ArticleSample;
+	auto serverThread = std::thread([]
+	{
+		RunServer();
+	});
+
+
+	// CLIENT
+}
+
+*/
+
 }
 
 
+//////////////////////////////////////////////////////////////////////////
+// Useless RPC-agnostic class that performs calculations.
+namespace Calc {
+	class Calculator
+	{
+	public:
+		double add(double a, double b) { return a + b; }
+	};
+}
+
+//////////////////////////////////////////////////////////////////////////
+// Define the RPC table for the Calculator class
+// This needs to be seen by both the server and client code
+#define RPCTABLE_CLASS Calc::Calculator
+#define RPCTABLE_CONTENTS \
+	REGISTERRPC(add)
+#include "crazygaze/rpc/RPCGenerate.h"
+
+void RunServer()
+{
+	using namespace Calc;
+	asio::io_service io;
+	// Start thread to run Asio's the io_service
+	// we will be using for the server
+	std::thread th = std::thread([&io]
+	{
+		asio::io_service::work w(io);
+		io.run();
+	});
+
+	// Instance we will be using to serve RPC.
+	// Note that it's an object that knows nothing about RPCs
+	Calculator calc;
+
+	// start listening for a client connection.
+	// We specify what Calculator instance clients will use,
+	auto acceptor = AsioTransportAcceptor<Calculator,void>::create(io, calc);
+	// Start listening on port 9000.
+	// For simplicity, we are only expecting 1 client
+	std::shared_ptr<Connection<Calculator, void>> con;
+	acceptor->start(9000, [&](auto con_)
+	{
+		con = con_;
+	});
+
+	Sleep(500000);
+	io.stop();
+	th.join();
+}
+
+void RunClient()
+{
+	using namespace Calc;
+	// Start a thread to run our Asio io_service
+	asio::io_service io;
+	std::thread th = std::thread([&io]
+	{
+		asio::io_service::work w(io);
+		io.run();
+	});
+
+	// Connect to the server (localhost, port 9000)
+	auto con = AsioTransport::create<void, Calculator>(io, "127.0.0.1", 9000).get();
+
+	// Call one RPC (the add method), specifying an asynchronous handler for when the result arrives
+	CZRPC_CALL(*con, add, 1, 2).async([](Reply<double> res)
+	{
+		printf("Result = %f\n", res.get());
+	});
+
+	Sleep(1000);
+	io.stop();
+	th.join();
+}
+
+SUITE(ArticleSamples)
+{
+
+TEST(ArticleSample)
+{
+	auto a = std::thread([] { RunServer(); });
+	Sleep(100);
+	auto b = std::thread([] { RunClient(); });
+	a.join();
+	b.join();
+}
+}
