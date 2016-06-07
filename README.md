@@ -37,7 +37,7 @@ At the moment it only work with Visual Studio, although there isn't really any p
 To run the unit tests or the provided samples:
 
 1. First download Asio by running the batch file "get_standalone_asio.bat".
-    * Alternatively, of you prefer Boost, use the "get_boots.bat" batch file. The provided transports can use either Standlone Asio, or Boost Asio. If you use Boost Asio do the following before including "RPC.h"
+    * Alternatively, if you prefer Boost, use the "get_boost.bat" batch file. The provided transport can use either Standalone Asio, or Boost Asio. If you use Boost Asio do the following before including "RPC.h"
         * ```#define CZRPC_HAS_BOOST 1```
 2. Open the provided Visual Studio Solution
 3. Set the "tests" project as startup, or the ChatServer/ChatClient
