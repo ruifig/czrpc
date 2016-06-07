@@ -3,6 +3,8 @@
 czrpc is a C++ RPC framework for use between trusted parties.
 It requires no code generation.
 
+It was created as part of a technical article for my blog : [http://www.crazygaze.com/blog/2016/06/06/modern-c-lightweight-binary-rpc-framework-without-code-generation/](http://www.crazygaze.com/blog/2016/06/06/modern-c-lightweight-binary-rpc-framework-without-code-generation/)
+
 # Features #
 
 * Modern C++ (C++11/14)
