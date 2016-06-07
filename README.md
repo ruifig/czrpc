@@ -5,9 +5,6 @@ It requires no code generation.
 
 # Features #
 
-* Source available at [https://bitbucket.org/ruifig/czrpc](https://bitbucket.org/ruifig/czrpc)
-	* The source code shown in this article is by no means complete. It's meant to show the foundations upon which the framework was built. Also, to shorten things a bit, it's a mix of code from the repository at the time of writing and custom sample code, so it might have errors.
-	* Some of the source code which is not directly related to the problem at hand is left intentionally simple with disregard for performance. Any improvements will later be added to source code repository.
 * Modern C++ (C++11/14)
 	* Requires at least **Visual Studio 2015**. Clang/GCC is fine too, but might not work as-is, since VS is less strict.
 * Type-safe
@@ -30,3 +27,13 @@ It requires no code generation.
 * No security features provided
 	* Because the framework is intended to be used between trusted parties (e.g: between servers).
 	* The application can specify its own transport, therefore having a chance to encrypt anything if required.
+
+# How to build #
+
+The framework itself is just headers. Nothing to build.
+At the moment it only work with Visual Studio, although there isn't really any platform specific code.
+To run the unit tests or the provided samples:
+
+1. First download Asio by running the batch file "get_standalone_asio.bat".
+2. Open the provided Visual Studio Solution
+3. Set the "tests" project as startup, or the ChatServer/ChatClient
