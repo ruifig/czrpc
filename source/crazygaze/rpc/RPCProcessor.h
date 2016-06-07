@@ -113,7 +113,7 @@ protected:
 			}
 			else
 			{
-				// if the stream is nullptr, it means the reply is being aborted
+				// if the stream is nullptr, it means the result is being aborted
 				handler(Result<R>());
 			}
 		};
