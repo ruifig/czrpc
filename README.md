@@ -33,7 +33,7 @@ It was created as part of a technical article for my blog : [http://www.crazygaz
 # How to build #
 
 The framework itself is just headers. Nothing to build.
-At the moment it only work with Visual Studio, although there isn't really any platform specific code.
+At the moment it onlys work with Visual Studio, although there isn't any platform specific code.
 To run the unit tests or the provided samples:
 
 1. First download Asio by running the batch file "get_standalone_asio.bat".
