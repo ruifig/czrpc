@@ -22,7 +22,7 @@ struct Header
 
 	struct Bits
 	{
-		uint32_t size : kSizeBits;
+		unsigned size : kSizeBits;
 		unsigned counter : kCounterBits;
 		unsigned rpcid : kRPCIdBits;
 		unsigned isReply : 1;  // Is it a reply to a RPC call ?
