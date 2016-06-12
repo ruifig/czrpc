@@ -25,28 +25,6 @@ namespace rpc
 	namespace ASIO = ::asio;
 #endif
 
-namespace details
-{
-	template <class T>
-	class Monitor
-	{
-	private:
-		mutable T m_t;
-		mutable std::mutex m_mtx;
-
-	public:
-		using Type = T;
-		Monitor() {}
-		Monitor(T t_) : m_t(std::move(t_)) {}
-		template <typename F>
-		auto operator()(F f) const -> decltype(f(m_t))
-		{
-			std::lock_guard<std::mutex> hold{ m_mtx };
-			return f(m_t);
-		}
-	};
-}
-
 class BaseAsioTransport : public Transport, public std::enable_shared_from_this<BaseAsioTransport>
 {
 private:
@@ -175,13 +153,13 @@ protected:
 		bool ongoingWrite = false;
 		std::queue<std::vector<char>> q;
 	};
-	details::Monitor<Out> m_out;
+	Monitor<Out> m_out;
 
 	struct In
 	{
 		std::queue<std::vector<char>> q;
 	};
-	details::Monitor<In> m_in;
+	Monitor<In> m_in;
 	// Holds the next incoming RPC data
 	std::vector<char> m_incoming;
 	// Hold the currently outgoing RPC data

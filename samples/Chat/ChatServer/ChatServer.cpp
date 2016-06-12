@@ -120,7 +120,6 @@ private:
 		LOG("RPC:login:%s,%s", name.c_str(), pass.c_str());
 		if (pass != "pass")
 			return "Wrong password";
-		// #TODO
 
 		auto user = getCurrentUser();
 		user->name = name;
@@ -134,7 +133,6 @@ private:
 	virtual void sendMsg(const std::string& msg) override
 	{
 		LOG("RPC:sendMsg:%s", msg.c_str());
-		// #TODO
 		auto user = getCurrentUser();
 		if (!user)
 			return;
