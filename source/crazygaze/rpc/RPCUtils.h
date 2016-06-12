@@ -24,10 +24,27 @@ struct FunctionTraits : public FunctionTraits<decltype(&T::operator())>
 };
 */
  
+namespace details
+{
+	template<typename T>
+	struct CheckFuture
+	{
+		static constexpr bool value = false;
+		using type = T;
+	};
+	template<typename T>
+	struct CheckFuture<std::future<T>>
+	{
+		static constexpr bool value = true;
+		using type = T;
+	};
+}
+
 // function pointer
 template<class R, class... Args>
 struct FunctionTraits<R(*)(Args...)> : public FunctionTraits<R(Args...)>
-{};
+{
+};
 
 
 template<class R, class C, class... Args>
@@ -45,8 +62,9 @@ struct FunctionTraits<R(C::*)(Args...) const> : public FunctionTraits<R(Args...)
 template<class R, class... Args>
 struct FunctionTraits<R(Args...)>
 {
-	static constexpr bool valid = ParamTraits<R>::valid && ParamPack<Args...>::valid;
-    using return_type = R;
+    using return_type = typename details::CheckFuture<R>::type;
+	static constexpr bool valid = ParamTraits<return_type>::valid && ParamPack<Args...>::valid;
+	static constexpr bool isasync = details::CheckFuture<R>::value;
 	using param_tuple = std::tuple<typename ParamTraits<Args>::store_type...>;
     static constexpr std::size_t arity = sizeof...(Args);
  
@@ -121,6 +139,40 @@ void serializeMethod(Stream& s, Args&&... args)
 	static_assert(Traits::valid, "Function signature not valid for RPC calls. Check if parameter types are valid");
 	static_assert(Traits::arity == sizeof...(Args), "Invalid number of parameters for RPC call.");
 	details::Parameters<F, 0>::serialize(s, std::forward<Args>(args)...);
+}
+
+template <class T>
+class Monitor
+{
+private:
+	mutable T m_t;
+	mutable std::mutex m_mtx;
+
+public:
+	using Type = T;
+	Monitor() {}
+	Monitor(T t_) : m_t(std::move(t_)) {}
+	template <typename F>
+	auto operator()(F f) const -> decltype(f(m_t))
+	{
+		std::lock_guard<std::mutex> hold{ m_mtx };
+		return f(m_t);
+	}
+};
+
+
+//
+// Future continuations, since std::future::then is not available yet
+//
+template <typename Fut, typename Work>
+decltype(auto) then(Fut f, Work w)
+{
+	auto fptr = std::make_shared<std::decay<Fut>::type>(std::move(f));
+	return std::async([fptr = std::move(fptr), w = std::move(w)]
+	{
+		fptr->wait();
+		return w(std::move(*fptr));
+	});
 }
 
 } // namespace rpc

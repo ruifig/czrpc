@@ -75,6 +75,16 @@ public:
 		return true;
 	}
 
+
+	std::future<std::string> testFuture(const char* str)
+	{
+		return std::async(std::launch::async, [s=std::string(str)]
+		{
+			UnitTest::TimeHelpers::SleepMs(100);
+			return s;
+		});
+	}
+
 	int clientCallRes = 0;
 };
 
@@ -114,7 +124,8 @@ public:
 	REGISTERRPC(testVector2) \
 	REGISTERRPC(testTuple) \
 	REGISTERRPC(testFoo1) \
-	REGISTERRPC(testFoo2)
+	REGISTERRPC(testFoo2) \
+	REGISTERRPC(testFuture)
 
 #define RPCTABLE_CLASS Tester
 	#define RPCTABLE_CONTENTS RPCTABLE_TESTER_CONTENTS
@@ -440,8 +451,6 @@ TEST(Inheritance)
 TEST(Constructors)
 {
 	using namespace cz::rpc;
-	// #TODO : Create a unit test to check that I'm not creating more copies than necessary of an object when calling
-	// RPCs
 
 	ServerProcess<Tester, void> server(TEST_PORT);
 
@@ -468,7 +477,31 @@ TEST(Constructors)
 	// Make sure the server got the client reply
 	io.stop();
 	iothread.join();
+}
 
+TEST(Futures)
+{
+	using namespace cz::rpc;
+
+	ServerProcess<Tester, void> server(TEST_PORT);
+
+	ASIO::io_service io;
+	std::thread iothread = std::thread([&io]
+	{
+		ASIO::io_service::work w(io);
+		io.run();
+	});
+
+	auto clientCon = AsioTransport<void, Tester>::create(io, "127.0.0.1", TEST_PORT).get();
+
+	auto res1 = CZRPC_CALL(*clientCon, testFuture, "hello1").ft().get();
+	auto res2 = CZRPC_CALL(*clientCon, testFuture, "hello2").ft().get();
+	CHECK(res1.get() == "hello1");
+	CHECK(res2.get() == "hello2");
+
+	// Make sure the server got the client reply
+	io.stop();
+	iothread.join();
 }
 
 /*

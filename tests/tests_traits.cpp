@@ -40,8 +40,10 @@ struct Bar
 	void valid3(const int&) {}
 	int valid4() { return 0; }
 	int valid5() { return 0; }
+	std::future<int> valid6(int a) { return std::future<int>(); }
 	float* invalid1() { return nullptr; }
 	int invalid2(int, float*) { return 0; }
+	std::future<float*> invalid3(int a) { return std::future<float*>(); }
 };
 
 
@@ -125,9 +127,15 @@ TEST(FunctionCheck)
 	CHECK(FunctionTraits<decltype(&Bar::valid3)>::valid == true);
 	CHECK(FunctionTraits<decltype(&Bar::valid4)>::valid == true);
 	CHECK(FunctionTraits<decltype(&Bar::valid5)>::valid == true);
+	CHECK(FunctionTraits<decltype(&Bar::valid6)>::valid == true);
 
 	CHECK(FunctionTraits<decltype(&Bar::invalid1)>::valid == false);
 	CHECK(FunctionTraits<decltype(&Bar::invalid2)>::valid == false);
+	CHECK(FunctionTraits<decltype(&Bar::invalid3)>::valid == false);
+
+	// Test detection of future
+	CHECK(FunctionTraits<decltype(&Bar::valid5)>::isasync == false);
+	CHECK(FunctionTraits<decltype(&Bar::valid6)>::isasync == true);
 }
 
 //

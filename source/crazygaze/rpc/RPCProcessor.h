@@ -13,7 +13,6 @@ class Call
 private:
 	using RType = typename FunctionTraits<F>::return_type;
 	using RTraits = typename ParamTraits<RType>;
-
 public:
 
 	Call(Call&& other)
@@ -41,7 +40,7 @@ public:
 		m_commited = true;
 	}
 
-	std::future<typename Result<typename RTraits::store_type>> ft()
+	std::future<class Result<typename RTraits::store_type>> ft()
 	{
 		auto pr = std::make_shared<std::promise<Result<RTraits::store_type>>>();
 		auto ft = pr->get_future();
@@ -195,6 +194,8 @@ class BaseInProcessor
 {
 public:
 	virtual ~BaseInProcessor() {}
+protected:
+	ResultOutput m_resOut;
 };
 
 template<typename T>
@@ -204,46 +205,17 @@ public:
 	using Type = T;
 	InProcessor(Type* obj, bool doVoidReplies=true)
 		: m_obj(*obj)
-		, m_voidReplies(doVoidReplies)
 	{
+		m_resOut.voidReplies = doVoidReplies;
 	}
 
 	void processCall(Transport& transport, Stream& in, Header hdr)
 	{
-		Stream out;
-		// Reuse the header as the header for the reply, so we keep the counter and rpcid
-		hdr.bits.size = 0;
-		hdr.bits.isReply = true;
-		hdr.bits.success = true;
-
 		auto&& info = Table<Type>::get(hdr.bits.rpcid);
-
-#if CZRPC_CATCH_EXCEPTIONS
-		try {
-#endif
-			out << hdr; // Reserve space for the header
-			info->dispatcher(m_obj, in, out);
-#if CZRPC_CATCH_EXCEPTIONS
-		}
-		catch (std::exception& e)
-		{
-			out.clear();
-			out << hdr; // Reserve space for the header
-			hdr.bits.success = false;
-			out << e.what();
-		}
-#endif
-
-		if (m_voidReplies || ( out.writeSize() > sizeof(hdr)))
-		{
-			hdr.bits.size = out.writeSize();
-			*reinterpret_cast<Header*>(out.ptr(0)) = hdr;
-			transport.send(out.extract());
-		}
+		info->dispatcher(m_obj, in, m_resOut, transport, hdr);
 	}
 protected:
 	Type& m_obj;
-	bool m_voidReplies = false;
 };
 
 template<>
