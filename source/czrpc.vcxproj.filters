@@ -43,9 +43,6 @@
     <ClInclude Include="crazygaze\rpc\RPCCallstack.h">
       <Filter>crazygaze\rpc</Filter>
     </ClInclude>
-    <ClInclude Include="crazygaze\rpc\RPCExpected.h">
-      <Filter>crazygaze\rpc</Filter>
-    </ClInclude>
     <ClInclude Include="crazygaze\rpc\RPC.h">
       <Filter>crazygaze\rpc</Filter>
     </ClInclude>

@@ -32,7 +32,6 @@ transports you want to use
 #include <assert.h>
 #include "crazygaze/rpc/RPCCallstack.h"
 
-#include "crazygaze/rpc/RPCExpected.h"
 #include "crazygaze/rpc/RPCResult.h"
 #include "crazygaze/rpc/RPCParamTraits.h"
 #include "crazygaze/rpc/RPCStream.h"
