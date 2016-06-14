@@ -85,6 +85,11 @@ public:
 		});
 	}
 
+	Any testAny(Any v)
+	{
+		return v;
+	}
+
 	int clientCallRes = 0;
 };
 
@@ -125,7 +130,8 @@ public:
 	REGISTERRPC(testTuple) \
 	REGISTERRPC(testFoo1) \
 	REGISTERRPC(testFoo2) \
-	REGISTERRPC(testFuture)
+	REGISTERRPC(testFuture) \
+	REGISTERRPC(testAny)
 
 #define RPCTABLE_CLASS Tester
 	#define RPCTABLE_CONTENTS RPCTABLE_TESTER_CONTENTS
@@ -498,6 +504,69 @@ TEST(Futures)
 	auto res2 = CZRPC_CALL(*clientCon, testFuture, "hello2").ft().get();
 	CHECK(res1.get() == "hello1");
 	CHECK(res2.get() == "hello2");
+
+	// Make sure the server got the client reply
+	io.stop();
+	iothread.join();
+}
+
+#define ANY_CHECK(a_, type, str)            \
+{ \
+	Any& a = a_; \
+	CHECK(a.getType() == Any::Type::type); \
+	CHECK(std::string(a.toString()) == str); \
+}
+
+TEST(Any)
+{
+	using namespace cz::rpc;
+
+	ServerProcess<Tester, void> server(TEST_PORT);
+
+	ASIO::io_service io;
+	std::thread iothread = std::thread([&io]
+	{
+		ASIO::io_service::work w(io);
+		io.run();
+	});
+
+	auto clientCon = AsioTransport<void, Tester>::create(io, "127.0.0.1", TEST_PORT).get();
+
+	{
+		auto res = CZRPC_CALL(*clientCon, testAny, Any()).ft().get();
+		ANY_CHECK(res.get(), None, "")
+	}
+	{
+		auto res = CZRPC_CALL(*clientCon, testAny, Any(true)).ft().get();
+		ANY_CHECK(res.get(), Bool, "true")
+	}
+	{
+		auto res = CZRPC_CALL(*clientCon, testAny, Any(int(1234))).ft().get();
+		ANY_CHECK(res.get(), Integer, "1234")
+	}
+	{
+		auto res = CZRPC_CALL(*clientCon, testAny, Any(int(-1234))).ft().get();
+		ANY_CHECK(res.get(), Integer, "-1234")
+	}
+	{
+		auto res = CZRPC_CALL(*clientCon, testAny, Any(unsigned(1234))).ft().get();
+		ANY_CHECK(res.get(), UnsignedInteger, "1234")
+	}
+	{
+		auto res = CZRPC_CALL(*clientCon, testAny, Any(float(1234.5))).ft().get();
+		ANY_CHECK(res.get(), Float, "1234.5000")
+	}
+	{
+		auto res = CZRPC_CALL(*clientCon, testAny, Any("hello")).ft().get();
+		ANY_CHECK(res.get(), String, "hello")
+	}
+	{
+		auto res = CZRPC_CALL(*clientCon, testAny, Any(std::vector<unsigned char>{0,1,2,3})).ft().get();
+		ANY_CHECK(res.get(), Blob, "BLOB{4}");
+		std::vector<unsigned char> v;
+		CHECK(res.get().getAs(v) == true);
+		CHECK_ARRAY_EQUAL(v, std::vector<unsigned char>({0, 1, 2, 3}), 4);
+	}
 
 	// Make sure the server got the client reply
 	io.stop();

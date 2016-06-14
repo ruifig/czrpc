@@ -12,6 +12,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="crazygaze\rpc\RPC.h" />
+    <ClInclude Include="crazygaze\rpc\RPCAny.h" />
     <ClInclude Include="crazygaze\rpc\RPCAsioTransport.h" />
     <ClInclude Include="crazygaze\rpc\RPCCallstack.h" />
     <ClInclude Include="crazygaze\rpc\RPCConnection.h" />

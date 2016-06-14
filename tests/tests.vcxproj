@@ -102,6 +102,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Foo.cpp" />
+    <ClCompile Include="tests_any.cpp" />
     <ClCompile Include="tests_main.cpp" />
     <ClCompile Include="testsPCH.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
