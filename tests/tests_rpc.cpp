@@ -588,7 +588,9 @@ TEST(Generic)
 		io.run();
 	});
 
-	auto clientCon = AsioTransport<void, Tester>::create(io, "127.0.0.1", TEST_PORT).get();
+	// Note that since we only want to use generic RPCs from this client we don't need to know
+	// the server type. We can use "GenericServer"
+	auto clientCon = AsioTransport<void, GenericServer>::create(io, "127.0.0.1", TEST_PORT).get();
 
 	// Calling a non existent generic function
 	{

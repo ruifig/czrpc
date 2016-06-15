@@ -17,6 +17,7 @@
     <ClInclude Include="crazygaze\rpc\RPCCallstack.h" />
     <ClInclude Include="crazygaze\rpc\RPCConnection.h" />
     <ClInclude Include="crazygaze\rpc\RPCGenerate.h" />
+    <ClInclude Include="crazygaze\rpc\RPCGenericServer.h" />
     <ClInclude Include="crazygaze\rpc\RPCParamTraits.h" />
     <ClInclude Include="crazygaze\rpc\RPCProcessor.h" />
     <ClInclude Include="crazygaze\rpc\RPCResult.h" />
