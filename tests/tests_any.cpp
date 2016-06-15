@@ -22,7 +22,8 @@ TEST(Constructors)
 	TestConstructor(float(0.5), Any::Type::Float);
 	TestConstructor("Hello", Any::Type::String);
 	TestConstructor(std::string("Hello"), Any::Type::String);
-	TestConstructor(std::vector<unsigned char>{ 0,1,2,3,4 }, Any::Type::Blob);
+	TestConstructor(std::vector<unsigned char>{ 0, 1, 2, 3, 4 }, Any::Type::Blob);
+	TestConstructor(std::vector<int>{0, 1}, Any::Type::None);
 }
 
 TEST(toString)
