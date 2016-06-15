@@ -155,6 +155,13 @@ protected:
 	std::unordered_map<uint32_t, std::function<void(Stream*, Header)>> m_replies;
 };
 
+namespace details
+{
+	// Signature of the generic RPC call. This helps reuse some of the code,
+	// since it's just another function
+	typedef Any(*GenericRPCFunc)(const std::string&, const std::vector<Any>&);
+}
+
 template<typename T>
 class OutProcessor : public BaseOutProcessor
 {
@@ -174,6 +181,12 @@ public:
 		return std::move(c);
 	}
 
+	auto callGeneric(Transport& transport, const std::string& name, const std::vector<Any>& args)
+	{
+		Call<details::GenericRPCFunc> c(*this, transport, (int)Table<T>::RPCId::genericRPC);
+		c.serializeParams(name, args);
+		return std::move(c);
+	}
 
 protected:
 
@@ -203,10 +216,9 @@ class InProcessor : public BaseInProcessor
 {
 public:
 	using Type = T;
-	InProcessor(Type* obj, bool doVoidReplies=true)
+	InProcessor(Type* obj)
 		: m_obj(*obj)
 	{
-		m_resOut.voidReplies = doVoidReplies;
 	}
 
 	void processCall(Transport& transport, Stream& in, Header hdr)
@@ -235,6 +247,9 @@ public:
         (uint32_t)cz::rpc::Table<                                         \
             std::decay<decltype(con)>::type::Remote>::RPCId::func,        \
         ##__VA_ARGS__)
+
+#define CZRPC_CALLGENERIC(con, name, ...) \
+	(con).callGeneric(*(con).transport, name, ##__VA_ARGS__)
 
 } // namespace rpc
 } // namespace cz

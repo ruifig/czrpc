@@ -165,8 +165,10 @@ int Tester::testClientAddCall(int a, int b)
 	return a + b;
 }
 
-
-CZRPC_DEFINE_CONST_LVALUE_REF(std::vector<typename>)
+//CZRPC_DEFINE_CONST_LVALUE_REF(std::vector<int>)
+//CZRPC_DEFINE_CONST_LVALUE_REF(std::vector<Any>)
+//CZRPC_DEFINE_CONST_LVALUE_REF(std::string)
+CZRPC_ALLOW_CONST_LVALUE_REFS;
 
 //
 // To simulate a server process, serving one single object instance
@@ -572,6 +574,54 @@ TEST(Any)
 	io.stop();
 	iothread.join();
 }
+
+TEST(Generic)
+{
+	using namespace cz::rpc;
+
+	ServerProcess<Tester, void> server(TEST_PORT);
+
+	ASIO::io_service io;
+	std::thread iothread = std::thread([&io]
+	{
+		ASIO::io_service::work w(io);
+		io.run();
+	});
+
+	auto clientCon = AsioTransport<void, Tester>::create(io, "127.0.0.1", TEST_PORT).get();
+
+	// Calling a non existent generic function
+	{
+		auto res = CZRPC_CALLGENERIC(*clientCon, "nonexistent").ft().get();
+		CHECK(res.isException());
+		CHECK(res.getException() == "Generic RPC not found");
+	}
+	{
+		auto res = CZRPC_CALLGENERIC(*clientCon, "simple", std::vector<Any>{Any(true)}).ft().get();
+		CHECK(res.isException());
+		CHECK(res.getException() == "Invalid parameters for generic RPC");
+	}
+	{
+		auto res = CZRPC_CALLGENERIC(*clientCon, "simple").ft().get().get();
+		CHECK(res.getType() == Any::Type::None);
+	}
+	{
+		auto res = CZRPC_CALLGENERIC(*clientCon, "noParams").ft().get().get();
+		CHECK(res.getType() == Any::Type::Integer);
+		CHECK(std::string(res.toString()) == "128");
+	}
+	{
+		auto res = CZRPC_CALLGENERIC(*clientCon, "add", std::vector<Any>{Any(1), Any(2)}).ft().get().get();
+		CHECK(res.getType() == Any::Type::Integer);
+		CHECK(std::string(res.toString()) == "3");
+	}
+
+
+	// Make sure the server got the client reply
+	io.stop();
+	iothread.join();
+}
+
 
 /*
 // Sample shown http://www.crazygaze.com/blog/2016/06/06/modern-c-lightweight-binary-rpc-framework-without-code-generation/

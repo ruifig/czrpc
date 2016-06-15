@@ -32,6 +32,11 @@ struct Connection : public BaseConnection
 		return remotePrc.template call<F>(transport, rpcid, std::forward<Args>(args)...);
 	}
 
+	auto callGeneric(Transport& transport, const std::string& name, const std::vector<Any>& args = std::vector<Any>())
+	{
+		return remotePrc.callGeneric(transport, name, args);
+	}
+
 	static ThisType* getCurrent()
 	{
 		auto it = Callstack<ThisType>::begin();

@@ -31,6 +31,12 @@ public:
 		destroy();
 	}
 
+	// Constructing from an unsuported type leaves it set to None
+	template<typename T>
+	Any(const T&) : m_type(Type::None)
+	{
+	}
+
 	Type getType() const
 	{
 		return m_type;

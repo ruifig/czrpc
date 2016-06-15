@@ -16,12 +16,14 @@ public:
 	using Type = RPCTABLE_CLASS;
 	#define REGISTERRPC(rpc) rpc,
 	enum class RPCId {
+		genericRPC,
 		RPCTABLE_CONTENTS
 		NUMRPCS
 	};
 
 	Table()
 	{
+		registerGenericRPC();
 		static_assert((unsigned)((int)RPCId::NUMRPCS-1)<(1<<Header::kRPCIdBits),
 			RPCTABLE_TOOMANYRPCS(Too many RPCs registered for class RPCTABLE_CLASS));
 		#undef REGISTERRPC
@@ -29,11 +31,11 @@ public:
 		RPCTABLE_CONTENTS
 	}
 
-	static const RPCInfo* get(uint32_t rpcid)
+	static const Info* get(uint32_t rpcid)
 	{
 		static Table<RPCTABLE_CLASS> tbl;
 		assert(tbl.isValid(rpcid));
-		return static_cast<RPCInfo*>(tbl.m_rpcs[rpcid].get());
+		return static_cast<Info*>(tbl.m_rpcs[rpcid].get());
 	}
 };
 
