@@ -40,3 +40,4 @@ transports you want to use
 #include "crazygaze/rpc/RPCTable.h"
 #include "crazygaze/rpc/RPCProcessor.h"
 #include "crazygaze/rpc/RPCConnection.h"
+#include "crazygaze/rpc/RPCGenericServer.h"
