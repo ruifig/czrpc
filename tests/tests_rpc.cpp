@@ -35,6 +35,8 @@ public:
 
 	int testClientAddCall(int a, int b);
 
+	std::future<std::string> testClientVoid();
+
 	void voidTestException(bool doThrow)
 	{
 		if (doThrow)
@@ -123,6 +125,7 @@ public:
 	REGISTERRPC(add) \
 	REGISTERRPC(virtualFunc) \
 	REGISTERRPC(testClientAddCall) \
+	REGISTERRPC(testClientVoid) \
 	REGISTERRPC(voidTestException) \
 	REGISTERRPC(intTestException) \
 	REGISTERRPC(testVector1) \
@@ -165,10 +168,33 @@ int Tester::testClientAddCall(int a, int b)
 	return a + b;
 }
 
-//CZRPC_DEFINE_CONST_LVALUE_REF(std::vector<int>)
-//CZRPC_DEFINE_CONST_LVALUE_REF(std::vector<Any>)
-//CZRPC_DEFINE_CONST_LVALUE_REF(std::string)
-CZRPC_ALLOW_CONST_LVALUE_REFS;
+// This tests what happens when the server tries to call an RPC on a client which doesn't have a local object.
+// In other words, the client's connection is in the form Connection<void,SomeRemoteInterface>
+// In this case, the client having a InProcessor<void>, should send back an error for all RPC calls it receives.
+// In turn, the server sends back this error as a reply to the original RPC call from the client, so the unit test
+// can check if everything is still working and not blocked somewhere.
+std::future<std::string> Tester::testClientVoid()
+{
+	auto client = cz::rpc::Connection<Tester, TesterClient>::getCurrent();
+	CHECK(client != nullptr);
+
+	auto pr = std::make_shared<std::promise<std::string>>();
+	CZRPC_CALL(*client, clientAdd, 1, 2).async(
+		[this, pr](Result<int> res)
+	{
+		CHECK(res.isException());
+		pr->set_value(res.getException());
+	});
+
+	return pr->get_future();
+}
+
+CZRPC_DEFINE_CONST_LVALUE_REF(std::vector<int>)
+CZRPC_DEFINE_CONST_LVALUE_REF(std::vector<Any>)
+CZRPC_DEFINE_CONST_LVALUE_REF(std::string)
+
+// Alternatively, enable support for all "const T&" with
+// CZRPC_ALLOW_CONST_LVALUE_REFS;
 
 //
 // To simulate a server process, serving one single object instance
@@ -414,9 +440,10 @@ TEST(ClientCall)
 		CHECK_EQUAL(3, res.get());
 	});
 
-	pending.wait();
 	// Make sure the server got the client reply
+	pending.wait();
 	CHECK_EQUAL(3, server.obj().clientCallRes);
+
 	io.stop();
 	iothread.join();
 }
@@ -451,7 +478,7 @@ TEST(Inheritance)
 	});
 
 	pending.wait();
-	// Make sure the server got the client reply
+
 	io.stop();
 	iothread.join();
 }
@@ -482,32 +509,6 @@ TEST(Constructors)
 	CHECK(ft.get().get() == true);
 	Foo::check(1, 1, 0);
 
-	// Make sure the server got the client reply
-	io.stop();
-	iothread.join();
-}
-
-TEST(Futures)
-{
-	using namespace cz::rpc;
-
-	ServerProcess<Tester, void> server(TEST_PORT);
-
-	ASIO::io_service io;
-	std::thread iothread = std::thread([&io]
-	{
-		ASIO::io_service::work w(io);
-		io.run();
-	});
-
-	auto clientCon = AsioTransport<void, Tester>::create(io, "127.0.0.1", TEST_PORT).get();
-
-	auto res1 = CZRPC_CALL(*clientCon, testFuture, "hello1").ft().get();
-	auto res2 = CZRPC_CALL(*clientCon, testFuture, "hello2").ft().get();
-	CHECK(res1.get() == "hello1");
-	CHECK(res2.get() == "hello2");
-
-	// Make sure the server got the client reply
 	io.stop();
 	iothread.join();
 }
@@ -570,7 +571,6 @@ TEST(Any)
 		CHECK_ARRAY_EQUAL(v, std::vector<unsigned char>({0, 1, 2, 3}), 4);
 	}
 
-	// Make sure the server got the client reply
 	io.stop();
 	iothread.join();
 }
@@ -616,158 +616,39 @@ TEST(Generic)
 		CHECK(std::string(res.toString()) == "3");
 	}
 
-
-	// Make sure the server got the client reply
 	io.stop();
 	iothread.join();
 }
 
-
-/*
-// Sample shown http://www.crazygaze.com/blog/2016/06/06/modern-c-lightweight-binary-rpc-framework-without-code-generation/
-
-//////////////////////////////////////////////////////////////////////////
-// Useless RPC-agnostic class that performs calculations.
-class Calculator
+// Tests the case when the server wants to call a client side RPC, but the client
+// processor is actually InProcessor<void>
+TEST(VoidPeer)
 {
-public:
-  double add(double a, double b) { return a + b; }
-};
+	using namespace cz::rpc;
 
-// Define the RPC table for the Calculator class
-#define RPCTABLE_CLASS Calculator
-#define RPCTABLE_CONTENTS \
-	REGISTERRPC(add)
-#include "crazygaze/rpc/RPCGenerate.h"
+	// The server expects the client to be have a TesterClient API
+	ServerProcess<Tester, TesterClient> server(TEST_PORT);
 
-
-void RunServer()
-{
-
-}
-
-void RunClient()
-{
-}
-
-TEST(BlogArticleSample)
-{
-	// SERVER
-	using namespace ArticleSample;
-	auto serverThread = std::thread([]
+	ASIO::io_service io;
+	std::thread iothread = std::thread([&io]
 	{
-		RunServer();
-	});
-
-
-	// CLIENT
-}
-
-*/
-
-}
-
-
-//////////////////////////////////////////////////////////////////////////
-// Useless RPC-agnostic class that performs calculations.
-//////////////////////////////////////////////////////////////////////////
-class Calculator
-{
-public:
-	double add(double a, double b) { return a + b; }
-};
-
-//////////////////////////////////////////////////////////////////////////
-// Define the RPC table for the Calculator class
-// This needs to be seen by both the server and client code
-//////////////////////////////////////////////////////////////////////////
-#define RPCTABLE_CLASS Calculator
-#define RPCTABLE_CONTENTS \
-	REGISTERRPC(add)
-#include "crazygaze/rpc/RPCGenerate.h"
-
-//////////////////////////////////////////////////////////////////////////
-// A Server that that only accepts 1 client, then shuts down
-// when the client disconnects
-//////////////////////////////////////////////////////////////////////////
-void RunServer()
-{
-	asio::io_service io;
-	// Start thread to run Asio's the io_service
-	// we will be using for the server
-	std::thread th = std::thread([&io]
-	{
-		asio::io_service::work w(io);
+		ASIO::io_service::work w(io);
 		io.run();
 	});
 
-	// Instance we will be using to serve RPC calls.
-	// Note that it's an object that knows nothing about RPCs
-	Calculator calc;
+	// Instead of having a LOCAL of TesterClient, like the server expects, we
+	// use void, to test the behavior
+	auto clientCon = AsioTransport<void, Tester>::create(io, "127.0.0.1", TEST_PORT).get();
 
-	// start listening for a client connection.
-	// We specify what Calculator instance clients will use,
-	auto acceptor = AsioTransportAcceptor<Calculator,void>::create(io, calc);
-	// Start listening on port 9000.
-	// For simplicity, we are only expecting 1 client
-	using ConType = Connection<Calculator, void>;
-	std::shared_ptr<ConType> con;
-	acceptor->start(9000, [&io,&con](std::shared_ptr<ConType> con_)
-	{
-		con = con_;
-		// Since this is just a sample, close the server once the first client disconnects
-		reinterpret_cast<BaseAsioTransport*>(con->transport.get())->setOnClosed([&io]
-		{
-			io.stop();
-		});
-	});
 
-	th.join();
+	// Call an RPC on the server, that in turn will try to call one on the client-side.
+	// Since the client is using InProcessor<void>, it cannot reply. It will just send back
+	// an error. The server will in turn send us back that exception for us to check
+	auto res = CZRPC_CALL(*clientCon, testClientVoid).ft().get();
+	CHECK(res.get() == "Peer doesn't have an object to process RPC calls");
+
+	io.stop();
+	iothread.join();
 }
 
-//////////////////////////////////////////////////////////////////////////
-// A client that connects to the server, calls 1 RPC
-// then disconnects, causing everything to shut down
-//////////////////////////////////////////////////////////////////////////
-void RunClient()
-{
-	// Start a thread to run our Asio io_service
-	asio::io_service io;
-	std::thread th = std::thread([&io]
-	{
-		asio::io_service::work w(io);
-		io.run();
-	});
-
-	// Connect to the server (localhost, port 9000)
-	auto con = AsioTransport<void, Calculator>::create(io, "127.0.0.1", 9000).get();
-
-	// Call one RPC (the add method), specifying an asynchronous handler for when the result arrives
-	CZRPC_CALL(*con, add, 1, 2).async([&io](Result<double> res)
-	{
-		printf("Result=%f\n", res.get()); // Prints 3.0
-		// Since this is a just a sample, stop the io_service after we get the result,
-		// so everything shuts down
-		io.stop();
-	});
-
-	th.join();
-}
-
-// For testing simplicity, run both the server and client on the same machine,
-void RunServerAndClient()
-{
-	auto a = std::thread([] { RunServer(); });
-	auto b = std::thread([] { RunClient(); });
-	a.join();
-	b.join();
-}
-
-SUITE(ArticleSamples)
-{
-
-TEST(ArticleSample)
-{
-	RunServerAndClient();
-}
 }

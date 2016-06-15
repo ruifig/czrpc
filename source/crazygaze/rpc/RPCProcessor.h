@@ -235,9 +235,10 @@ class InProcessor<void>
 {
 public:
 	InProcessor(void*) { }
-	void processCall(Transport&, Stream& , Header)
+	void processCall(Transport& trp, Stream& in, Header hdr)
 	{
-		assert(0 && "Incoming RPC not allowed for void local type");
+		//assert(0 && "Incoming RPC not allowed for void local type");
+		details::Send::error(trp, hdr, "Peer doesn't have an object to process RPC calls");
 	}
 };
 
