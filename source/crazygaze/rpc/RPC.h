@@ -33,7 +33,7 @@ transports you want to use
 #include "crazygaze/rpc/RPCCallstack.h"
 #include "crazygaze/rpc/RPCParamTraits.h"
 #include "crazygaze/rpc/RPCAny.h"
-#include "crazygaze/rpc/RPCProperties.h"
+#include "crazygaze/rpc/RPCObjectData.h"
 #include "crazygaze/rpc/RPCResult.h"
 #include "crazygaze/rpc/RPCStream.h"
 #include "crazygaze/rpc/RPCUtils.h"

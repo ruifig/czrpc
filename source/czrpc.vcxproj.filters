@@ -52,7 +52,11 @@
     <ClInclude Include="crazygaze\rpc\RPCAny.h">
       <Filter>crazygaze\rpc</Filter>
     </ClInclude>
-    <ClInclude Include="crazygaze\rpc\RPCGenericServer.h" />
-    <ClInclude Include="crazygaze\rpc\RPCProperties.h" />
+    <ClInclude Include="crazygaze\rpc\RPCGenericServer.h">
+      <Filter>crazygaze\rpc</Filter>
+    </ClInclude>
+    <ClInclude Include="crazygaze\rpc\RPCObjectData.h">
+      <Filter>crazygaze\rpc</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

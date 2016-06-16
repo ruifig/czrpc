@@ -53,7 +53,7 @@ inline Stream& operator>>(Stream& s, Header& v)
 struct InProcessorData
 {
 	InProcessorData(void* owner)
-		: props(owner)
+		: objData(owner)
 	{
 	}
 
@@ -64,19 +64,25 @@ struct InProcessorData
 		std::vector<std::future<void>> done;
 	};
 	Monitor<PendingFutures> pending;
-	Properties props;
+	ObjectData objData;
+	bool authPassed = false;
 
 	//
 	// Control RPCS
 	//
 	Any getProperty(std::string name)
 	{
-		return props.getProperty(name);
+		return objData.getProperty(name);
 	}
 
 	Any setProperty(std::string name, Any val)
 	{
-		return Any(props.setProperty(name, std::move(val), true));
+		return Any(objData.setProperty(name, std::move(val), true));
+	}
+	Any auth(const std::string token)
+	{
+		authPassed = objData.checkAuthToken(token);
+		return Any(authPassed);
 	}
 };
 
@@ -296,6 +302,7 @@ class TableImpl : public BaseTable
 		m_rpcs.push_back(std::move(info));
 
 		// Register control RPCs
+		registerControlRPC("__auth", &InProcessorData::auth);
 		registerControlRPC("__getProperty", &InProcessorData::getProperty);
 		registerControlRPC("__setProperty", &InProcessorData::setProperty);
 	}
@@ -318,6 +325,12 @@ class TableImpl : public BaseTable
 		info->dispatcher = [f](Type& obj, Stream& in, InProcessorData& out, Transport& trp, Header hdr) {
 			using Traits = FunctionTraits<F>;
 			typename Traits::param_tuple params;
+
+			if (!out.authPassed)
+			{
+				trp.close();
+				return;
+			}
 
 			if (hdr.isGenericRPC())
 			{
@@ -348,11 +361,17 @@ class TableImpl : public BaseTable
 
 		auto info = std::make_unique<Info>();
 		info->name = name;
-		info->dispatcher = [f](Type& obj, Stream& in, InProcessorData& out, Transport& trp, Header hdr) {
+		info->dispatcher = [f, info=info.get()](Type& obj, Stream& in, InProcessorData& out, Transport& trp, Header hdr) {
 			using Traits = FunctionTraits<F>;
 			typename Traits::param_tuple params;
 			// All control RPCs are generic (and only generic)
 			assert(hdr.isGenericRPC());
+
+			if (!out.authPassed && info->name!="__auth")
+			{
+				trp.close();
+				return;
+			}
 
 			std::vector<Any> a;
 			in >> a;
