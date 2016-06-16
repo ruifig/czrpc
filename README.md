@@ -5,7 +5,7 @@ It requires no code generation.
 
 It was created as part of a technical article for my blog : [http://www.crazygaze.com/blog/2016/06/06/modern-c-lightweight-binary-rpc-framework-without-code-generation/](http://www.crazygaze.com/blog/2016/06/06/modern-c-lightweight-binary-rpc-framework-without-code-generation/)
 
-[<img src="https://cloud.githubusercontent.com/assets/8225057/5990484/70413560-a9ab-11e4-8942-1a63607c0b00.png">](https://www.patreon.com/RuiMVFigueira)
+
 
 # Features #
 
