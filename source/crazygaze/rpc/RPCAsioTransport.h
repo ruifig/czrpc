@@ -107,12 +107,13 @@ public:
 		m_s = std::make_shared<ASIO::ip::tcp::socket>(m_io);
 		ASIO::ip::tcp::endpoint point(ASIO::ip::address::from_string(ip), port);
 		m_s->async_connect(
-			point, [callback=std::move(callback)](const CZRPC_ASIO_ERROR_CODE& ec)
+			point, [this_=shared_from_this(), callback=std::move(callback)](const CZRPC_ASIO_ERROR_CODE& ec)
 		{
 			callback(ec ? false : true);
+			if (!ec)
+				this_->startReadSize();
 		});
 
-		startReadSize();
 	}
 
 	void setOnClosed(std::function<void()> h)

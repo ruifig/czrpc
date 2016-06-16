@@ -283,7 +283,8 @@ TEST(NotAuth)
 TEST(Simple)
 {
 	using namespace cz::rpc;
-	ServerProcess<Tester, void> server(TEST_PORT);
+	// Also test using authentication
+	ServerProcess<Tester, void> server(TEST_PORT, "meow");
 
 	ASIO::io_service io;
 	std::thread iothread = std::thread([&io]
@@ -296,6 +297,11 @@ TEST(Simple)
 
 	ZeroSemaphore sem; // Used to make sure all rpcs were called
 	sem.increment();
+
+	// Authenticate first
+	bool authRes = false;
+	CZRPC_CALLGENERIC(*clientCon, "__auth", std::vector<Any>{ Any("meow") }).ft().get().get().getAs(authRes);
+	CHECK(authRes == true);
 
 	// Test with async
 	CZRPC_CALL(*clientCon, simple).async(
