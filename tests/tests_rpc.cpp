@@ -205,14 +205,16 @@ public:
 	using Local = LOCAL;
 	using Remote = REMOTE;
 
-	ServerProcess(int port)
-		: m_objProps(&m_obj)
+	explicit ServerProcess(int port, std::string authToken="")
+		: m_objData(&m_obj)
 	{
 		m_th = std::thread([this]
 		{
 			ASIO::io_service::work w(m_io);
 			m_io.run();
 		});
+
+		m_objData.setAuthToken(std::move(authToken));
 
 		m_acceptor = AsioTransportAcceptor<Local, Remote>::create(m_io, m_obj);
 		m_acceptor->start(port, [&](std::shared_ptr<Connection<Local, Remote>> con)
@@ -232,13 +234,50 @@ private:
 	ASIO::io_service m_io;
 	std::thread m_th;
 	LOCAL m_obj;
-	Properties m_objProps;
+	ObjectData m_objData;
 	std::shared_ptr<AsioTransportAcceptor<Local, Remote>> m_acceptor;
 	std::vector<std::shared_ptr<Connection<Local, Remote>>> m_cons;
 };
 
 SUITE(RPCTraits)
 {
+
+TEST(NotAuth)
+{
+	using namespace cz::rpc;
+	ServerProcess<Tester, void> server(TEST_PORT, "meow");
+
+	ASIO::io_service io;
+	std::thread iothread = std::thread([&io]
+	{
+		ASIO::io_service::work w(io);
+		io.run();
+	});
+
+	auto clientCon = AsioTransport<void,Tester>::create(io, "127.0.0.1", TEST_PORT).get();
+
+	//
+	// Calling an RPC without authenticating first (if authentication is required),
+	// will cause the transport to close;
+	bool asyncAborted = false;
+	// Test with async
+	CZRPC_CALL(*clientCon, simple).async(
+		[&](Result<void> res)
+	{
+		asyncAborted = res.isAborted();
+	});
+
+	// Test with future
+	auto ft = CZRPC_CALL(*clientCon, simple).ft();
+	auto ftRes = ft.get();
+
+	CHECK(asyncAborted);
+	CHECK(ftRes.isAborted());
+
+	io.stop();
+	iothread.join();
+
+}
 
 // RPC without return value or parameters
 TEST(Simple)
@@ -661,8 +700,7 @@ TEST(ControlRPCs)
 	ServerProcess<Tester, void> server(TEST_PORT);
 	{
 		// Add some properties to the server
-		Properties props(&server.obj());
-		props.setProperty("name", Any("Tester1"));
+		ObjectData(&server.obj()).setProperty("name", Any("Tester1"));
 	}
 
 	ASIO::io_service io;

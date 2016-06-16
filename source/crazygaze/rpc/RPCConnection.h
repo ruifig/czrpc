@@ -45,9 +45,9 @@ struct Connection : public BaseConnection
 
 	virtual bool process() override
 	{
-        // Place a callstack marker, so other code can detect we are serving an
-        // RPC
-        typename Callstack<ThisType>::Context ctx(this);
+		// Place a callstack marker, so other code can detect we are serving an
+		// RPC
+		typename Callstack<ThisType>::Context ctx(this);
 		std::vector<char> data;
 		while(true)
 		{

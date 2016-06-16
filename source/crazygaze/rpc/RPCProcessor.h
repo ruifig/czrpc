@@ -204,17 +204,22 @@ class OutProcessor<void>
 };
 
 
-
 class BaseInProcessor
 {
 public:
 	BaseInProcessor(void* obj)
 		: m_data(obj)
 	{
+		m_data.authPassed = m_data.objData.getAuthToken() == "" ? true : false;
 	}
 
 	virtual ~BaseInProcessor()
 	{}
+
+	void setAuthToken(std::string tk)
+	{
+		m_data.objData.setAuthToken(std::move(tk));
+	}
 
 protected:
 	InProcessorData m_data;

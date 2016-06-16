@@ -88,6 +88,9 @@ public:
 	// to fail, therefore signaling our close cleanup code (to abort RPC replies)
 	virtual void close() override
 	{
+		if (m_closeStarted)
+			return;
+		m_closeStarted = true;
 		m_io.post([this_=shared_from_this()]()
 		{
 			if (this_->m_s)
@@ -141,9 +144,12 @@ protected:
 
 		return pr->get_future();
 	}
+
 	template<typename, typename> friend class AsioTransportAcceptor;
 	std::shared_ptr<ASIO::ip::tcp::socket> m_s;
 	ASIO::io_service& m_io;
+
+	bool m_closeStarted = false;
 	bool m_closed = false;
 	BaseConnection* m_con;
 	std::function<void()> m_onClosed;
