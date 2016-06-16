@@ -203,12 +203,21 @@ class OutProcessor<void>
 	void abortReplies() {}
 };
 
+
+
 class BaseInProcessor
 {
 public:
-	virtual ~BaseInProcessor() {}
+	BaseInProcessor(void* obj)
+		: m_data(obj)
+	{
+	}
+
+	virtual ~BaseInProcessor()
+	{}
+
 protected:
-	ResultOutput m_resOut;
+	InProcessorData m_data;
 };
 
 template<typename T>
@@ -217,15 +226,17 @@ class InProcessor : public BaseInProcessor
 public:
 	using Type = T;
 	InProcessor(Type* obj)
-		: m_obj(*obj)
+		: BaseInProcessor(obj)
+		, m_obj(*obj)
 	{
 	}
 
 	void processCall(Transport& transport, Stream& in, Header hdr)
 	{
 		auto&& info = Table<Type>::get(hdr.bits.rpcid);
-		info->dispatcher(m_obj, in, m_resOut, transport, hdr);
+		info->dispatcher(m_obj, in, m_data, transport, hdr);
 	}
+
 protected:
 	Type& m_obj;
 };
