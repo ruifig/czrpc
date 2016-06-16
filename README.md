@@ -41,3 +41,7 @@ To run the unit tests or the provided samples:
         * ```#define CZRPC_HAS_BOOST 1```
 2. Open the provided Visual Studio Solution
 3. Set the "tests" project as startup, or the ChatServer/ChatClient
+
+# License #
+
+czrpc is licensed under the MIT License, see LICENSE for more information
