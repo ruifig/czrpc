@@ -53,5 +53,6 @@
       <Filter>crazygaze\rpc</Filter>
     </ClInclude>
     <ClInclude Include="crazygaze\rpc\RPCGenericServer.h" />
+    <ClInclude Include="crazygaze\rpc\RPCProperties.h" />
   </ItemGroup>
 </Project>

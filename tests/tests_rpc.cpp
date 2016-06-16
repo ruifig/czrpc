@@ -77,7 +77,6 @@ public:
 		return true;
 	}
 
-
 	std::future<std::string> testFuture(const char* str)
 	{
 		return std::async(std::launch::async, [s=std::string(str)]
@@ -207,6 +206,7 @@ public:
 	using Remote = REMOTE;
 
 	ServerProcess(int port)
+		: m_objProps(&m_obj)
 	{
 		m_th = std::thread([this]
 		{
@@ -232,6 +232,7 @@ private:
 	ASIO::io_service m_io;
 	std::thread m_th;
 	LOCAL m_obj;
+	Properties m_objProps;
 	std::shared_ptr<AsioTransportAcceptor<Local, Remote>> m_acceptor;
 	std::vector<std::shared_ptr<Connection<Local, Remote>>> m_cons;
 };
@@ -628,7 +629,8 @@ TEST(VoidPeer)
 {
 	using namespace cz::rpc;
 
-	// The server expects the client to be have a TesterClient API
+	// The server expects the client to have a TesterClient API,
+	// but if the client is using InProcessor<void>, it should still get a reply with an error
 	ServerProcess<Tester, TesterClient> server(TEST_PORT);
 
 	ASIO::io_service io;
@@ -642,12 +644,65 @@ TEST(VoidPeer)
 	// use void, to test the behavior
 	auto clientCon = AsioTransport<void, Tester>::create(io, "127.0.0.1", TEST_PORT).get();
 
-
 	// Call an RPC on the server, that in turn will try to call one on the client-side.
 	// Since the client is using InProcessor<void>, it cannot reply. It will just send back
 	// an error. The server will in turn send us back that exception for us to check
 	auto res = CZRPC_CALL(*clientCon, testClientVoid).ft().get();
 	CHECK(res.get() == "Peer doesn't have an object to process RPC calls");
+
+	io.stop();
+	iothread.join();
+}
+
+TEST(ControlRPCs)
+{
+	using namespace cz::rpc;
+
+	ServerProcess<Tester, void> server(TEST_PORT);
+	{
+		// Add some properties to the server
+		Properties props(&server.obj());
+		props.setProperty("name", Any("Tester1"));
+	}
+
+	ASIO::io_service io;
+	std::thread iothread = std::thread([&io]
+	{
+		ASIO::io_service::work w(io);
+		io.run();
+	});
+
+	// Specifying GenericServer as REMOTE type, since we only need to call generic RPCs
+	auto clientCon = AsioTransport<void, GenericServer>::create(io, "127.0.0.1", TEST_PORT).get();
+
+	{
+		auto res = CZRPC_CALLGENERIC(*clientCon, "__getProperty", std::vector<Any>{Any("prop1")}).ft().get();
+		CHECK(res.get().getType() == Any::Type::None);
+	}
+
+	{
+		auto res = CZRPC_CALLGENERIC(*clientCon, "__setProperty", std::vector<Any>{Any("prop1"), Any(false)}).ft().get();
+		CHECK(res.get().getType() == Any::Type::Bool);
+		CHECK(std::string(res.get().toString()) == "true");
+		res = CZRPC_CALLGENERIC(*clientCon, "__getProperty", std::vector<Any>{Any("prop1")}).ft().get();
+		CHECK(res.get().getType() == Any::Type::Bool);
+		CHECK(std::string(res.get().toString()) == "false");
+	}
+
+	{
+		auto res = CZRPC_CALLGENERIC(*clientCon, "__setProperty", std::vector<Any>{Any("prop1"), Any("Hello")}).ft().get();
+		CHECK(res.get().getType() == Any::Type::Bool);
+		CHECK(std::string(res.get().toString()) == "true");
+		res = CZRPC_CALLGENERIC(*clientCon, "__getProperty", std::vector<Any>{Any("prop1")}).ft().get();
+		CHECK(res.get().getType() == Any::Type::String);
+		CHECK(std::string(res.get().toString()) == "Hello");
+	}
+
+	{
+		auto res = CZRPC_CALLGENERIC(*clientCon, "__getProperty", std::vector<Any>{Any("name")}).ft().get();
+		CHECK(res.get().getType() == Any::Type::String);
+		CHECK(std::string(res.get().toString()) == "Tester1");
+	}
 
 	io.stop();
 	iothread.join();

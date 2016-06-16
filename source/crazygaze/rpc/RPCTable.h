@@ -50,8 +50,13 @@ inline Stream& operator>>(Stream& s, Header& v)
 	return s;
 }
 
-struct ResultOutput
+struct InProcessorData
 {
+	InProcessorData(void* owner)
+		: props(owner)
+	{
+	}
+
 	struct PendingFutures
 	{
 		unsigned counter = 0;
@@ -59,6 +64,20 @@ struct ResultOutput
 		std::vector<std::future<void>> done;
 	};
 	Monitor<PendingFutures> pending;
+	Properties props;
+
+	//
+	// Control RPCS
+	//
+	Any getProperty(std::string name)
+	{
+		return props.getProperty(name);
+	}
+
+	Any setProperty(std::string name, Any val)
+	{
+		return Any(props.setProperty(name, std::move(val), true));
+	}
 };
 
 //
@@ -125,7 +144,7 @@ struct Dispatcher<false, R>
 	};
 
 	template <typename OBJ, typename F, typename P>
-	static void impl(OBJ& obj, F f, P&& params, ResultOutput& out, Transport& trp, Header hdr)
+	static void impl(OBJ& obj, F f, P&& params, InProcessorData& out, Transport& trp, Header hdr)
 	{
 #if CZRPC_CATCH_EXCEPTIONS
 		try {
@@ -149,11 +168,11 @@ template <typename R>
 struct Dispatcher<true, R>
 {
 	template <typename OBJ, typename F, typename P>
-	static void impl(OBJ& obj, F f, P&& params, ResultOutput& out, Transport& trp, Header hdr)
+	static void impl(OBJ& obj, F f, P&& params, InProcessorData& out, Transport& trp, Header hdr)
 	{
 		using Traits = FunctionTraits<F>;
 		auto resFt = callMethod(obj, f, std::move(params));
-		out.pending([&](ResultOutput::PendingFutures& pending)
+		out.pending([&](InProcessorData::PendingFutures& pending)
 		{
 			unsigned counter = pending.counter++;
 			auto ft = then(std::move(resFt), [&out, &trp, hdr, counter](std::future<Traits::return_type> ft)
@@ -166,7 +185,7 @@ struct Dispatcher<true, R>
 	}
 
 	template<typename T>
-	static void processReady(ResultOutput& out, Transport& trp, unsigned counter, Header hdr, std::future<T> ft)
+	static void processReady(InProcessorData& out, Transport& trp, unsigned counter, Header hdr, std::future<T> ft)
 	{
 		try
 		{
@@ -186,7 +205,7 @@ struct Dispatcher<true, R>
 
 		// Delete previously finished futures, and prepare to delete this one.
 		// We can't delete this one right here, because it will deadlock.
-		out.pending([&](ResultOutput::PendingFutures& pending)
+		out.pending([&](InProcessorData::PendingFutures& pending)
 		{
 			pending.done.clear();
 			auto it = pending.futures.find(counter);
@@ -215,6 +234,7 @@ class BaseTable
 	bool isValid(uint32_t rpcid) const { return rpcid < m_rpcs.size(); }
   protected:
 	std::vector<std::unique_ptr<BaseInfo>> m_rpcs;
+	std::vector<std::unique_ptr<BaseInfo>> m_controlrpcs;
 };
 
 template <typename T>
@@ -225,7 +245,7 @@ class TableImpl : public BaseTable
 
 	struct Info : public BaseInfo
 	{
-		std::function<void(Type&, Stream& in, ResultOutput& out, Transport& trp, Header hdr)> dispatcher;
+		std::function<void(Type&, Stream& in, InProcessorData& out, Transport& trp, Header hdr)> dispatcher;
 	};
 
 
@@ -239,17 +259,32 @@ class TableImpl : public BaseTable
 		return nullptr;
 	}
 
+	Info* getControlByName(const std::string& name)
+	{
+		for(auto&& info : m_controlrpcs)
+		{
+			if (info->name == name)
+				return static_cast<Info*>(info.get());
+		}
+		return nullptr;
+	}
+
 	void registerGenericRPC()
 	{
 		// Generic RPC needs to have ID 0
 		assert(m_rpcs.size() == 0);
 		auto info = std::make_unique<Info>();
 		info->name = "genericRPC";
-		info->dispatcher = [this](Type& obj, Stream& in, ResultOutput& out, Transport& trp, Header hdr) {
+		info->dispatcher = [this](Type& obj, Stream& in, InProcessorData& out, Transport& trp, Header hdr) {
 			assert(hdr.isGenericRPC());
 			std::string name;
 			in >> name;
+
+			// Search first in user RPCs, for performance reasons, since those are called most often
 			Info* info = getByName(name);
+			if (!info)
+				info = getControlByName(name);
+
 			if (!info)
 			{
 				details::Send::error(trp, hdr, "Generic RPC not found");
@@ -259,15 +294,28 @@ class TableImpl : public BaseTable
 			info->dispatcher(obj, in, out, trp, hdr);
 		};
 		m_rpcs.push_back(std::move(info));
+
+		// Register control RPCs
+		registerControlRPC("__getProperty", &InProcessorData::getProperty);
+		registerControlRPC("__setProperty", &InProcessorData::setProperty);
 	}
 
 	template <typename F>
 	void registerRPC(uint32_t rpcid, const char* name, F f)
 	{
 		assert(rpcid == m_rpcs.size());
+
+		// Make sure there are no two RPCs with the same name
+		// NOTE: For the user RPCs alone, this would not be necessary, since the enums
+		// would not allow two RPCs with the same name. But we also need to make sure user RPC names
+		// don't collide with the control RPCs
+		// 
+		assert(getByName(name) == nullptr);
+		assert(getControlByName(name) == nullptr);
+
 		auto info = std::make_unique<Info>();
 		info->name = name;
-		info->dispatcher = [f](Type& obj, Stream& in, ResultOutput& out, Transport& trp, Header hdr) {
+		info->dispatcher = [f](Type& obj, Stream& in, InProcessorData& out, Transport& trp, Header hdr) {
 			using Traits = FunctionTraits<F>;
 			typename Traits::param_tuple params;
 
@@ -290,6 +338,40 @@ class TableImpl : public BaseTable
 			details::Dispatcher<Traits::isasync, R>::impl(obj, f, std::move(params), out, trp, hdr);
 		};
 		m_rpcs.push_back(std::move(info));
+	}
+
+	template<typename F>
+	void registerControlRPC(const char* name, F f)
+	{
+		assert(getByName(name) == nullptr);
+		assert(getControlByName(name) == nullptr);
+
+		auto info = std::make_unique<Info>();
+		info->name = name;
+		info->dispatcher = [f](Type& obj, Stream& in, InProcessorData& out, Transport& trp, Header hdr) {
+			using Traits = FunctionTraits<F>;
+			typename Traits::param_tuple params;
+			// All control RPCs are generic (and only generic)
+			assert(hdr.isGenericRPC());
+
+			std::vector<Any> a;
+			in >> a;
+			if (!toTuple(a, params))
+			{
+				details::Send::error(trp, hdr, "Invalid parameters for generic RPC");
+				return;
+			}
+
+			using R = typename Traits::return_type;
+			// Forcing all control RPCs to return Any simplifies things, since they are meant to be used with
+			// generic RPC calls anyway (and those always return Any)
+			static_assert(std::is_same<R, Any>::value, "control RPC function needs to return Any");
+			Stream o;
+			o << hdr; // reserve space for header
+			o << callMethod(out, f, std::move(params));
+			details::Send::result(trp, hdr, o);
+		};
+		m_controlrpcs.push_back(std::move(info));
 	}
 };
 

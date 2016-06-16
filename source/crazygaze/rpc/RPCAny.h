@@ -31,9 +31,9 @@ public:
 		destroy();
 	}
 
-	// Constructing from an unsuported type leaves it set to None
+	// Constructing from an unsupported type leaves it set to None
 	template<typename T>
-	Any(const T&) : m_type(Type::None)
+	explicit Any(const T&) : m_type(Type::None)
 	{
 	}
 
@@ -218,6 +218,12 @@ public:
 		{
 			return false;
 		}
+	}
+
+	bool getAs(Any& dst) const
+	{
+		dst = *this;
+		return true;
 	}
 
 	const char* toString() const
