@@ -11,5 +11,6 @@
 #include "SampleUtils.h"
 #include "crazygaze/rpc/RPC.h"
 #include "crazygaze/rpc/RPCAsioTransport.h"
+#include "../SamplesCommon/StringUtil.h"
 
 CZRPC_ALLOW_RVALUE_REFS;

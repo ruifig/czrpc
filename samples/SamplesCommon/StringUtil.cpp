@@ -1,7 +1,13 @@
-#pragma once
+#include "SamplesCommonPCH.h"
+#include "StringUtil.h"
 
 #define CZ_TEMPORARY_STRING_MAX_SIZE 512
 #define CZ_TEMPORARY_STRING_MAX_NESTING 20
+
+#pragma warning(disable:4996)
+
+namespace cz
+{
 
 char* getTemporaryString()
 {
@@ -34,3 +40,4 @@ const char* formatString(const char* format, ...)
 	return str;
 }
 
+} // namespace cz

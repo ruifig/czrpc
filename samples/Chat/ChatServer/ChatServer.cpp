@@ -2,9 +2,11 @@
 //
 
 #include "ChatServerPCH.h"
-#include "../ChatCommon/Utils.inl"
+#include "../../SamplesCommon/StringUtil.h"
 
+using namespace cz;
 using namespace cz::rpc;
+
 
 #define LOG(fmt, ...) printf("LOG: " fmt "\n", __VA_ARGS__)
 
