@@ -24,6 +24,7 @@ struct ClientInfo
 	std::shared_ptr<Connection<ChatServerInterface, ChatClientInterface>> con;
 	std::string name;
 	bool admin = false;
+	bool authenticated = false;
 };
 
 class ChatServer : public ChatServerInterface
@@ -127,6 +128,7 @@ private:
 			user->admin = true;
 
 		BROADCAST_RPC(nullptr, onMsg, "", formatString("%s joined the chat", name.c_str()));
+		user->authenticated = true;
 		return "OK";
 	}
 
@@ -134,7 +136,7 @@ private:
 	{
 		LOG("RPC:sendMsg:%s", msg.c_str());
 		auto user = getCurrentUser();
-		if (!user)
+		if (!user || !user->authenticated)
 			return;
 		BROADCAST_RPC(nullptr, onMsg, user->name, msg);
 	}
@@ -142,7 +144,6 @@ private:
 	virtual void kick(const std::string& name) override
 	{
 		LOG("RPC:kick:%s", name.c_str());
-
 		auto user = getCurrentUser();
 		if (!user->admin)
 		{
@@ -169,6 +170,11 @@ private:
 
 	virtual std::vector<std::string> getUserList() override
 	{
+		LOG("RPC:getUserList");
+		auto user = getCurrentUser();
+		if (!user || !user->authenticated)
+			return std::vector<std::string>();
+
 		std::vector<std::string> users;
 		for (auto&& u : m_clients)
 			users.push_back(u.second->name);

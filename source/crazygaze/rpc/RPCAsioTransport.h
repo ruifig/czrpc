@@ -43,6 +43,9 @@ public:
 
 	virtual void send(std::vector<char> data) override
 	{
+		if (m_closed)
+			return;
+
 		auto trigger = m_out([&](Out& out)
 		{
 			if (out.ongoingWrite)

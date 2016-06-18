@@ -23,6 +23,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "ChatCommon", "ChatCommon", 
 		..\samples\Chat\ChatCommon\Utils.inl = ..\samples\Chat\ChatCommon\Utils.inl
 	EndProjectSection
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "ServerConsole", "..\samples\ServerConsole\ServerConsole.vcxproj", "{1F14CFEA-25D3-4FFC-B39F-CA76C5D89F99}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -61,6 +63,12 @@ Global
 		{2A09C6EC-ECE8-4628-9B24-B5FD099B837D}.Release|x64.ActiveCfg = Release|x64
 		{2A09C6EC-ECE8-4628-9B24-B5FD099B837D}.Release|x64.Build.0 = Release|x64
 		{2A09C6EC-ECE8-4628-9B24-B5FD099B837D}.Release|x86.ActiveCfg = Release|x64
+		{1F14CFEA-25D3-4FFC-B39F-CA76C5D89F99}.Debug|x64.ActiveCfg = Debug|x64
+		{1F14CFEA-25D3-4FFC-B39F-CA76C5D89F99}.Debug|x64.Build.0 = Debug|x64
+		{1F14CFEA-25D3-4FFC-B39F-CA76C5D89F99}.Debug|x86.ActiveCfg = Debug|x64
+		{1F14CFEA-25D3-4FFC-B39F-CA76C5D89F99}.Release|x64.ActiveCfg = Release|x64
+		{1F14CFEA-25D3-4FFC-B39F-CA76C5D89F99}.Release|x64.Build.0 = Release|x64
+		{1F14CFEA-25D3-4FFC-B39F-CA76C5D89F99}.Release|x86.ActiveCfg = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -70,5 +78,6 @@ Global
 		{29EAE0E1-B508-4D9D-99C2-A9BFF8CA43B7} = {B55F6C7B-84DC-4884-8541-398132C16D82}
 		{2A09C6EC-ECE8-4628-9B24-B5FD099B837D} = {B55F6C7B-84DC-4884-8541-398132C16D82}
 		{ED58F2C4-30E1-4E14-A2A6-231BC2B8904B} = {B55F6C7B-84DC-4884-8541-398132C16D82}
+		{1F14CFEA-25D3-4FFC-B39F-CA76C5D89F99} = {25896DB9-DC5C-41EB-8FE7-81894648ECD2}
 	EndGlobalSection
 EndGlobal
