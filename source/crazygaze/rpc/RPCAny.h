@@ -435,6 +435,10 @@ static bool toTuple(const std::vector<Any>& v, Tuple& t)
 } // namespace rpc
 } // namespace cz
 
+// Allow const references for some types czrpc uses internally
+CZRPC_DEFINE_CONST_LVALUE_REF(std::vector<cz::rpc::Any>)
+CZRPC_DEFINE_CONST_LVALUE_REF(std::string)
+
 #if defined(_MSC_VER)
 	#pragma warning(pop)
 #endif

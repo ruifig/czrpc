@@ -189,8 +189,6 @@ std::future<std::string> Tester::testClientVoid()
 }
 
 CZRPC_DEFINE_CONST_LVALUE_REF(std::vector<int>)
-CZRPC_DEFINE_CONST_LVALUE_REF(std::vector<Any>)
-CZRPC_DEFINE_CONST_LVALUE_REF(std::string)
 
 // Alternatively, enable support for all "const T&" with
 // CZRPC_ALLOW_CONST_LVALUE_REFS;
