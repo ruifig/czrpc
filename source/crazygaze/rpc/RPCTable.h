@@ -338,6 +338,8 @@ class TableImpl : public BaseTable
 				in >> a;
 				if (!toTuple(a, params))
 				{
+					// Invalid parameters supplied, or the RPC function signature itself can't be used for
+					// generic RPCs, since the parameter types it uses can't be converted to/from cz::rpc::Any
 					details::Send::error(trp, hdr, "Invalid parameters for generic RPC");
 					return;
 				}
