@@ -2,7 +2,7 @@
 //
 
 #include "ChatClientPCH.h"
-#include "../ChatCommon/Utils.inl"
+#include "../../SamplesCommon/StringUtil.h"
 
 using namespace cz::rpc;
 

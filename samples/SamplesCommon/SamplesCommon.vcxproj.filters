@@ -18,21 +18,24 @@
     <ClInclude Include="targetver.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="ServerConsolePCH.h">
+    <ClInclude Include="SamplesCommonPCH.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="ServerConsoleCommand.h">
+    <ClInclude Include="StringUtil.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Parameters.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="ServerConsole.cpp">
+    <ClCompile Include="SamplesCommonPCH.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="ServerConsolePCH.cpp">
+    <ClCompile Include="StringUtil.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="ServerConsoleCommand.cpp">
+    <ClCompile Include="Parameters.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
