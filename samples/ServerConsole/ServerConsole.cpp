@@ -19,6 +19,7 @@ int main()
 
 	//auto clientCon = AsioTransport<void, GenericServer>::create(io, "127.0.0.1", 9000).get();
 
+	std::cout << "Type :h for help\n";
 	bool quit = false;
 	while(!quit)
 	{
