@@ -41,6 +41,16 @@ public:
 	{
 	}
 
+	ASIO::ip::tcp::endpoint getLocalEndpoint()
+	{
+		return m_s->local_endpoint();
+	}
+
+	ASIO::ip::tcp::endpoint getRemoteEndpoint()
+	{
+		return m_s->remote_endpoint();
+	}
+
 	virtual void send(std::vector<char> data) override
 	{
 		if (m_closed)
