@@ -43,7 +43,7 @@ int main()
 			}
 		}
 
-		std::cout << "COMMAND- ";
+		std::cout << "COMMAND> ";
 		std::string cmdstr;
 		std::getline(std::cin, cmdstr);
 		if (!processCommand(cmdstr))

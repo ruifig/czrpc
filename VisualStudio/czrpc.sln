@@ -28,6 +28,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "SamplesCommon", "..\samples
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Benchmark", "..\samples\Benchmark\Benchmark.vcxproj", "{6D873083-64C6-4F28-9F69-13CB1C6F8EC5}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "CalculatorServer", "..\samples\CalculatorServer\CalculatorServer.vcxproj", "{A70720B3-0F93-4DF5-82F1-4EDC845B2511}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -66,6 +68,10 @@ Global
 		{6D873083-64C6-4F28-9F69-13CB1C6F8EC5}.Debug|x64.Build.0 = Debug|x64
 		{6D873083-64C6-4F28-9F69-13CB1C6F8EC5}.Release|x64.ActiveCfg = Release|x64
 		{6D873083-64C6-4F28-9F69-13CB1C6F8EC5}.Release|x64.Build.0 = Release|x64
+		{A70720B3-0F93-4DF5-82F1-4EDC845B2511}.Debug|x64.ActiveCfg = Debug|x64
+		{A70720B3-0F93-4DF5-82F1-4EDC845B2511}.Debug|x64.Build.0 = Debug|x64
+		{A70720B3-0F93-4DF5-82F1-4EDC845B2511}.Release|x64.ActiveCfg = Release|x64
+		{A70720B3-0F93-4DF5-82F1-4EDC845B2511}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -78,5 +84,6 @@ Global
 		{1F14CFEA-25D3-4FFC-B39F-CA76C5D89F99} = {25896DB9-DC5C-41EB-8FE7-81894648ECD2}
 		{FAA83184-44A8-47E1-9770-E9B483AAE9AC} = {25896DB9-DC5C-41EB-8FE7-81894648ECD2}
 		{6D873083-64C6-4F28-9F69-13CB1C6F8EC5} = {25896DB9-DC5C-41EB-8FE7-81894648ECD2}
+		{A70720B3-0F93-4DF5-82F1-4EDC845B2511} = {25896DB9-DC5C-41EB-8FE7-81894648ECD2}
 	EndGlobalSection
 EndGlobal

@@ -7,6 +7,8 @@
 using namespace cz;
 using namespace cz::rpc;
 
+Parameters gParams;
+
 
 #define LOG(fmt, ...) printf("LOG: " fmt "\n", __VA_ARGS__)
 
@@ -31,15 +33,19 @@ struct ClientInfo
 
 class ChatServer : public ChatServerInterface
 {
-public:using ConType = Connection<ChatServerInterface, ChatClientInterface>;
+public:
+	using ConType = Connection<ChatServerInterface, ChatClientInterface>;
 
 	ChatServer(int port)
+		: m_objData(this)
 	{
 		m_th = std::thread([this]
 		{
 			ASIO::io_service::work w(m_io);
 			m_io.run();
 		});
+
+		m_objData.setProperty("name", Any("chat"));
 
 		m_acceptor = AsioTransportAcceptor<ChatServerInterface, ChatClientInterface>::create(m_io, *this);
 		m_acceptor->start(port, [&](std::shared_ptr<ConType> con)
@@ -54,6 +60,7 @@ public:using ConType = Connection<ChatServerInterface, ChatClientInterface>;
 			});
 			m_clients.insert(std::make_pair(con.get(), info));
 		});
+
 	}
 
 	~ChatServer()
@@ -187,15 +194,22 @@ private:
 	std::thread m_th;
 	std::shared_ptr<AsioTransportAcceptor<ChatServerInterface, ChatClientInterface>> m_acceptor;
 	std::unordered_map<ConType*, std::shared_ptr<ClientInfo>> m_clients;
+	ObjectData m_objData;
 };
 
-int main()
+int main(int argc, char* argv[])
 {
+	gParams.set(argc, argv);
+
 	try
 	{
-		printf("Running ChatServer on port %d.\n", CHATSERVER_DEFAULT_PORT);
+		int port = CHATSERVER_DEFAULT_PORT;
+		if (gParams.has("port"))
+			port = std::stoi(gParams.get("port"));
+
+		printf("Running ChatServer on port %d.\n", port);
 		printf("Type any key to quit.\n");
-		ChatServer server(CHATSERVER_DEFAULT_PORT);
+		ChatServer server(port);
 		while (true)
 		{
 			if (getch())

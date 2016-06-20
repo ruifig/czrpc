@@ -133,7 +133,8 @@ int main(int argc, char *argv[])
 	{
 		if (!gParams.has("port"))
 			FATAL_ERROR("port parameter not specified");
-		SimpleServer<BenchmarkServer, void> server(std::stoi(gParams.get("port")), "Benchmark");
+		BenchmarkServer serverObj;
+		SimpleServer<BenchmarkServer, void> server(serverObj, std::stoi(gParams.get("port")), "Benchmark");
 		printf("Waiting for client connection...\n");
 		server.obj().waitToFinish();
 		printf("Finishing...\n");

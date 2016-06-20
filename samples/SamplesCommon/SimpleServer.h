@@ -12,8 +12,9 @@ public:
 	using Local = LOCAL;
 	using Remote = REMOTE;
 
-	explicit SimpleServer(int port, std::string authToken="")
-		: m_objData(&m_obj)
+	explicit SimpleServer(Local& obj, int port, std::string authToken="")
+		: m_obj(obj)
+		, m_objData(&m_obj)
 	{
 		m_th = std::thread([this]
 		{
@@ -30,6 +31,10 @@ public:
 			auto trp = static_cast<BaseAsioTransport*>(con->transport.get());
 			auto point = trp->getRemoteEndpoint();
 			printf("Client %s:%d connected.\n", point.address().to_string().c_str(), point.port());
+			trp->setOnClosed([point]
+			{
+				printf("Client %s:%d disconnected.\n", point.address().to_string().c_str(), point.port());
+			});
 			m_cons.push_back(std::move(con));
 		});
 	}
@@ -40,11 +45,12 @@ public:
 		m_th.join();
 	}
 
-	LOCAL& obj() { return m_obj;   }
+	Local& obj() { return m_obj;   }
+	ObjectData& objData() { return m_objData; };
 private:
 	ASIO::io_service m_io;
 	std::thread m_th;
-	LOCAL m_obj;
+	Local& m_obj;
 	ObjectData m_objData;
 	std::shared_ptr<AsioTransportAcceptor<Local, Remote>> m_acceptor;
 	std::vector<std::shared_ptr<Connection<Local, Remote>>> m_cons;

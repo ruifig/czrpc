@@ -174,6 +174,7 @@ bool cmd_Connect(const std::vector<cz::rpc::Any>& params)
 		}
 	}
 
+	std::cout << "Adding connection to " << addr.to_string() << " as '" << name << "'\n";
 	auto conInfo = std::make_shared<ConInfo>();
 	conInfo->name = name;
 	conInfo->addr = addr;
@@ -229,7 +230,7 @@ bool cmd_List(const std::vector<cz::rpc::Any>&)
 	{
 		for (auto& c : gCons)
 		{
-			std::cout << "    " << c.first << " @ " << c.second->addr.to_string();
+			std::cout << "    " << c.first << " @ " << c.second->addr.to_string() << std::endl;
 		}
 	}
 	else

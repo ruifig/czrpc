@@ -48,6 +48,12 @@ public:
 		}
 	}
 
+	template<typename T>
+	bool setProperty(const std::string& name, T val, bool replace = false)
+	{
+		return setProperty(name, Any(std::forward<T>(val)), replace);
+	}
+
 	std::string getAuthToken()
 	{
 		auto lk = m_data->lock();
