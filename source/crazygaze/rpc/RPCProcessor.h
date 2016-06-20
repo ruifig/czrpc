@@ -59,7 +59,7 @@ protected:
 	explicit Call(BaseOutProcessor& outer, Transport& transport, uint32_t rpcid)
 		: m_outer(outer), m_transport(transport), m_rpcid(rpcid)
 	{
-		m_data << uint64_t(0); // rpc header
+		m_data << Header(); // Reserve space for the header
 	}
 
 	template<typename... Args>
