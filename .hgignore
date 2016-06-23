@@ -1,0 +1,31 @@
+#
+# Note: Patterns using the glob syntax are never rooted (it will match files in any directory)
+#
+syntax: glob
+*.suo
+*.sdf
+*.opensdf
+*.ncb
+*.user
+*.pdb
+*.idb
+*.aps
+*.opendb
+*.db
+*.psess
+
+#
+# Note: Patterns using the regexp syntax can be rooted with the prefix ^
+#
+# A good online test: https://regex101.com/#python
+syntax: regexp
+
+#^bin/[^/]*\.(exe|ilk|iobj|ipdb|exp|lib)$
+^VisualStudio/ipch/
+^asio/
+^boost/
+^VisualStudio/.vs/
+^VisualStudio/[^/]*\.(db)
+^tmp/
+^bin/
+^lib/
