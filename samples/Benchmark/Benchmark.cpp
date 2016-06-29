@@ -79,8 +79,7 @@ public:
 			printf("Could not connect to server at %s:%d\n", ip.c_str(), port);
 			return false;
 		}
-		auto trp = static_cast<BaseAsioTransport*>(m_con->transport.get());
-		auto point = trp->getLocalEndpoint();
+		auto point = static_cast<BaseAsioTransport*>(m_con->getTransport().get())->getLocalEndpoint();
 		printf("Connected. LocalEndpoint=%s:%d\n", point.address().to_string().c_str(), point.port());
 
 		bool authRes = false;

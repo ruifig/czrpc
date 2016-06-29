@@ -28,13 +28,13 @@ public:
 		m_acceptor = AsioTransportAcceptor<Local, Remote>::create(m_io, m_obj);
 		m_acceptor->start(port, [&](std::shared_ptr<Connection<Local, Remote>> con)
 		{
-			auto trp = static_cast<BaseAsioTransport*>(con->transport.get());
-			auto point = trp->getRemoteEndpoint();
+			auto point = static_cast<BaseAsioTransport*>(con->getTransport().get())->getRemoteEndpoint();
 			printf("Client %s:%d connected.\n", point.address().to_string().c_str(), point.port());
-			trp->setOnClosed([point]
+			con->setDisconnectSignal([point]
 			{
 				printf("Client %s:%d disconnected.\n", point.address().to_string().c_str(), point.port());
 			});
+
 			m_cons.push_back(std::move(con));
 		});
 	}

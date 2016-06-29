@@ -1,6 +1,9 @@
 #include "ServerConsolePCH.h"
 #include "ServerConsoleCommand.h"
 
+using namespace cz;
+
+
 /* Parses a string as a command, where the first word is a command, followed by comma
 separated parameters:
 command param1,param2,param2
@@ -118,16 +121,17 @@ bool cmd_Help(const std::vector<cz::rpc::Any>&);
 
 bool cmd_Connect(const std::vector<cz::rpc::Any>& params)
 {
-	std::tuple<std::string, int> p;
+	std::tuple<std::string> p;
 	if (!toTuple(params, p))
 	{
 		std::cout << "Invalid number/type of parameters\n";
 		return true;
 	}
 
+	auto tmp = splitAddress(std::get<0>(p));
 	ConInfo::Addr addr;
-	addr.ip = std::get<0>(p);
-	addr.port = std::get<1>(p);
+	addr.ip = tmp.first;
+	addr.port = tmp.second;
 
 	for(auto&& it : gCons)
 	{
@@ -180,7 +184,7 @@ bool cmd_Connect(const std::vector<cz::rpc::Any>& params)
 	conInfo->addr = addr;
 	conInfo->con = con;
 	gCons[name] = conInfo;
-	static_cast<BaseAsioTransport*>(con->transport.get())->setOnClosed([info=conInfo.get()]
+	con->setDisconnectSignal([info=conInfo.get()]
 	{
 		info->closed = true;
 	});
@@ -202,7 +206,7 @@ bool cmd_ShutdownConnection(const std::vector<cz::rpc::Any>& params)
 		if (it->second->name==std::get<0>(p))
 		{
 			std::cout << "Closing connection " << it->second->name << "\n";
-			it->second->con->transport->close();
+			it->second->con->close();
 			return true;
 		}
 	}
@@ -252,13 +256,13 @@ InternalCommand gCmds[] =
 		"c", "connect", &cmd_Connect,
 		"\n" \
 		"    Connects to a server.\n" \
-		"    Format: connect ip,port"
+		"    Format: connect \"ip:port\""
 	},
 	{
 		"x", "shutdown", &cmd_ShutdownConnection,
 		"\n" \
 		"    Closes the specified connection.\n" \
-		"    Format: shutdown conname"
+		"    Format: shutdown \"name\""
 	},
 
 	{
@@ -284,7 +288,7 @@ bool cmd_Help(const std::vector<cz::rpc::Any>&)
 		"    :cmd p1, p2, ...\n" \
 		"    Where p1,p2,... are any parameters required\n" \
 		"Anything that doesn't start with a ':' is interpreted as an RPC, and has the following format:\n" \
-		"    conname.rpcname p1, p2, ...\n" \
+		"    con_name.rpcname p1, p2, ...\n" \
 		"    Where conname is the connection name, rpcname the rpc to call, and p1,p2,... the parameters\n" \
 		"";
 	std::cout << "List of internal commands" << std::endl;

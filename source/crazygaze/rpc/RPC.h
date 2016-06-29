@@ -29,6 +29,8 @@ transports you want to use
 #include <stdexcept>
 #include <unordered_map>
 #include <future>
+#include <queue>
+#include <functional>
 #include <assert.h>
 #include "crazygaze/rpc/RPCCallstack.h"
 #include "crazygaze/rpc/RPCParamTraits.h"

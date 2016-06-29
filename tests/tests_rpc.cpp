@@ -91,7 +91,7 @@ public:
 		return v;
 	}
 
-	int clientCallRes = 0;
+	std::promise<int> clientCallRes; // So the unit test can wait on the future to make sure the server got the reply from the server
 };
 
 class TesterEx : public Tester
@@ -161,7 +161,8 @@ int Tester::testClientAddCall(int a, int b)
 		[this, r = a+b](Result<int> res)
 	{
 		CHECK_EQUAL(r, res.get());
-		clientCallRes = res.get();
+		clientCallRes.set_value(res.get());
+
 	});
 
 	return a + b;
@@ -476,17 +477,15 @@ TEST(ClientCall)
 
 	ZeroSemaphore pending;
 
-	pending.increment();
+	std::promise<int> res1;
 	CZRPC_CALL(*clientCon, testClientAddCall, 1,2).async(
 		[&](Result<int> res)
 	{
-		pending.decrement();
-		CHECK_EQUAL(3, res.get());
+		res1.set_value(res.get());
 	});
 
-	// Make sure the server got the client reply
-	pending.wait();
-	CHECK_EQUAL(3, server.obj().clientCallRes);
+	CHECK_EQUAL(3, res1.get_future().get());
+	CHECK_EQUAL(3, server.obj().clientCallRes.get_future().get());
 
 	io.stop();
 	iothread.join();
