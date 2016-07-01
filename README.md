@@ -51,4 +51,4 @@ czrpc is licensed under the MIT License, see LICENSE for more information
 
 # Credits #
 
-* Glenn Fiedler (GafferonGames / THE NETWORK PROTOCOL COMPANY, INC.) : For supporting me on patron
+* Glenn Fiedler ([GafferonGames](http://gafferongames.com/) / [THE NETWORK PROTOCOL COMPANY, INC.](http://thenetworkprotocolcompany.com/)) : For supporting me on patron
