@@ -48,3 +48,7 @@ To run the unit tests or the provided samples:
 # License #
 
 czrpc is licensed under the MIT License, see LICENSE for more information
+
+# Credits #
+
+* Glenn Fiedler ([GafferonGames](http://gafferongames.com/) / [THE NETWORK PROTOCOL COMPANY, INC.](http://thenetworkprotocolcompany.com/)), for supporting me on Patron
