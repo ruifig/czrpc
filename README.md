@@ -36,7 +36,7 @@ It was created as part of a technical article for my blog : [http://www.crazygaz
 # How to build #
 
 The framework itself is just headers. Nothing to build.
-At the moment it onlys work with Visual Studio, although there isn't any platform specific code.
+At the moment it only work with Visual Studio, although there isn't any platform specific code.
 To run the unit tests or the provided samples:
 
 1. First download Asio by running the batch file "get_standalone_asio.bat".
@@ -44,6 +44,13 @@ To run the unit tests or the provided samples:
         * ```#define CZRPC_HAS_BOOST 1```
 2. Open the provided Visual Studio Solution
 3. Set the "tests" project as startup, or the ChatServer/ChatClient
+
+# TODO #
+
+* Documentation
+* More unit tests and samples
+* A BSD sockets transport
+* Use some build system to build the unit tests and samples in other platforms.
 
 # License #
 
