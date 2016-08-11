@@ -10,10 +10,9 @@ namespace cz
 namespace rpc
 {
 
-
 //
-// Its intentionally empty, since the only RPC that will be "genericRPC", and that is
-// implemented by the rest of the framework.
+// Its intentionally empty, since the only RPC that will be available is "genericRPC",
+// and that is implemented by the rest of the framework.
 class GenericServer
 {
 public:
