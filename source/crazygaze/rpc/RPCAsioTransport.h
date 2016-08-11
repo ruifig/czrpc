@@ -25,12 +25,17 @@ namespace rpc
 	namespace ASIO = ::asio;
 #endif
 
-class BaseAsioTransport : public Transport, public std::enable_shared_from_this<BaseAsioTransport>
+class BaseAsioTransport : public Transport
 {
 private:
 	// A dummy struct, to force the users to use the create functions, since the transport needs
 	// to be created in the heap and tracked by std::shared_ptr
 	struct ConstructorCookie { };
+
+	std::shared_ptr<BaseAsioTransport> shared_from_this()
+	{
+		return std::static_pointer_cast<BaseAsioTransport>(Transport::shared_from_this());
+	}
 public:
 
 	virtual ~BaseAsioTransport()
@@ -101,15 +106,12 @@ public:
 	// to fail, therefore signaling our close cleanup code (to abort RPC replies)
 	virtual void close() override
 	{
-		if (m_closeStarted)
-			return;
-		m_closeStarted = true;
-		m_io.post([this_=shared_from_this()]()
+		m_io.post([this, con=m_con.lock()]
 		{
-			if (this_->m_s)
+			if (m_s)
 			{
-				this_->m_s->shutdown(ASIO::ip::tcp::socket::shutdown_both);
-				this_->m_s->close();
+				m_s->shutdown(ASIO::ip::tcp::socket::shutdown_both);
+				m_s->close();
 			}
 		});
 	}
@@ -129,11 +131,6 @@ public:
 
 	}
 
-	void setOnClosed(std::function<void()> h)
-	{
-		m_onClosed = std::move(h);
-	}
-
 protected:
 
 	template<typename LOCAL, typename REMOTE>
@@ -147,7 +144,11 @@ protected:
 			if (result)
 			{
 				auto con = std::make_shared<Connection<LOCAL, REMOTE>>(localObj, trp);
-				trp->m_con = con.get();
+				trp->m_con = con;
+				con->setOutSignal([trp = trp.get()]()
+				{
+					trp->triggerConProcessing(false);
+				});
 				pr->set_value(std::move(con));
 			}
 			else
@@ -163,10 +164,8 @@ protected:
 	std::shared_ptr<ASIO::ip::tcp::socket> m_s;
 	ASIO::io_service& m_io;
 
-	bool m_closeStarted = false;
 	bool m_closed = false;
-	BaseConnection* m_con;
-	std::function<void()> m_onClosed;
+	std::weak_ptr<BaseConnection> m_con;
 
 	struct Out
 	{
@@ -185,21 +184,16 @@ protected:
 	// Hold the currently outgoing RPC data
 	std::vector<char> m_outgoing;
 
+	std::atomic<bool> m_conPendingProcess = false;
+
 	void onClosed()
 	{
 		if (m_closed)
 			return;
-
 		m_closed = true;
-		// One last call to abort pending replies, since the transport is closed now
-		m_con->process();
-
-		if (m_onClosed)
-		{
-			m_onClosed();
-			// To free any resources used by the handler
-			m_onClosed = nullptr;
-		}
+		// Trigger a call to the Connection processing, so the application can detect
+		// the transport has been closed
+		triggerConProcessing(false);
 	}
 
 	void startReadSize()
@@ -208,7 +202,7 @@ protected:
 		m_incoming.insert(m_incoming.end(), 4, 0);
 		ASIO::async_read(
 			*m_s, ASIO::buffer(&m_incoming[0], sizeof(uint32_t)),
-			[this, this_=shared_from_this()](const CZRPC_ASIO_ERROR_CODE& ec, std::size_t bytesTransfered)
+			[this, con = m_con.lock()](const CZRPC_ASIO_ERROR_CODE& ec, std::size_t bytesTransfered)
 		{
 			if (ec)
 			{
@@ -227,7 +221,7 @@ protected:
 		m_incoming.insert(m_incoming.end(), rpcSize - 4, 0);
 		ASIO::async_read(
 			*m_s, ASIO::buffer(&m_incoming[4], rpcSize - 4),
-			[this, this_=shared_from_this()](const CZRPC_ASIO_ERROR_CODE& ec, std::size_t bytesTransfered)
+			[this, con = m_con.lock()](const CZRPC_ASIO_ERROR_CODE& ec, std::size_t bytesTransfered)
 		{
 			if (ec)
 			{
@@ -240,7 +234,7 @@ protected:
 				in.q.push(std::move(m_incoming));
 			});
 			startReadSize();
-			m_con->process();
+			triggerConProcessing(false);
 		});
 	}
 
@@ -248,7 +242,7 @@ protected:
 	{
 		ASIO::async_write(
 			*m_s, ASIO::buffer(m_outgoing),
-			[this, this_=shared_from_this()](const CZRPC_ASIO_ERROR_CODE& ec, std::size_t bytesTransfered)
+			[this, con = m_con.lock()](const CZRPC_ASIO_ERROR_CODE& ec, std::size_t bytesTransfered)
 		{
 			handleAsyncWrite(ec, bytesTransfered);
 		});
@@ -281,6 +275,33 @@ protected:
 		if (m_outgoing.size())
 			triggerSend();
 	}
+
+	void triggerConProcessing(bool allowDispatch)
+	{
+		// Checking for a pending process, and triggering one is not atomic, but that's ok.
+		// What can happen is that we can end up with unnecessary extra calls to m_con->process(),
+		// which is not perfect.
+		if (!m_conPendingProcess)
+		{
+			m_conPendingProcess = true;
+			if (allowDispatch)
+			{
+				m_io.dispatch([this, con = m_con.lock()]
+				{
+					m_conPendingProcess = false;
+					con->process();
+				});
+			}
+			else
+			{
+				m_io.post([this, con = m_con.lock()]
+				{
+					m_conPendingProcess = false;
+					con->process();
+				});
+			}
+		}
+	}
 };
 
 template<typename LOCAL, typename REMOTE>
@@ -289,6 +310,7 @@ class AsioTransport : public BaseAsioTransport
 public:
 	static std::future<std::shared_ptr<Connection<LOCAL, REMOTE>>>
 		create(ASIO::io_service& io, LOCAL& localObj, const char* ip, int port)
+
 	{
 		return createImpl<LOCAL, REMOTE>(io, &localObj, ip, port);
 	}
@@ -380,10 +402,13 @@ private:
 		auto trp = std::make_shared<BaseAsioTransport>(BaseAsioTransport::ConstructorCookie(), m_io);
 		trp->m_s = std::move(socket);
 		trp->startReadSize();
-		//printf("Server side transport = trp=%p, trp->m_s=%p\n", trp.get(), trp->m_s.get());
 
 		auto con = std::make_shared<ConnectionType>(&m_localObj, trp);
-		trp->m_con = con.get();
+		trp->m_con = con;
+		con->setOutSignal([trp=trp.get()]()
+		{
+			trp->triggerConProcessing(false);
+		});
 
 		if (m_newConnectionCallback)
 			m_newConnectionCallback(std::move(con));

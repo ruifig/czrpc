@@ -40,4 +40,20 @@ const char* formatString(const char* format, ...)
 	return str;
 }
 
+std::pair<std::string, int> splitAddress(const std::string& str)
+{
+	std::pair<std::string, int> res;
+
+	auto i = str.find(':');
+	if (i == std::string::npos)
+		return res;
+
+	res.first = str.substr(0, i);
+	res.second = std::atoi(str.substr(i + 1).c_str());
+	if (res.second == 0)
+		return std::pair<std::string, int>();
+	else
+		return res;
+}
+
 } // namespace cz

@@ -10,3 +10,5 @@
 #include "crazygaze/rpc/RPC.h"
 #include "crazygaze/rpc/RPCAsioTransport.h"
 #include "../ChatCommon/ChatInterface.h"
+#include "../../SamplesCommon/StringUtil.h"
+#include "../../SamplesCommon/Parameters.h"

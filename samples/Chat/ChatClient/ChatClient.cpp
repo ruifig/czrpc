@@ -2,9 +2,11 @@
 //
 
 #include "ChatClientPCH.h"
-#include "../../SamplesCommon/StringUtil.h"
 
+using namespace cz;
 using namespace cz::rpc;
+
+Parameters gParams;
 
 class ChatClient : public ChatClientInterface
 {
@@ -19,17 +21,20 @@ public:
 			m_io.run();
 		});
 
-		m_con = AsioTransport<ChatClientInterface, ChatServerInterface>::create(m_io, *this, "127.0.0.1", port).get();
+		printf("SYSTEM: Connecting to Chat Server at %s:%d\n", ip.c_str(), port);
+		m_con = AsioTransport<ChatClientInterface, ChatServerInterface>::create(m_io, *this, ip.c_str(), port).get();
 		if (!m_con)
 		{
 			printf("Failed to connect to %s:%d\n", ip.c_str(), port);
 			exit(0);
 		}
-		reinterpret_cast<BaseAsioTransport*>(m_con->transport.get())->setOnClosed([]
+		m_con->setDisconnectSignal([]
 		{
 			printf("Disconnected\n");
+			system("pause");
 			exit(0);
 		});
+
 		printf("SYSTEM: Connected to server %s:%d\n", ip.c_str(), port);
 	}
 
@@ -93,6 +98,19 @@ private:
 
 int main(int argc, char *argv[])
 {
+	gParams.set(argc, argv);
+
+	std::pair<std::string, int> addr("127.0.0.1", CHATSERVER_DEFAULT_PORT);
+	if (gParams.has("addr"))
+		addr = splitAddress(gParams.get("addr"));
+	if (addr.first == "" || addr.second == 0)
+	{
+		printf("-addr parameter needs to be in the form \"ip:port\". E.g: 127.0.0.1:9000\n");
+		return EXIT_FAILURE;
+	}
+
+	ChatClient client(addr.first, addr.second);
+
 	std::string name;
 	std::string pass;
 
@@ -112,7 +130,6 @@ int main(int argc, char *argv[])
 		pass = buf;
 	}
 	printf("Logging in as %s\n", name.c_str());
-	ChatClient client("127.0.0.1", CHATSERVER_DEFAULT_PORT);
 	return client.run(name, pass);
 }
 

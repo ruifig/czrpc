@@ -2,7 +2,6 @@
 //
 
 #include "ChatServerPCH.h"
-#include "../../SamplesCommon/StringUtil.h"
 
 using namespace cz;
 using namespace cz::rpc;
@@ -53,11 +52,11 @@ public:
 			LOG("Client connected.");
 			auto info = std::make_shared<ClientInfo>();
 			info->con = con;
-			reinterpret_cast<BaseAsioTransport*>(info->con->transport.get())->setOnClosed(
-				[this, info]() mutable
+			info->con->setDisconnectSignal([this, info]
 			{
 				onDisconnect(info);
 			});
+
 			m_clients.insert(std::make_pair(con.get(), info));
 		});
 
@@ -172,7 +171,7 @@ private:
 		CZRPC_CALL(*kicked->con, onMsg, "", "You were kicked").async(
 			[kicked,this] (Result<void> r)
 		{
-			kicked->con->transport->close();
+			kicked->con->close();
 		});
 
 	}
