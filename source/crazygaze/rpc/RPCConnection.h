@@ -154,7 +154,6 @@ public:
 		{
 			if (!processIn())
 			{
-
 				if (m_disconnectSignal)
 				{
 					m_disconnectSignal();

@@ -24,6 +24,7 @@
     <ClInclude Include="crazygaze\rpc\RPCResult.h" />
     <ClInclude Include="crazygaze\rpc\RPCStream.h" />
     <ClInclude Include="crazygaze\rpc\RPCTable.h" />
+    <ClInclude Include="crazygaze\rpc\RPCTCPSocketTransport.h" />
     <ClInclude Include="crazygaze\rpc\RPCTransport.h" />
     <ClInclude Include="crazygaze\rpc\RPCUtils.h" />
   </ItemGroup>

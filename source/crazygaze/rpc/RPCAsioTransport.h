@@ -56,6 +56,11 @@ public:
 		return m_s->remote_endpoint();
 	}
 
+	ASIO::io_service& getIOService()
+	{
+		return m_io;
+	}
+
 	virtual void send(std::vector<char> data) override
 	{
 		if (m_closed)

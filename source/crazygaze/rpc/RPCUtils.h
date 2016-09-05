@@ -141,12 +141,12 @@ void serializeMethod(Stream& s, Args&&... args)
 	details::Parameters<F, 0>::serialize(s, std::forward<Args>(args)...);
 }
 
-template <class T>
+template <class T, class MTX=std::mutex>
 class Monitor
 {
 private:
 	mutable T m_t;
-	mutable std::mutex m_mtx;
+	mutable MTX m_mtx;
 
 public:
 	using Type = T;
@@ -159,7 +159,6 @@ public:
 		return f(m_t);
 	}
 };
-
 
 //
 // Future continuations, since std::future::then is not available yet
