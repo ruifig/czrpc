@@ -58,6 +58,11 @@
     <ClInclude Include="crazygaze\rpc\RPCObjectData.h">
       <Filter>crazygaze\rpc</Filter>
     </ClInclude>
-    <ClInclude Include="crazygaze\rpc\RPCTCPSocketTransport.h" />
+    <ClInclude Include="crazygaze\rpc\RPCTCPSocketTransport.h">
+      <Filter>crazygaze\rpc</Filter>
+    </ClInclude>
+    <ClInclude Include="crazygaze\rpc\RPCTCPSocket.h">
+      <Filter>crazygaze\rpc</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
