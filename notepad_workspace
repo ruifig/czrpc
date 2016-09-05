@@ -1,0 +1,115 @@
+<NotepadPlus>
+    <Project name="czrpc">
+        <Folder name="archetypes" />
+        <Folder name="content" />
+        <Folder name="data" />
+        <Folder name="layouts" />
+        <Folder name="static" />
+        <Folder name="themes">
+            <Folder name="hugo-theme-learn">
+                <Folder name="archetypes">
+                    <File name="doc\themes\hugo-theme-learn\archetypes\chapter.md" />
+                    <File name="doc\themes\hugo-theme-learn\archetypes\default.md" />
+                </Folder>
+                <Folder name="images">
+                    <File name="doc\themes\hugo-theme-learn\images\screenshot.png" />
+                    <File name="doc\themes\hugo-theme-learn\images\tn.png" />
+                </Folder>
+                <Folder name="layouts">
+                    <Folder name="partials">
+                        <File name="doc\themes\hugo-theme-learn\layouts\partials\favicon.html" />
+                        <File name="doc\themes\hugo-theme-learn\layouts\partials\footer.html" />
+                        <File name="doc\themes\hugo-theme-learn\layouts\partials\header.html" />
+                        <File name="doc\themes\hugo-theme-learn\layouts\partials\logo.html" />
+                        <File name="doc\themes\hugo-theme-learn\layouts\partials\menu.html" />
+                        <File name="doc\themes\hugo-theme-learn\layouts\partials\meta.html" />
+                        <File name="doc\themes\hugo-theme-learn\layouts\partials\script.html" />
+                        <File name="doc\themes\hugo-theme-learn\layouts\partials\style.html" />
+                        <File name="doc\themes\hugo-theme-learn\layouts\partials\toc.html" />
+                    </Folder>
+                    <Folder name="shortcodes">
+                        <File name="doc\themes\hugo-theme-learn\layouts\shortcodes\button.html" />
+                        <File name="doc\themes\hugo-theme-learn\layouts\shortcodes\notice.html" />
+                    </Folder>
+                    <Folder name="_default">
+                        <File name="doc\themes\hugo-theme-learn\layouts\_default\list.html" />
+                        <File name="doc\themes\hugo-theme-learn\layouts\_default\single.html" />
+                    </Folder>
+                    <File name="doc\themes\hugo-theme-learn\layouts\404.html" />
+                    <File name="doc\themes\hugo-theme-learn\layouts\index.html" />
+                </Folder>
+                <Folder name="static">
+                    <Folder name="css">
+                        <File name="doc\themes\hugo-theme-learn\static\css\featherlight.min.css" />
+                        <File name="doc\themes\hugo-theme-learn\static\css\font-awesome.min.css" />
+                        <File name="doc\themes\hugo-theme-learn\static\css\hugo-theme.css" />
+                        <File name="doc\themes\hugo-theme-learn\static\css\hybrid.css" />
+                        <File name="doc\themes\hugo-theme-learn\static\css\nucleus.css" />
+                        <File name="doc\themes\hugo-theme-learn\static\css\perfect-scrollbar.min.css" />
+                        <File name="doc\themes\hugo-theme-learn\static\css\theme.css" />
+                    </Folder>
+                    <Folder name="fonts">
+                        <File name="doc\themes\hugo-theme-learn\static\fonts\fontawesome-webfont.eot" />
+                        <File name="doc\themes\hugo-theme-learn\static\fonts\fontawesome-webfont.svg" />
+                        <File name="doc\themes\hugo-theme-learn\static\fonts\fontawesome-webfont.ttf" />
+                        <File name="doc\themes\hugo-theme-learn\static\fonts\fontawesome-webfont.woff" />
+                        <File name="doc\themes\hugo-theme-learn\static\fonts\fontawesome-webfont.woff2" />
+                        <File name="doc\themes\hugo-theme-learn\static\fonts\FontAwesome.otf" />
+                        <File name="doc\themes\hugo-theme-learn\static\fonts\Inconsolata.eot" />
+                        <File name="doc\themes\hugo-theme-learn\static\fonts\Inconsolata.svg" />
+                        <File name="doc\themes\hugo-theme-learn\static\fonts\Inconsolata.ttf" />
+                        <File name="doc\themes\hugo-theme-learn\static\fonts\Inconsolata.woff" />
+                        <File name="doc\themes\hugo-theme-learn\static\fonts\Novecentosanswide-Normal-webfont.eot" />
+                        <File name="doc\themes\hugo-theme-learn\static\fonts\Novecentosanswide-Normal-webfont.svg" />
+                        <File name="doc\themes\hugo-theme-learn\static\fonts\Novecentosanswide-Normal-webfont.ttf" />
+                        <File name="doc\themes\hugo-theme-learn\static\fonts\Novecentosanswide-Normal-webfont.woff" />
+                        <File name="doc\themes\hugo-theme-learn\static\fonts\Novecentosanswide-Normal-webfont.woff2" />
+                        <File name="doc\themes\hugo-theme-learn\static\fonts\Novecentosanswide-UltraLight-webfont.eot" />
+                        <File name="doc\themes\hugo-theme-learn\static\fonts\Novecentosanswide-UltraLight-webfont.svg" />
+                        <File name="doc\themes\hugo-theme-learn\static\fonts\Novecentosanswide-UltraLight-webfont.ttf" />
+                        <File name="doc\themes\hugo-theme-learn\static\fonts\Novecentosanswide-UltraLight-webfont.woff" />
+                        <File name="doc\themes\hugo-theme-learn\static\fonts\Novecentosanswide-UltraLight-webfont.woff2" />
+                        <File name="doc\themes\hugo-theme-learn\static\fonts\Work_Sans_200.eot" />
+                        <File name="doc\themes\hugo-theme-learn\static\fonts\Work_Sans_200.svg" />
+                        <File name="doc\themes\hugo-theme-learn\static\fonts\Work_Sans_200.ttf" />
+                        <File name="doc\themes\hugo-theme-learn\static\fonts\Work_Sans_200.woff" />
+                        <File name="doc\themes\hugo-theme-learn\static\fonts\Work_Sans_200.woff2" />
+                        <File name="doc\themes\hugo-theme-learn\static\fonts\Work_Sans_300.eot" />
+                        <File name="doc\themes\hugo-theme-learn\static\fonts\Work_Sans_300.svg" />
+                        <File name="doc\themes\hugo-theme-learn\static\fonts\Work_Sans_300.ttf" />
+                        <File name="doc\themes\hugo-theme-learn\static\fonts\Work_Sans_300.woff" />
+                        <File name="doc\themes\hugo-theme-learn\static\fonts\Work_Sans_300.woff2" />
+                        <File name="doc\themes\hugo-theme-learn\static\fonts\Work_Sans_500.eot" />
+                        <File name="doc\themes\hugo-theme-learn\static\fonts\Work_Sans_500.svg" />
+                        <File name="doc\themes\hugo-theme-learn\static\fonts\Work_Sans_500.ttf" />
+                        <File name="doc\themes\hugo-theme-learn\static\fonts\Work_Sans_500.woff" />
+                        <File name="doc\themes\hugo-theme-learn\static\fonts\Work_Sans_500.woff2" />
+                    </Folder>
+                    <Folder name="images">
+                        <File name="doc\themes\hugo-theme-learn\static\images\clippy.svg" />
+                        <File name="doc\themes\hugo-theme-learn\static\images\favicon.png" />
+                        <File name="doc\themes\hugo-theme-learn\static\images\gopher-404.jpg" />
+                    </Folder>
+                    <Folder name="js">
+                        <File name="doc\themes\hugo-theme-learn\static\js\clipboard.min.js" />
+                        <File name="doc\themes\hugo-theme-learn\static\js\featherlight.min.js" />
+                        <File name="doc\themes\hugo-theme-learn\static\js\highlight.pack.js" />
+                        <File name="doc\themes\hugo-theme-learn\static\js\html5shiv-printshiv.min.js" />
+                        <File name="doc\themes\hugo-theme-learn\static\js\hugo-learn.js" />
+                        <File name="doc\themes\hugo-theme-learn\static\js\jquery-2.x.min.js" />
+                        <File name="doc\themes\hugo-theme-learn\static\js\jquery.sticky-kit.min.js" />
+                        <File name="doc\themes\hugo-theme-learn\static\js\learn.js" />
+                        <File name="doc\themes\hugo-theme-learn\static\js\modernizr.custom.71422.js" />
+                        <File name="doc\themes\hugo-theme-learn\static\js\perfect-scrollbar.jquery.min.js" />
+                        <File name="doc\themes\hugo-theme-learn\static\js\perfect-scrollbar.min.js" />
+                    </Folder>
+                </Folder>
+                <File name="doc\themes\hugo-theme-learn\.gitignore" />
+                <File name="doc\themes\hugo-theme-learn\LICENSE.md" />
+                <File name="doc\themes\hugo-theme-learn\README.md" />
+                <File name="doc\themes\hugo-theme-learn\theme.toml" />
+            </Folder>
+        </Folder>
+        <File name="doc\config.toml" />
+    </Project>
+</NotepadPlus>
