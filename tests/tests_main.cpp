@@ -1,6 +1,6 @@
 #include "testsPCH.h"
 //#include "crazygaze/rpc/RPCTCPSocketTransport.h"
-
+#pragma warning(disable:4996)
 namespace cz {
 	namespace rpc {
 
@@ -40,43 +40,57 @@ using namespace cz::rpc;
 
 void TestTCPTransport()
 {
-	TCPSocketSet set;
+	TCPService set;
 
 	auto th = std::thread([&]
 	{
 		while (set.tick()) { }
 	});
 
-	std::shared_ptr<TCPSocket> c;
-	auto acceptor = set.listen(9000);
+	TCPError ec;
 
-	acceptor->accept([&c, &set](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
+	//
+	// Server
+	//
+	set.listen(9000, [&set](const TCPError& ec, std::shared_ptr<TCPAcceptor> acceptor)
 	{
 		assert(!ec);
-		c = sock;
-		TCPBuffer buf(256);
-		sock->recv(buf, [&, buf](const TCPError& ec, int bytesTransfered)
+		printf("async listen called\n");
+		acceptor->accept([&set](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
 		{
 			assert(!ec);
-			std::string str(buf.ptr(), bytesTransfered);
-			printf("Server: Received %d bytes: %s \n", bytesTransfered, str.c_str());
-			c->send("there!", 7, nullptr);
+			TCPBuffer buf(256);
+			sock->recv(buf, [&, sock, buf](const TCPError& ec, int bytesTransfered)
+			{
+				assert(!ec);
+				std::string str(buf.ptr(), bytesTransfered);
+				printf("Server: Received %d bytes: %s \n", bytesTransfered, str.c_str());
+				sock->send("there!", 7, nullptr);
+			});
 		});
 	});
 
-	auto client = set.connect("127.0.0.1", 9000);
-	TCPBuffer buf(256);
-	client->recv(buf, [&, buf](const TCPError& ec, int bytesTransfered)
+	//
+	// Client
+	//
+	set.connect("127.0.0.1", 9000, [&set](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
 	{
 		assert(!ec);
-		std::string str(buf.ptr(), bytesTransfered);
-		printf("Client: Received %d bytes: %s \n", bytesTransfered, str.c_str());
-	});
+		TCPBuffer buf(256);
+		sock->recv(buf, [&, buf](const TCPError& ec, int bytesTransfered)
+		{
+			if (bytesTransfered == 0)
+				return;
+			std::string str(buf.ptr(), bytesTransfered);
+			printf("Client: Received %d bytes: %s \n", bytesTransfered, str.c_str());
+			set.stop();
+		});
 
-	client->send("Hello", 6, [](const TCPError& ec, int bytesTransfered)
-	{
-		assert(!ec);
-		printf("Client: Sent %d bytes\n", bytesTransfered);
+		sock->send("Hello", 6, [](const TCPError& ec, int bytesTransfered)
+		{
+			assert(!ec);
+			printf("Client: Sent %d bytes\n", bytesTransfered);
+		});
 	});
 
 	th.join();

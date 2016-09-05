@@ -59,7 +59,11 @@ struct TCPSocketDefaultLog
 	if (!(expr)) TCPFATAL(#expr)
 
 #define BUILDERROR() \
-	TCPError ec(TCPError::Code::Other, details::TCPUtils::getWin32ErrorMsg().c_str()); \
+	TCPError ec(TCPError::Code::Other, details::TCPUtils::getWin32ErrorMsg()); \
+	TCPERROR(ec.msg());
+
+#define SETERROR() \
+	ec = TCPError(TCPError::Code::Other, details::TCPUtils::getWin32ErrorMsg()); \
 	TCPERROR(ec.msg());
 
 namespace details
@@ -182,6 +186,108 @@ namespace details
 				return std::make_pair("", 0);
 			}
 		}
+
+		//
+		// Multiple producer, multiple consumer thread safe queue
+		//
+		template<typename T>
+		class SharedQueue
+		{
+		private:
+			std::queue<T> m_queue;
+			mutable std::mutex m_mtx;
+			std::condition_variable m_data_cond;
+
+			SharedQueue& operator=(const SharedQueue&) = delete;
+			SharedQueue(const SharedQueue& other) = delete;
+
+		public:
+			SharedQueue(){}
+
+			template<typename... Args>
+			void emplace(Args&&... args)
+			{
+				std::lock_guard<std::mutex> lock(m_mtx);
+				m_queue.emplace(std::forward<Args>(args)...);
+				m_data_cond.notify_one();
+			}
+
+			template<typename T>
+			void push(T&& item){
+				std::lock_guard<std::mutex> lock(m_mtx);
+				m_queue.push(std::forward<T>(item));
+				m_data_cond.notify_one();
+			}
+
+			//! Tries to pop an item from the queue. It does not block waiting for
+			// items.
+			// \return Returns true if an Items was retrieved
+			bool try_and_pop(T& popped_item){
+				std::lock_guard<std::mutex> lock(m_mtx);
+				if (m_queue.empty()){
+					return false;
+				}
+				popped_item = std::move(m_queue.front());
+				m_queue.pop();
+				return true;
+			}
+
+			//! Retrieves all items into the supplied queue.
+			// This should be more efficient than retrieving one item at a time when a
+			// thread wants to process as many items as there are currently in the
+			// queue. Example:
+			// std::queue<Foo> local;
+			// if (q.try_and_popAll(local)) {
+			//     ... process items in local ...
+			// }
+			//
+			// \return
+			//	True if any items were retrieved
+			// \note
+			//	Any elements in the destination queue will be lost.
+			bool try_and_popAll(std::queue<T>& dest)
+			{
+				std::lock_guard<std::mutex> lock(m_mtx);
+				dest = std::move(m_queue);
+				return dest.size()!=0;
+			}
+
+			// Retrieves an item, blocking if necessary to wait for items.
+			void wait_and_pop(T& popped_item){
+				std::unique_lock<std::mutex> lock(m_mtx);
+				m_data_cond.wait(lock, [this] { return !m_queue.empty();});
+				popped_item = std::move(m_queue.front());
+				m_queue.pop();
+			}
+
+			//! Retrieves an item, blocking if necessary for the specified duration
+			// until items arrive.
+			//
+			// \return
+			//	false : Timed out (There were no items)
+			//	true  : Item retrieved
+			bool wait_and_pop(T& popped_item, int64_t timeoutMs){
+				std::unique_lock<std::mutex> lock(m_mtx);
+				if (!m_data_cond.wait_for(lock, std::chrono::milliseconds(timeoutMs), [this] { return !m_queue.empty();}))
+					return false;
+
+				popped_item = std::move(m_queue.front());
+				m_queue.pop();
+				return true;
+			}
+
+			//! Checks if the queue is empty
+			bool empty() const{
+				std::lock_guard<std::mutex> lock(m_mtx);
+				return m_queue.empty();
+			}
+
+			//! Returns how many items there are in the queue
+			unsigned size() const{
+				std::lock_guard<std::mutex> lock(m_mtx);
+				return static_cast<unsigned>(m_queue.size());
+			}
+		};
 	};
 } // namespace details
 
@@ -200,6 +306,10 @@ struct TCPError
 	TCPError(Code c, const char* msg) : code(c)
 	{
 		setMsg(msg);
+	}
+	TCPError(Code c, const std::string& msg) : code(c)
+	{
+		setMsg(msg.c_str());
 	}
 
 	const char* msg() const
@@ -233,7 +343,7 @@ struct TCPError
 	std::shared_ptr<std::string> optionalMsg;
 };
 
-class TCPSocketSet;
+class TCPService;
 class TCPSocket;
 
 class TCPBaseSocket : public std::enable_shared_from_this<TCPBaseSocket>
@@ -243,7 +353,7 @@ public:
 	virtual ~TCPBaseSocket();
 protected:
 	friend class TCPSocket;
-	TCPSocketSet* m_owner = nullptr;
+	TCPService* m_owner = nullptr;
 	SOCKET m_s = INVALID_SOCKET;
 };
 
@@ -258,6 +368,7 @@ class TCPAcceptor : public TCPBaseSocket
 public:
 	virtual ~TCPAcceptor()
 	{
+		assert(m_w.size() == 0);
 	}
 	using AcceptHandler = std::function<void(const TCPError& ec, std::shared_ptr<TCPSocket> sock)>;
 
@@ -269,11 +380,12 @@ public:
 		return std::static_pointer_cast<TCPAcceptor>(TCPBaseSocket::shared_from_this());
 	}
 protected:
-	friend class TCPSocketSet;
+	friend class TCPService;
 
 	// Called from TCPSocketSet
 	// Returns true if we still have pending accepts, false otherwise
 	bool doAccept();
+	void stop();
 	std::queue<AcceptHandler> m_w;
 	std::pair<std::string, int> m_localAddr;
 };
@@ -309,6 +421,8 @@ class TCPSocket : public TCPBaseSocket
 public:
 	virtual ~TCPSocket()
 	{
+		assert(m_recvs.size() == 0);
+		assert(m_sends.size() == 0);
 	}
 	using Handler = std::function<void(const TCPError& ec, int bytesTransfered)>;
 
@@ -373,35 +487,59 @@ protected:
 		Handler h;
 	};
 
-	friend class TCPSocketSet;
+	friend class TCPService;
 	friend class TCPAcceptor;
 	std::pair<std::string, int> m_localAddr;
 	std::pair<std::string, int> m_peerAddr;
 
 	bool doRecv();
 	bool doSend();
+	void stop();
 	std::queue<RecvOp> m_recvs;
 	std::queue<SendOp> m_sends;
 };
 
-class TCPSocketSet
+/*
+Thread Safety:
+	Distinct objects  : Safe
+	Shared objects : Unsafe
+*/
+class TCPService
 {
 public:
-	TCPSocketSet();
+	TCPService();
+	~TCPService();
 
-	// Start a listening socket
-	std::shared_ptr<TCPAcceptor> listen(int port);
+	//! Creates a listening socket at the specified port
+	/*
+	This is a synchronous operation.
+	*/
+	std::shared_ptr<TCPAcceptor> listen(int port, TCPError& ec);
 
-	//! Does a synchronous connect
-	std::shared_ptr<TCPSocket> connect(const char* ip, int port);
+	//!
+	/*
+	Asynchronously creates a listening socket
+	*/
+	void listen(int port, std::function<void(const TCPError&, std::shared_ptr<TCPAcceptor>)> h);
+
+	//! Creates a connection
+	/*
+	This operation is synchronous.
+	*/
+	std::shared_ptr<TCPSocket> connect(const char* ip, int port, TCPError& ec);
+
+	/*! Asynchronously creates a connection
+	*/
+	void connect(const char* ip, int port, std::function<void(const TCPError&, std::shared_ptr<TCPSocket>)> h);
 
 	//! Processes whatever it needs
 	// \return
-	//	false : We are shutting down, and no need to call again
-	//	true  : We should call tick again
+	//		false : We are shutting down, and no need to call again
+	//		true  : We should call tick again
 	bool tick();
 
-	//! Interrupts any tick calls in progress, and marks the set as finishing
+	//! Interrupts any tick calls in progress, and marks service as finishing
+	// You should not make any other calls to the service after this
 	void stop();
 protected:
 	
@@ -411,6 +549,14 @@ protected:
 	details::TCPUtils::WSAInstance m_wsaInstance;
 	std::shared_ptr<TCPSocket> m_signalIn;
 	std::shared_ptr<TCPSocket> m_signalOut;
+
+	//
+	// Used to keep track of the asynchronous listen and accept calls
+	//
+	std::thread m_asyncOpsTh; // Thread used to process asynchronous "listen" and "connect" calls
+	details::TCPUtils::SharedQueue<std::function<void()>> m_asyncOps;
+	std::atomic<bool> m_stopped = false;
+	void runAsyncOpsThread();
 
 	std::set<std::shared_ptr<TCPAcceptor>> m_accepts; // Set pending accepts
 	std::set<std::shared_ptr<TCPSocket>> m_recvs; // Set of pending reads
@@ -485,10 +631,20 @@ bool TCPAcceptor::doAccept()
 	return m_w.size()>0;
 }
 
+void TCPAcceptor::stop()
+{
+	while(m_w.size())
+	{
+		m_w.front()(TCPError::Code::Cancelled, nullptr);
+		m_w.pop();
+	}
+}
+
+
 ///////////////////////////////////////////////
 //	TCPSocket
 ///////////////////////////////////////////////
-std::shared_ptr<TCPAcceptor> TCPSocketSet::listen(int port)
+std::shared_ptr<TCPAcceptor> TCPService::listen(int port, TCPError& ec)
 {
 	auto sock = std::make_shared<TCPAcceptor>();
 	sock->m_owner = this;
@@ -496,7 +652,8 @@ std::shared_ptr<TCPAcceptor> TCPSocketSet::listen(int port)
 	sock->m_s = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	if (sock->m_s == INVALID_SOCKET)
 	{
-		TCPERROR(details::TCPUtils::getWin32ErrorMsg(__FUNCTION__).c_str());
+		SETERROR();
+		return nullptr;
 	}
 
 	TCPINFO("Listen socket=%d", (int)sock->m_s);
@@ -506,18 +663,54 @@ std::shared_ptr<TCPAcceptor> TCPSocketSet::listen(int port)
 	addr.sin_port = htons(port);
 	addr.sin_addr.s_addr = htonl(INADDR_ANY);
 	if (::bind(sock->m_s, (LPSOCKADDR)&addr, sizeof(addr)) == SOCKET_ERROR)
-		TCPERROR(details::TCPUtils::getWin32ErrorMsg(__FUNCTION__).c_str());
+	{
+		SETERROR();
+		return nullptr;
+	}
 
 	if (::listen(sock->m_s, SOMAXCONN) == SOCKET_ERROR)
-		TCPERROR(details::TCPUtils::getWin32ErrorMsg(__FUNCTION__).c_str());
+	{
+		SETERROR();
+		return nullptr;
+	}
 
 	sock->m_localAddr = details::TCPUtils::getLocalAddr(sock->m_s);
 
+	ec = TCPError();
 	return sock;
 }
 
-std::shared_ptr<TCPSocket> TCPSocketSet::connect(const char* ip, int port)
+void TCPService::listen(int port, std::function<void(const TCPError&, std::shared_ptr<TCPAcceptor>)> h)
 {
+	assert(!m_stopped);
+
+	m_asyncOps.emplace([this, port, h=std::move(h)]() mutable
+	{
+		if (m_stopped)
+		{
+			// Queue the handler to be processed as a result of tick calls
+			addCmd([this, h=std::move(h)]
+			{
+				h(TCPError(TCPError::Code::Cancelled), nullptr);
+			});
+		}
+		else
+		{
+			TCPError ec;
+			auto sock = this->listen(port, ec);
+			// Queue the handler to be processed as a result of tick calls
+			addCmd([ec, sock=std::move(sock), h=std::move(h)]
+			{
+				h(ec, sock);
+			});
+		}
+	});
+}
+
+std::shared_ptr<TCPSocket> TCPService::connect(const char* ip, int port, TCPError& ec)
+{
+	assert(!m_stopped);
+
 	SOCKADDR_IN addr;
 	ZeroMemory(&addr, sizeof(addr));
 	addr.sin_family = AF_INET;
@@ -527,12 +720,18 @@ std::shared_ptr<TCPSocket> TCPSocketSet::connect(const char* ip, int port)
 	auto sock = std::make_shared<TCPSocket>();
 	sock->m_s = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	if (sock->m_s == INVALID_SOCKET)
-		TCPERROR(details::TCPUtils::getWin32ErrorMsg(__FUNCTION__).c_str());
+	{
+		SETERROR();
+		return nullptr;
+	}
 
 	TCPINFO("Connect socket=%d", (int)sock->m_s);
 
 	if (::connect(sock->m_s, (SOCKADDR*)&addr, sizeof(addr)) == SOCKET_ERROR)
-		TCPERROR(details::TCPUtils::getWin32ErrorMsg(__FUNCTION__).c_str());
+	{
+		SETERROR();
+		return nullptr;
+	}
 
 	details::TCPUtils::setBlocking(sock->m_s, false);
 
@@ -541,7 +740,34 @@ std::shared_ptr<TCPSocket> TCPSocketSet::connect(const char* ip, int port)
 	sock->m_peerAddr = details::TCPUtils::getRemoteAddr(sock->m_s);
 	TCPINFO("Socket %d connected to %s:%d", (int)sock->m_s, sock->m_peerAddr.first.c_str(), sock->m_peerAddr.second);
 
+	ec = TCPError();
 	return sock;
+}
+
+void TCPService::connect(const char* ip, int port, std::function<void(const TCPError&, std::shared_ptr<TCPSocket>)> h)
+{
+	assert(!m_stopped);
+	m_asyncOps.emplace([this, ip = std::string(ip), port, h=std::move(h)]() mutable
+	{
+		if (m_stopped)
+		{
+			// Queue the handler to be processed as a result of tick calls
+			addCmd([this, h=std::move(h)]
+			{
+				h(TCPError(TCPError::Code::Cancelled), nullptr);
+			});
+		}
+		else
+		{
+			TCPError ec;
+			auto sock = this->connect(ip.c_str(), port, ec);
+			// Queue the handler to be processed as a result of tick calls
+			addCmd([ec, sock=std::move(sock), h=std::move(h)]
+			{
+				h(ec, sock);
+			});
+		}
+	});
 }
 
 void TCPSocket::recvImpl(char* buf, int len, Handler h, bool fill)
@@ -669,13 +895,35 @@ bool TCPSocket::doSend()
 	return m_sends.size()>0;
 }
 
+void TCPSocket::stop()
+{
+	while(m_recvs.size())
+	{
+		m_recvs.front().h(TCPError::Code::Cancelled, m_recvs.front().bytesTransfered);
+		m_recvs.pop();
+	}
+
+	while(m_sends.size())
+	{
+		m_sends.front().h(TCPError::Code::Cancelled, m_sends.front().bytesTransfered);
+		m_sends.pop();
+	}
+}
+
 ///////////////////////////////////////////////
 //	TCPSocketSet
 ///////////////////////////////////////////////
 
-TCPSocketSet::TCPSocketSet()
+TCPService::TCPService()
 {
-	auto dummyListen = listen(0);
+	m_asyncOpsTh = std::thread([this]
+	{
+		runAsyncOpsThread();
+	});
+
+	TCPError ec;
+	auto dummyListen = listen(0, ec);
+	TCPASSERT(!ec);
 	dummyListen->accept([this](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
 	{
 		TCPASSERT(!ec);
@@ -692,7 +940,8 @@ TCPSocketSet::TCPSocketSet()
 			tick();
 	});
 
-	m_signalOut = connect("127.0.0.1", dummyListen->m_localAddr.second);
+	m_signalOut = connect("127.0.0.1", dummyListen->m_localAddr.second, ec);
+	TCPASSERT(!ec);
 	TCPINFO("m_signalOut socket=%d", (int)(m_signalOut->m_s));
 	tmptick.get();
 
@@ -705,7 +954,45 @@ TCPSocketSet::TCPSocketSet()
 	details::TCPUtils::disableNagle(m_signalOut->m_s);
 }
 
-void TCPSocketSet::startSignalIn()
+TCPService::~TCPService()
+{
+	assert(m_stopped);
+	assert(m_asyncOps.size() == 0);
+	m_cmdQueue([&](CmdQueue& q)
+	{
+		assert(q.size() == 0);
+	});
+
+	if (m_asyncOpsTh.joinable())
+		m_asyncOpsTh.join();
+}
+
+void TCPService::stop()
+{
+	m_stopped = true;
+	// Add an empty handler to the helper thread that runs asynchronous accepts and listens.
+	// This will cause that thread to then send an empty handler to the servicing thread.
+	m_asyncOps.emplace(nullptr);
+}
+
+void TCPService::runAsyncOpsThread()
+{
+	while(true)
+	{
+		std::function<void()> op;
+		m_asyncOps.wait_and_pop(op);
+		if (op)
+			op();
+		else
+		{
+			// Queue an empty command to the servicing thread, to signal the end
+			addCmd(nullptr);
+			return; // An empty function signals the end
+		}
+	}
+}
+
+void TCPService::startSignalIn()
 {
 	TCPSocket::RecvOp op;
 	op.buf = m_signalInBuf;
@@ -721,7 +1008,7 @@ void TCPSocketSet::startSignalIn()
 	m_recvs.insert(m_signalIn);
 }
 
-void TCPSocketSet::signal()
+void TCPService::signal()
 {
 	if (!m_signalOut)
 		return;
@@ -730,18 +1017,50 @@ void TCPSocketSet::signal()
 		TCPFATAL(details::TCPUtils::getWin32ErrorMsg().c_str());
 }
 
-bool TCPSocketSet::tick()
+bool TCPService::tick()
 {
+	//
 	// Execute any pending commands
 	m_cmdQueue([&](CmdQueue& q)
 	{
 		std::swap(q, m_tmpQueue);
 	});
-	while(m_tmpQueue.size())
+	bool finished = false;
+	while(!finished && m_tmpQueue.size())
 	{
-		m_tmpQueue.front()();
+		auto&& fn = m_tmpQueue.front();
+		if (fn)
+		{
+			fn();
+		}
+		else
+		{
+			finished = true;
+		}
 		m_tmpQueue.pop();
 	}
+
+	if (finished)
+	{
+
+		// If we are finishing, then there can't be any commands left
+		assert(m_tmpQueue.size() == 0);
+
+		for(auto&& s : m_accepts)
+			s->stop();
+		m_accepts.clear();
+
+		for (auto&& s : m_recvs)
+			s->stop();
+		m_recvs.clear();
+
+		for (auto&& s : m_sends)
+			s->stop();
+		m_sends.clear();
+
+		return false;
+	}
+
 
 	fd_set readfds, writefds;
 	FD_ZERO(&readfds);
