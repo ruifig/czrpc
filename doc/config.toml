@@ -2,6 +2,7 @@ baseurl = "http://localhost:1313/"
 languageCode = "en-us"
 title = "czrpc documentation"
 theme = "hugo-theme-learn"
+metaDataFormat= "toml"
 
 [params]
   # Hugo-theme-learn parameters
@@ -16,4 +17,3 @@ theme = "hugo-theme-learn"
   # Shows a checkmark for visited pages on the menu. Default to false
   showVisitedLinks = false
 
-  
