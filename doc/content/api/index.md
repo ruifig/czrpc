@@ -4,7 +4,7 @@ icon= "<b>2. </b>"
 title= "API"
 weight= 200
 chapter= true
-next= "api/overview"
+next= "/api/overview"
 +++
 
 ### API
