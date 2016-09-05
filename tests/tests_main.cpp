@@ -1,6 +1,35 @@
 #include "testsPCH.h"
-#include "crazygaze/rpc/RPCTCPSocketTransport.h"
+//#include "crazygaze/rpc/RPCTCPSocketTransport.h"
 
+namespace cz {
+	namespace rpc {
+
+		struct MyTCPLog
+		{
+			static void out(bool fatal, const char* type, const char* fmt, ...)
+			{
+				char buf[256];
+				strcpy(buf, type);
+				va_list args;
+				va_start(args, fmt);
+				vsnprintf(buf + strlen(buf), sizeof(buf) - strlen(buf) - 1, fmt, args);
+				va_end(args);
+				printf(buf);
+				printf("\n");
+				if (fatal)
+				{
+					__debugbreak();
+					exit(1);
+				}
+			}
+		};
+
+#define TCPINFO(fmt, ...) MyTCPLog::out(false, "Info: ", fmt, ##__VA_ARGS__)
+
+}
+}
+
+#include "crazygaze/rpc/RPCTCPSocket.h"
 
 //
 // Entry points to try samples used in the documentation
@@ -19,27 +48,37 @@ void TestTCPTransport()
 	});
 
 	std::shared_ptr<TCPSocket> c;
-	auto acceptor = set.listen(9000,
-		[&c, &set](std::shared_ptr<TCPSocket> s)
-	{
-		c = s;
+	auto acceptor = set.listen(9000);
 
-		s->setOnRecv([&set](const char* buf, int len)
+	acceptor->accept([&c, &set](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
+	{
+		assert(!ec);
+		c = sock;
+		TCPBuffer buf(256);
+		sock->recv(buf, [&, buf](const TCPError& ec, int bytesTransfered)
 		{
-			std::string str(buf, len);
-			printf("Server: Received %d bytes: %s \n", len, str.c_str());
-			set.stop();
+			assert(!ec);
+			std::string str(buf.ptr(), bytesTransfered);
+			printf("Server: Received %d bytes: %s \n", bytesTransfered, str.c_str());
+			c->send("there!", 7, nullptr);
 		});
 	});
 
-	auto client = set.connect("127.0.0.1", 9000, [](const char* buf, int len)
+	auto client = set.connect("127.0.0.1", 9000);
+	TCPBuffer buf(256);
+	client->recv(buf, [&, buf](const TCPError& ec, int bytesTransfered)
 	{
-		std::string str(buf, len);
-		printf("Client: Received %d bytes: %s \n", len, str.c_str());
+		assert(!ec);
+		std::string str(buf.ptr(), bytesTransfered);
+		printf("Client: Received %d bytes: %s \n", bytesTransfered, str.c_str());
 	});
 
-	//Sleep(10000);
-	client->send("Hello", 6);
+	client->send("Hello", 6, [](const TCPError& ec, int bytesTransfered)
+	{
+		assert(!ec);
+		printf("Client: Sent %d bytes\n", bytesTransfered);
+	});
+
 	th.join();
 	printf("DONE...\n");
 }
