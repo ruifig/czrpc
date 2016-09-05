@@ -29,3 +29,5 @@ syntax: regexp
 ^tmp/
 ^bin/
 ^lib/
+
+^doc/themes/purehugo/.git
