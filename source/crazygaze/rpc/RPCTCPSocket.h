@@ -93,15 +93,16 @@ namespace details
 
 	struct TCPUtils
 	{
-		static std::string getWin32ErrorMsg(const char* funcname = nullptr)
+		static std::string getWin32ErrorMsg(DWORD err = ERROR_SUCCESS, const char* funcname = nullptr)
 		{
 			LPVOID lpMsgBuf;
 			LPVOID lpDisplayBuf;
-			DWORD dw = GetLastError();
+			if (err == ERROR_SUCCESS)
+				err = GetLastError();
 
 			FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
 				NULL,
-				dw,
+				err,
 				MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
 				(char*)&lpMsgBuf,
 				0,
@@ -115,7 +116,7 @@ namespace details
 				LocalSize(lpDisplayBuf),
 				"%s failed with error %d: %s",
 				funcname ? funcname : "",
-				dw,
+				err,
 				lpMsgBuf);
 
 			std::string ret = (char*)lpDisplayBuf;
@@ -375,7 +376,7 @@ namespace details
 	public:
 #if CZRPC_WINSOCK
 		ErrorWrapper() { err = WSAGetLastError(); }
-		std::string msg() const { return details::TCPUtils::getWin32ErrorMsg(); }
+		std::string msg() const { return details::TCPUtils::getWin32ErrorMsg(err); }
 		bool isBlockError() const { return err == WSAEWOULDBLOCK; }
 #else
 		ErrorWrapper() { err = errno; }
@@ -511,6 +512,7 @@ public:
 		send(buf.buf.get(), buf.size, std::forward<H>(h));
 	}
 
+	//! Cancels all outstanding asynchronous operations
 	void cancel();
 
 	std::shared_ptr<TCPSocket> shared_from_this()
@@ -652,6 +654,7 @@ protected:
 ///////////////////////////////////////////////
 TCPBaseSocket::~TCPBaseSocket()
 {
+	::shutdown(m_s, SD_BOTH);
 	::closesocket(m_s);
 }
 
@@ -703,6 +706,7 @@ void TCPAcceptor::cancel()
 	m_owner->addCmd([this_=shared_from_this()]
 	{
 		this_->doCancel();
+		this_->m_owner->m_accepts.erase(this_);
 	});
 }
 void TCPAcceptor::doCancel()
@@ -756,6 +760,7 @@ bool TCPSocket::doRecv()
 		if (len == SOCKET_ERROR)
 		{
 			bool wouldblock = false;
+			// #TODO : Use ErrorWrapper here
 #if CZRPC_WINSOCK
 			auto err = WSAGetLastError();
 			if (err == WSAEWOULDBLOCK)
@@ -811,22 +816,26 @@ bool TCPSocket::doRecv()
 
 bool TCPSocket::doSend()
 {
+	using namespace details;
 	while(m_sends.size())
 	{
 		SendOp& op = m_sends.front();
-
 		auto res = ::send(m_s, op.buf + op.bytesTransfered, op.bufLen - op.bytesTransfered, 0);
-		if (res==-1)
+		if (res==SOCKET_ERROR)
 		{
-			if (errno == EAGAIN || errno == EWOULDBLOCK)
+			ErrorWrapper err;
+			if (err.isBlockError())
 			{
 				// We can't send more data at the moment, so we are done trying
 				break;
 			}
 			else
-				TCPERROR(details::TCPUtils::getWin32ErrorMsg().c_str());
-
-			// #TODO : Need to detect disconnect here
+			{
+				TCPERROR(err.msg());
+				if (op.h)
+					op.h(TCPError(TCPError::Code::ConnectionClosed, err.msg()), op.bytesTransfered);
+				m_sends.pop();
+			}
 		}
 		else
 		{
@@ -848,8 +857,11 @@ void TCPSocket::cancel()
 	m_owner->addCmd([this_=shared_from_this()]
 	{
 		this_->doCancel();
+		this_->m_owner->m_recvs.erase(this_);
+		this_->m_owner->m_sends.erase(this_);
 	});
 }
+
 void TCPSocket::doCancel()
 {
 	while(m_recvs.size())

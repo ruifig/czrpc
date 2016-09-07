@@ -223,6 +223,7 @@ TEST(TCPService_Connect_Failure)
 	}
 	CHECK_ARRAY_CLOSE(expectedTimes, times, count, 3.0f);
 
+	io.stop();
 	th.join();
 }
 
@@ -384,121 +385,62 @@ TEST(TCPSocket_recv_Failure)
 }
 
 
-//////////////////////////////////////////////////////////////////////////
-//////////////////////////////////////////////////////////////////////////
-
-
-// Test asynchronous listen and accept, but servicing on the same thread
-/*
-TEST(Async_Listen_And_Connect_SingleThreaded)
+// Test if the TCPSocket gets destroyed when we call cancel and we don't hold any strong references
+TEST(TCPSocket_cancel_lifetime)
 {
 	TCPService io;
-	bool done = false;
-
-	// First get an acceptor
-	io.listen(SERVER_PORT, [](const TCPError& ec, std::shared_ptr<TCPAcceptor> acceptor)
-	{
-		CHECK(!ec);
-
-
-		// When we get an acceptor, wait for a connection
-		acceptor->accept([](const TCPError&ec, std::shared_ptr<TCPSocket> sock)
-		{
-			CHECK(!ec);
-			TCPBuffer buf(256);
-			sock->recv(buf, [buf, sock](const TCPError& ec, int bytesTransfered)
-			{
-				CHECK(!ec);
-				CHECK(bytesTransfered == 7);
-				CHECK_EQUAL("HELLO!", buf.ptr());
-				sock->send("OK!", 4, nullptr);
-			});
-		});
-	});
-
-	//
-	io.connect("127.0.0.1", SERVER_PORT, [&io, &done](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
-	{
-		CHECK(!ec);
-		sock->send("HELLO!", 7, [](const TCPError& ec, int bytesTransfered)
-		{
-			CHECK(!ec);
-		});
-		TCPBuffer buf(4);
-		sock->recv(buf, [buf, &io, &done](const TCPError& ec, int bytesTransfered)
-		{
-			CHECK(!ec);
-			CHECK(bytesTransfered == 4);
-			CHECK_EQUAL("OK!", buf.ptr());
-			io.stop();
-			done = true;
-		});
-	});
-
-	while(io.tick()) { }
-	CHECK(done);
-}
-*/
-
-// Test asynchronous listen and accept, with servicing in a different thread
-/*
-TEST(Async_Listen_And_Connect_Multithreaded)
-{
-	TCPService io;
-
 	auto th = std::thread([&io]
 	{
-		while(io.tick()) {}
+		while (io.tick()) {}
 	});
 
 	TCPError ec;
-	// synchronous listen
-	auto acceptor = io.listen(SERVER_PORT, ec);
-	CHECK(!ec);
+	auto acceptor = io.listen(SERVER_PORT, 1, ec);
+	CHECK(!ec && acceptor);
 
-	ZeroSemaphore sem;
-	sem.increment();
-	sem.increment();
-
-	acceptor->accept([&sem](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
-	{
-		CHECK(!ec);
-		TCPBuffer buf(10);
-		sock->recv(buf, [buf, &sem](const TCPError& ec, int bytesTransfered)
-		{
-			CHECK(!ec);
-			CHECK(bytesTransfered == 4);
-			CHECK_EQUAL("ABC", buf.ptr());
-			sem.decrement();
-		});
-
-		sock->send("DEF", 4, [](const TCPError& ec, int bytesTransfered)
-		{
-			CHECK(!ec);
-		});
-	});
-
-	// synchronous connect
 	auto sock = io.connect("127.0.0.1", SERVER_PORT, ec);
-	CHECK(!ec);
-	TCPBuffer buf(10);
-	sock->recv(buf, [buf, &sem](const TCPError& ec, int bytesTransfered)
-	{
-		CHECK(ec.code==TCPError::Code::Success || ec.code==TCPError::Code::ConnectionClosed);
-		CHECK(bytesTransfered == 4);
-		CHECK_EQUAL("DEF", buf.ptr());
-		sem.decrement();
-	});
-	sock->send("ABC", 4, nullptr);
+	CHECK(!ec && sock);
+	// This should not do anything, since there aren't any pending asynchronous operations yet
+	sock->cancel();
 
-	sem.wait();
+	Semaphore sem;
+	for(int i=0; i<10; i++)
+	{
+		TCPBuffer buf(10);
+		sock->recv(buf, [&sem](const TCPError& ec, int bytesTransfered)
+		{
+			CHECK(ec.code == TCPError::Code::Cancelled && bytesTransfered == 0);
+			sem.notify();
+		});
+	}
+
+	// Cancel all outstanding asynchronous operations
+	sock->cancel();
+	// Now, release our strong reference (and keep a weak reference).
+	// The above cancel should cause the socket to be destroyed since all the strong references kept
+	// by the TCPIOService should be removed
+	std::weak_ptr<TCPSocket> wsock = sock;
+	sock = nullptr; // remove our strong reference
+	// wait for all the handlers to be cancelled, so TCPIOService loses all the strong references
+	for (int i = 0; i < 10; i++)
+	{
+		sem.wait();
+	}
+	// Small delay to make sure the TCPIOService has time to remove strong references after calling the handlers. 
+	// This is needed, because after we notify the semaphore, this thread might get here because the the io service
+	// has time to remove the strong references from the internal containers
+	UnitTest::TimeHelpers::SleepMs(10);
+	CHECK(wsock.lock()==nullptr);
+
 	io.stop();
 	th.join();
 }
-*/
 
-/*
-TEST(Failure_Listen_Accept_Connect)
+//////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////
+
+
+TEST(TCPAcceptor_backlog)
 {
 	TCPService io;
 	auto th = std::thread([&io]
@@ -508,39 +450,18 @@ TEST(Failure_Listen_Accept_Connect)
 
 	Semaphore sem;
 	TCPError ec;
-	// Test synchronous listen failure
-	auto acceptor = io.listen(SERVER_UNUSABLE_PORT, ec);
-	CHECK(ec && !acceptor); // Needs to fail, since the port should not be available
-
-	// Test asynchronous listen failure
-	io.listen(SERVER_UNUSABLE_PORT, [&sem](const TCPError& ec, std::shared_ptr<TCPAcceptor> acceptor)
-	{
-		CHECK(ec && !acceptor); // Needs to fail, since the port should not be available
-		sem.notify();
-	});
-	sem.wait();
-
-	// Test synchronous connect failure
-	auto sock = io.connect("127.0.0.1", SERVER_PORT, ec);
-	CHECK(ec && !sock);
-
-	// Test asynchronous connect failure
-	io.connect("127.0.0.1", SERVER_PORT, [&sem](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
-	{
-		CHECK(ec && !sock); // Need to fail
-		sem.notify();
-	});
-	sem.wait();
-
-	// 
-	// Test connection to an acceptor that is only accepting 1 connection
-	acceptor = io.listen(SERVER_PORT, ec, 1);
+	auto acceptor = io.listen(SERVER_PORT, 1, ec);
 	CHECK(!ec && acceptor);
+
+	// Add only 1 accept operation, so the server only accepts 1 incoming connection.
+	// Extra connection attempts by clients can still succeed to connect due to the backlog, but doesn't mean
+	// the server will accept the connection
 	acceptor->accept([&sem](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
 	{
 		CHECK(!ec && sock);
 		sem.notify();
 	});
+
 	auto sock1 = io.connect("127.0.0.1", SERVER_PORT, ec);
 	CHECK(!ec && sock1); // First connect should work, since the server accepts it
 	auto sock2 = io.connect("127.0.0.1", SERVER_PORT, ec);
@@ -551,19 +472,24 @@ TEST(Failure_Listen_Accept_Connect)
 	// is just an hint to the OS
 	CHECK(ec && !sock3); 
 
-	sock2->send("ABC", 4, [&sem](const TCPError& ec, int bytesTransfered)
+	sem.wait(); // Wait for the server accept
+	UnitTest::TimeHelpers::SleepMs(10); // Give some time to the IO thread to remove the reference to the Acceptor
+	CHECK(acceptor.unique());
+	acceptor = nullptr; // Causes the acceptor to be destroy.
+
+	// This send should fail because although we connected, the Acceptor never accepted the connection
+	// and it should be closed once the Acceptor is destroyed
+	sock1->send("ABC", 4, [&sem](const TCPError& ec, int bytesTransfered)
 	{
-		CHECK(!ec);
+		CHECK(ec && bytesTransfered == 0);
 		sem.notify();
 	});
 
-	sem.wait();
 	sem.wait();
 
 	io.stop();
 	th.join();
 }
-*/
 
 /*
 TEST(Callbacks_Cancel_Listen_Connect)
