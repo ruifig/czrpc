@@ -3,7 +3,6 @@
 
 #define CZRPC_WINSOCK 1
 //#define CZRPC_BSD 2
-
 //
 // Excellent BSD socket tutorial:
 // http://beej.us/guide/bgnet/
@@ -294,7 +293,8 @@ public:
 		if (::bind(sock->m_s, (LPSOCKADDR)&addr, sizeof(addr)) == SOCKET_ERROR)
 			throw std::runtime_error(details::TCPUtils::getWin32ErrorMsg(__FUNCTION__));
 
-		if (::listen(sock->m_s, SOMAXCONN) == SOCKET_ERROR)
+		//if (::listen(sock->m_s, SOMAXCONN) == SOCKET_ERROR)
+		if (::listen(sock->m_s, 1) == SOCKET_ERROR)
 			throw std::runtime_error(details::TCPUtils::getWin32ErrorMsg(__FUNCTION__));
 
 		sock->m_localAddr = details::TCPUtils::getLocalAddr(sock->m_s);

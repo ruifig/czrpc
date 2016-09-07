@@ -53,5 +53,8 @@
     <ClCompile Include="tests_doc_paramtraits.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="tests_tcpsocket.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
 </Project>
