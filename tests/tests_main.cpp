@@ -1,35 +1,4 @@
 #include "testsPCH.h"
-//#include "crazygaze/rpc/RPCTCPSocketTransport.h"
-#pragma warning(disable:4996)
-namespace cz {
-	namespace rpc {
-
-		struct MyTCPLog
-		{
-			static void out(bool fatal, const char* type, const char* fmt, ...)
-			{
-				char buf[256];
-				strcpy(buf, type);
-				va_list args;
-				va_start(args, fmt);
-				vsnprintf(buf + strlen(buf), sizeof(buf) - strlen(buf) - 1, fmt, args);
-				va_end(args);
-				printf(buf);
-				printf("\n");
-				if (fatal)
-				{
-					__debugbreak();
-					exit(1);
-				}
-			}
-		};
-
-#define TCPINFO(fmt, ...) MyTCPLog::out(false, "Info: ", fmt, ##__VA_ARGS__)
-
-}
-}
-
-#include "crazygaze/rpc/RPCTCPSocket.h"
 
 //
 // Entry points to try samples used in the documentation
@@ -37,7 +6,7 @@ void RunDocTest_ASmallTaste();
 void RunDocTest_ParamTraits();
 
 using namespace cz::rpc;
-
+#if 0
 void TestTCPTransport()
 {
 	TCPService set;
@@ -96,9 +65,11 @@ void TestTCPTransport()
 	th.join();
 	printf("DONE...\n");
 }
+#endif
+
 int main()
 {
-	TestTCPTransport();
+	//TestTCPTransport();
 	//RunDocTest_ParamTraits();
 	auto res = UnitTest::RunAllTests();
 	return res == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

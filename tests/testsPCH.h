@@ -20,4 +20,6 @@
 #include "UnitTest++\UnitTest++.h"
 #include "UnitTest++\CurrentTest.h"
 
+#include "Semaphore.h"
+
 
