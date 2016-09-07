@@ -190,13 +190,17 @@ TEST(TCPService_Connect_Failure)
 		while (io.tick()) {}
 	});
 
+	//
 	// Test synchronous connect failure
+	//
 	TCPError ec;
 	auto sock = io.connect("127.0.0.1", SERVER_PORT, ec);
 	CHECK(ec.code==TCPError::Code::Other && !sock);
 
 	Semaphore sem;
+	//
 	// Test asynchronous connect failure
+	//
 	const int count = 10;
 	double times[count];
 	double expectedTimes[count];
@@ -217,24 +221,7 @@ TEST(TCPService_Connect_Failure)
 	{
 		sem.wait();
 	}
-
 	CHECK_ARRAY_CLOSE(expectedTimes, times, count, 3.0f);
-
-	// Test asynchronous connect cancel
-	io.setAsyncOpsDebugSleep(20); // Setup a delay to execute async listens and connects, so we can test cancel
-	for (int i = 0; i < 5; i++)
-	{
-		io.connect("127.0.0.1", SERVER_PORT, [&sem](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
-		{
-			CHECK(ec.code == TCPError::Code::Cancelled && !sock);
-			sem.notify();
-		});
-	}
-	io.stop();
-	for (int i = 0; i < 5; i++)
-	{
-		sem.wait();
-	}
 
 	th.join();
 }

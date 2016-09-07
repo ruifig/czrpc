@@ -593,7 +593,7 @@ public:
 
 	/*! Asynchronously creates a connection
 	*/
-	void connect(const char* ip, int port, ConnectHandler h, int timeoutMs = 1000);
+	void connect(const char* ip, int port, ConnectHandler h, int timeoutMs = 200);
 
 	//! Processes whatever it needs
 	// \return
@@ -606,12 +606,6 @@ public:
 	void stop();
 
 	//! Used only by the unit tests
-#if TCPSOCKET_UNIT_TESTS
-	void setAsyncOpsDebugSleep(int ms)
-	{
-		m_asyncOpsDebugSleep = ms;
-	}
-#endif;
 protected:
 	
 	friend class TCPAcceptor;
@@ -621,16 +615,7 @@ protected:
 	std::shared_ptr<TCPSocket> m_signalIn;
 	std::shared_ptr<TCPSocket> m_signalOut;
 
-	//
-	// Used to keep track of the asynchronous listen and accept calls
-	//
-#if TCPSOCKET_UNIT_TESTS
-	int m_asyncOpsDebugSleep = 0; // Used only to add a delay before running asynchronous listens and connects, for debugging
-#endif
-	std::thread m_asyncOpsTh; // Thread used to process asynchronous "listen" and "connect" calls
-	details::TCPUtils::SharedQueue<std::function<void()>> m_asyncOps;
 	std::atomic<bool> m_stopped = false;
-	void runAsyncOpsThread();
 
 	struct ConnectOp
 	{
@@ -886,10 +871,6 @@ void TCPSocket::doCancel()
 
 TCPService::TCPService()
 {
-	m_asyncOpsTh = std::thread([this]
-	{
-		runAsyncOpsThread();
-	});
 
 	TCPError ec;
 	auto dummyListen = listen(0, 1, ec);
@@ -927,14 +908,10 @@ TCPService::TCPService()
 TCPService::~TCPService()
 {
 	assert(m_stopped);
-	assert(m_asyncOps.size() == 0);
 	m_cmdQueue([&](CmdQueue& q)
 	{
 		assert(q.size() == 0);
 	});
-
-	if (m_asyncOpsTh.joinable())
-		m_asyncOpsTh.join();
 }
 
 std::shared_ptr<TCPAcceptor> TCPService::listen(int port, int backlog, TCPError& ec)
@@ -1285,30 +1262,8 @@ bool TCPService::tick()
 void TCPService::stop()
 {
 	m_stopped = true;
-	// Add an empty handler to the helper thread that runs asynchronous accepts and listens.
-	// This will cause that thread to then send an empty handler to the servicing thread.
-	m_asyncOps.emplace(nullptr);
-}
-
-void TCPService::runAsyncOpsThread()
-{
-	while(true)
-	{
-		std::function<void()> op;
-		m_asyncOps.wait_and_pop(op);
-#if TCPSOCKET_UNIT_TESTS
-		if (m_asyncOpsDebugSleep)
-			std::this_thread::sleep_for(std::chrono::milliseconds(m_asyncOpsDebugSleep));
-#endif
-		if (op)
-			op();
-		else
-		{
-			// Queue an empty command to the servicing thread, to signal the end
-			addCmd(nullptr);
-			return; // An empty function signals the end
-		}
-	}
+	// Signal the end by sending an empty command
+	addCmd(nullptr);
 }
 
 void TCPService::startSignalIn()
