@@ -13,11 +13,6 @@
 
 /*
 TODO:
-	- There is no need for a asynchronous listen. Remove that
-	- Make asynchronous connects use the select too, instead of the separate worker thread
-		- http://stackoverflow.com/questions/2597608/c-socket-connection-timeout
-	- Remove the need for the separate worker thread
-		- Not needed if I remove the the asynchronous listen, and the connects use select.
 	- Remove use of macros BUILDERROR/SETERROR, and use the ErrorWrapper
 */
 
@@ -417,7 +412,7 @@ class TCPAcceptor : public TCPBaseSocket
 public:
 	virtual ~TCPAcceptor()
 	{
-		assert(m_w.size() == 0);
+		assert(m_accepts.size() == 0);
 	}
 	using AcceptHandler = std::function<void(const TCPError& ec, std::shared_ptr<TCPSocket> sock)>;
 
@@ -427,10 +422,16 @@ public:
 	//! Cancels all outstanding asynchronous operations
 	void cancel();
 
+	const std::pair<std::string, int>& getLocalAddress() const
+	{
+		return m_localAddr;
+	}
+
 	std::shared_ptr<TCPAcceptor> shared_from_this()
 	{
 		return std::static_pointer_cast<TCPAcceptor>(TCPBaseSocket::shared_from_this());
 	}
+
 protected:
 	friend class TCPService;
 
@@ -438,7 +439,7 @@ protected:
 	// Returns true if we still have pending accepts, false otherwise
 	bool doAccept();
 	void doCancel();
-	std::queue<AcceptHandler> m_w;
+	std::queue<AcceptHandler> m_accepts;
 	std::pair<std::string, int> m_localAddr;
 };
 
@@ -515,10 +516,21 @@ public:
 	//! Cancels all outstanding asynchronous operations
 	void cancel();
 
+	const std::pair<std::string, int>& getLocalAddress() const
+	{
+		return m_localAddr;
+	}
+
+	const std::pair<std::string, int>& getPeerAddress() const
+	{
+		return m_peerAddr;
+	}
+
 	std::shared_ptr<TCPSocket> shared_from_this()
 	{
 		return std::static_pointer_cast<TCPSocket>(TCPBaseSocket::shared_from_this());
 	}
+
 protected:
 	void recvImpl(char* buf, int len, Handler h, bool fill);
 
@@ -665,17 +677,17 @@ void TCPAcceptor::accept(AcceptHandler h)
 {
 	m_owner->addCmd([this_=shared_from_this(), h(std::move(h))]
 	{
-		this_->m_w.push(std::move(h));
+		this_->m_accepts.push(std::move(h));
 		this_->m_owner->m_accepts.insert(this_);
 	});
 }
 
 bool TCPAcceptor::doAccept()
 {
-	TCPASSERT(m_w.size());
+	TCPASSERT(m_accepts.size());
 
-	auto h = std::move(m_w.front());
-	m_w.pop();
+	auto h = std::move(m_accepts.front());
+	m_accepts.pop();
 
 	sockaddr_in clientAddr;
 	int size = sizeof(clientAddr);
@@ -684,7 +696,7 @@ bool TCPAcceptor::doAccept()
 	{
 		BUILDERROR();
 		h(ec, nullptr);
-		return m_w.size() > 0;
+		return m_accepts.size() > 0;
 	}
 
 	auto sock = std::make_shared<TCPSocket>();
@@ -698,7 +710,7 @@ bool TCPAcceptor::doAccept()
 			(int)m_s);
 	h(TCPError(), sock);
 
-	return m_w.size()>0;
+	return m_accepts.size()>0;
 }
 
 void TCPAcceptor::cancel()
@@ -711,10 +723,10 @@ void TCPAcceptor::cancel()
 }
 void TCPAcceptor::doCancel()
 {
-	while(m_w.size())
+	while(m_accepts.size())
 	{
-		m_w.front()(TCPError::Code::Cancelled, nullptr);
-		m_w.pop();
+		m_accepts.front()(TCPError::Code::Cancelled, nullptr);
+		m_accepts.pop();
 	}
 }
 

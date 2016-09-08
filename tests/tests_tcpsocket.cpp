@@ -46,6 +46,7 @@ using namespace cz::rpc;
 
 SUITE(TCPSocket)
 {
+
 TEST(TCPService_Listen_Success)
 {
 	TCPService io;
@@ -436,10 +437,6 @@ TEST(TCPSocket_cancel_lifetime)
 	th.join();
 }
 
-//////////////////////////////////////////////////////////////////////////
-//////////////////////////////////////////////////////////////////////////
-
-
 TEST(TCPAcceptor_backlog)
 {
 	TCPService io;
@@ -473,13 +470,12 @@ TEST(TCPAcceptor_backlog)
 	CHECK(ec && !sock3); 
 
 	sem.wait(); // Wait for the server accept
-	UnitTest::TimeHelpers::SleepMs(10); // Give some time to the IO thread to remove the reference to the Acceptor
 	CHECK(acceptor.unique());
 	acceptor = nullptr; // Causes the acceptor to be destroy.
 
 	// This send should fail because although we connected, the Acceptor never accepted the connection
 	// and it should be closed once the Acceptor is destroyed
-	sock1->send("ABC", 4, [&sem](const TCPError& ec, int bytesTransfered)
+	sock2->send("ABC", 4, [&sem](const TCPError& ec, int bytesTransfered)
 	{
 		CHECK(ec && bytesTransfered == 0);
 		sem.notify();
@@ -491,94 +487,5 @@ TEST(TCPAcceptor_backlog)
 	th.join();
 }
 
-/*
-TEST(Callbacks_Cancel_Listen_Connect)
-{
-	TCPService io;
-	int count=0;
-
-	io.setAsyncOpsDebugSleep(10); // Set small debug delay, so we have time to cancel the operation
-	io.listen(SERVER_PORT, [&count](const TCPError& ec, std::shared_ptr<TCPAcceptor> acceptor)
-	{
-		CHECK(ec.code==TCPError::Code::Cancelled);
-		CHECK(!acceptor);
-		count++;
-	});
-	io.connect("127.0.0.1", SERVER_PORT, [&count](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
-	{
-		CHECK(ec.code==TCPError::Code::Cancelled);
-		CHECK(!sock);
-		count++;
-	});
-	io.stop();
-	while( io.tick() ) {}
-	CHECK(count == 2);
-}
-*/
-
-/*
-TEST(Callbacks_Cancel_Accept)
-{
-	TCPService io;
-	auto th = std::thread([&io]
-	{
-		while (io.tick()) {}
-	});
-
-	TCPError ec;
-	auto acceptor = io.listen(SERVER_PORT, ec);
-	CHECK(!ec);
-
-	// First cancel directly on the acceptor
-	Semaphore sem;
-	acceptor->accept([&sem](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
-	{
-		CHECK(ec.code == TCPError::Code::Cancelled);
-		CHECK(!sock);
-		sem.notify();
-	});
-	acceptor->cancel();
-	sem.wait();
-
-	// Test by canceling from the TCPService
-	acceptor->accept([&sem](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
-	{
-		CHECK(ec.code == TCPError::Code::Cancelled);
-		CHECK(!sock);
-		sem.notify();
-	});
-	io.stop();
-	sem.wait();
-
-	th.join();
-}
-*/
-
-/*
-TEST(Callbacks_Cancel_Connect)
-{
-	TCPService io;
-	auto th = std::thread([&io]
-	{
-		while (io.tick()) {}
-	});
-
-	TCPError ec;
-	auto acceptor = io.listen(SERVER_PORT, ec);
-	CHECK(!ec);
-
-	auto sock = io.connect("127.0.0.1", SERVER_PORT, ec);
-	CHECK(!ec);
-
-	TCPBuffer buf(10);
-	sock->recv(buf, [buf](const TCPError& ec, int bytesTransfered)
-	{
-		CHECK(ec.code == TCPError::Code::Cancelled);
-		CHECK(bytesTransfered == 0);
-	});
-
-	th.join();
-}
-*/
 
 }
