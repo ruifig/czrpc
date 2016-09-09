@@ -26,13 +26,12 @@ namespace cz {
 			}
 		};
 
-#define TCPINFO(fmt, ...) MyTCPLog::out(false, "Info: ", fmt, ##__VA_ARGS__)
-//#define TCPINFO(...) ((void)0)
+//#define TCPINFO(fmt, ...) MyTCPLog::out(false, "Info: ", fmt, ##__VA_ARGS__)
+#define TCPINFO(...) ((void)0)
 #define TCPERROR(...) ((void)0)
 }
 }
 
-#define TCPSOCKET_UNIT_TESTS 1
 #include "crazygaze/rpc/RPCTCPSocket.h"
 
 using namespace cz;
@@ -255,11 +254,11 @@ TEST(TCPSocket_recv_Success)
 	sem.wait();
 
 	// Test sending multiple chunks, but having it received in 1
-	serverSock->send("AB", 2, [&sem](const TCPError& ec, int bytesTransfered) { sem.notify(); });
-	serverSock->send("CD", 3, [&sem](const TCPError& ec, int bytesTransfered) { sem.notify(); });
+	serverSock->asyncSend("AB", 2, [&sem](const TCPError& ec, int bytesTransfered) { sem.notify(); });
+	serverSock->asyncSend("CD", 3, [&sem](const TCPError& ec, int bytesTransfered) { sem.notify(); });
 	TCPBuffer buf(10);
 	sem.wait(); sem.wait(); // Wait for both sends to finish, so we can test receiving in one chunk
-	sock->recv(buf, [buf, &sem](const TCPError& ec, int bytesTransfered)
+	sock->asyncRecv(buf, [buf, &sem](const TCPError& ec, int bytesTransfered)
 	{
 		CHECK(bytesTransfered == 5);
 		CHECK_EQUAL("ABCD", buf.ptr());
@@ -268,14 +267,14 @@ TEST(TCPSocket_recv_Success)
 	sem.wait(); // wait for the recv to process
 
 	// Test sending multiple chunks with some delay, and have the receiver receive in different chunks
-	serverSock->send("AB", 2, [&serverSock](const TCPError& ec, int bytesTransfered)
+	serverSock->asyncSend("AB", 2, [&serverSock](const TCPError& ec, int bytesTransfered)
 	{
 		CHECK(bytesTransfered == 2);
-		serverSock->send("CD", 3, nullptr);
+		serverSock->asyncSend("CD", 3, nullptr);
 	});
 
 	TCPBuffer buf1(1);
-	sock->recv(buf1, [buf1, &sem, sock](const TCPError& ec, int bytesTransfered)
+	sock->asyncRecv(buf1, [buf1, &sem, sock](const TCPError& ec, int bytesTransfered)
 	{
 		CHECK(bytesTransfered == 1);
 		CHECK(buf1.ptr()[0] == 'A');
@@ -283,7 +282,7 @@ TEST(TCPSocket_recv_Success)
 
 		// Read the rest
 		TCPBuffer buf2(10);
-		sock->recv(buf2, [buf2, &sem](const TCPError& ec, int bytesTransfered)
+		sock->asyncRecv(buf2, [buf2, &sem](const TCPError& ec, int bytesTransfered)
 		{
 			CHECK(bytesTransfered == 4);
 			CHECK_EQUAL("BCD", buf2.ptr());
@@ -338,7 +337,7 @@ TEST(TCPSocket_recv_Failure)
 	for (int i = 0; i < 10; i++)
 	{
 		TCPBuffer buf(10);
-		sock->recv(buf, [buf, &sem](const TCPError& ec, int bytesTransfered)
+		sock->asyncRecv(buf, [buf, &sem](const TCPError& ec, int bytesTransfered)
 		{
 			CHECK(ec.code == TCPError::Code::Cancelled && bytesTransfered == 0);
 			sem.notify();
@@ -354,7 +353,7 @@ TEST(TCPSocket_recv_Failure)
 	// Test connection closed
 	//
 	TCPBuffer buf(10);
-	sock->recv(buf, [buf, &sem](const TCPError& ec, int bytesTransfered)
+	sock->asyncRecv(buf, [buf, &sem](const TCPError& ec, int bytesTransfered)
 	{
 		CHECK(ec.code == TCPError::Code::ConnectionClosed && bytesTransfered == 0);
 		sem.notify();
@@ -373,7 +372,7 @@ TEST(TCPSocket_recv_Failure)
 	for (int i = 0; i < 10; i++)
 	{
 		TCPBuffer buf(10);
-		sock->recv(buf, [buf, &sem](const TCPError& ec, int bytesTransfered)
+		sock->asyncRecv(buf, [buf, &sem](const TCPError& ec, int bytesTransfered)
 		{
 			CHECK(ec.code == TCPError::Code::Cancelled && bytesTransfered == 0);
 			sem.notify();
@@ -412,7 +411,7 @@ TEST(TCPSocket_cancel_lifetime)
 	for(int i=0; i<10; i++)
 	{
 		TCPBuffer buf(10);
-		sock->recv(buf, [&sem](const TCPError& ec, int bytesTransfered)
+		sock->asyncRecv(buf, [&sem](const TCPError& ec, int bytesTransfered)
 		{
 			CHECK(ec.code == TCPError::Code::Cancelled && bytesTransfered == 0);
 			sem.notify();
@@ -479,7 +478,7 @@ TEST(TCPAcceptor_backlog)
 
 	// This send should fail because although we connected, the Acceptor never accepted the connection
 	// and it should be closed once the Acceptor is destroyed
-	sock2->send("ABC", 4, [&sem](const TCPError& ec, int bytesTransfered)
+	sock2->asyncSend("ABC", 4, [&sem](const TCPError& ec, int bytesTransfered)
 	{
 		CHECK(ec && bytesTransfered == 0);
 		sem.notify();
