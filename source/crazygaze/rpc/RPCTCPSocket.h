@@ -9,11 +9,12 @@
 //
 // Compatibility stuff (Windows vs Unix)
 // https://tangentsoft.net/wskfaq/articles/bsd-compatibility.html
+//
+// Nice question/answer about socket states, including a neat state diagram:
+//	http://stackoverflow.com/questions/5328155/preventing-fin-wait2-when-closing-socket
 
 
 /*
-TODO:
-	- Remove use of macros BUILDERROR/SETERROR, and use the ErrorWrapper
 */
 
 #include <WinSock2.h>
@@ -61,254 +62,10 @@ struct TCPSocketDefaultLog
 	#define TCPFATAL(fmt, ...) TCPSocketDefaultLog::out(true, "Fatal: ", fmt, ##__VA_ARGS__)
 #endif
 
-#define TCPASSERT(expr) \
-	if (!(expr)) TCPFATAL(#expr)
-
-
-#if CZRPC_WINSOCK
-	#define BUILDERROR() \
-		TCPError ec(TCPError::Code::Other, details::TCPUtils::getWin32ErrorMsg()); \
-		TCPERROR(ec.msg());
-
-	#define SETERROR() \
-		ec = TCPError(TCPError::Code::Other, details::TCPUtils::getWin32ErrorMsg()); \
-		TCPERROR(ec.msg());
-#else
-	#define BUILDERROR() \
-		TCPError ec(TCPError::Code::Other, "Error " + std::to_string(errno)); \
-		TCPERROR(ec.msg());
-
-	#define SETERROR() \
-		ec = TCPError(TCPError::Code::Other, "Error " + std::to_string(errno)); \ 
-		TCPERROR(ec.msg());
+#ifndef TCPASSERT
+	#define TCPASSERT(expr) \
+		if (!(expr)) TCPFATAL(#expr)
 #endif
-
-namespace details
-{
-
-	struct TCPUtils
-	{
-		static std::string getWin32ErrorMsg(DWORD err = ERROR_SUCCESS, const char* funcname = nullptr)
-		{
-			LPVOID lpMsgBuf;
-			LPVOID lpDisplayBuf;
-			if (err == ERROR_SUCCESS)
-				err = GetLastError();
-
-			FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-				NULL,
-				err,
-				MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-				(char*)&lpMsgBuf,
-				0,
-				NULL);
-
-			int funcnameLength = funcname ? (int)strlen(funcname) : 0;
-			lpDisplayBuf =
-				(LPVOID)LocalAlloc(LMEM_ZEROINIT, (strlen((char*)lpMsgBuf) + funcnameLength + 50));
-			StringCchPrintfA(
-				(char*)lpDisplayBuf,
-				LocalSize(lpDisplayBuf),
-				"%s failed with error %d: %s",
-				funcname ? funcname : "",
-				err,
-				lpMsgBuf);
-
-			std::string ret = (char*)lpDisplayBuf;
-			LocalFree(lpMsgBuf);
-			LocalFree(lpDisplayBuf);
-
-			// Remove the \r\n at the end
-			while (ret.size() && ret.back() < ' ')
-				ret.pop_back();
-
-			return std::move(ret);
-		}
-
-		struct WSAInstance
-		{
-			WSAInstance()
-			{
-				WORD wVersionRequested = MAKEWORD(2, 2);
-				WSADATA wsaData;
-				int err = WSAStartup(wVersionRequested, &wsaData);
-				if (err != 0)
-					TCPFATAL(getWin32ErrorMsg().c_str());
-				if (LOBYTE(wsaData.wVersion) != 2 || HIBYTE(wsaData.wVersion) != 2)
-				{
-					WSACleanup();
-					TCPFATAL("Could not find a usable version of Winsock.dll");
-				}
-			}
-			~WSAInstance()
-			{
-				WSACleanup();
-			}
-		};
-
-		static void setBlocking(SOCKET s, bool blocking)
-		{
-			TCPASSERT(s != INVALID_SOCKET);
-			// 0: Blocking. !=0 : Non-blocking
-			u_long mode = blocking ? 0 : 1;
-			int res = ioctlsocket(s, FIONBIO, &mode);
-			if (res != 0)
-				TCPFATAL(getWin32ErrorMsg().c_str());
-		}
-
-		static void disableNagle(SOCKET s)
-		{
-			int flag = 1;
-			int result = setsockopt(
-				s, /* socket affected */
-				IPPROTO_TCP,     /* set option at TCP level */
-				TCP_NODELAY,     /* name of option */
-				(char *)&flag,   /* the cast is historical cruft */
-				sizeof(flag));   /* length of option value */
-			if (result !=0)
-				TCPFATAL(getWin32ErrorMsg().c_str());
-		}
-
-		static std::pair<std::string, int> addrToPair(sockaddr_in& addr)
-		{
-			std::pair<std::string, int> res;
-			char str[INET_ADDRSTRLEN];
-			inet_ntop(AF_INET, &(addr.sin_addr), str, INET_ADDRSTRLEN);
-			res.first = str;
-			res.second = ntohs(addr.sin_port);
-			return res;
-		}
-
-		static std::pair<std::string, int> getLocalAddr(SOCKET s)
-		{
-			sockaddr_in addr;
-			int size = sizeof(addr);
-			if (getsockname(s, (SOCKADDR*)&addr, &size) != SOCKET_ERROR && size == sizeof(addr))
-				return addrToPair(addr);
-			else
-			{
-				TCPFATAL(getWin32ErrorMsg().c_str());
-				return std::make_pair("", 0);
-			}
-		}
-
-		static std::pair<std::string, int> getRemoteAddr(SOCKET s)
-		{
-			sockaddr_in addr;
-			int size = sizeof(addr);
-			if (getpeername(s, (SOCKADDR*)&addr, &size) != SOCKET_ERROR)
-				return addrToPair(addr);
-			else
-			{
-				TCPFATAL(getWin32ErrorMsg().c_str());
-				return std::make_pair("", 0);
-			}
-		}
-
-		//
-		// Multiple producer, multiple consumer thread safe queue
-		//
-		template<typename T>
-		class SharedQueue
-		{
-		private:
-			std::queue<T> m_queue;
-			mutable std::mutex m_mtx;
-			std::condition_variable m_data_cond;
-
-			SharedQueue& operator=(const SharedQueue&) = delete;
-			SharedQueue(const SharedQueue& other) = delete;
-
-		public:
-			SharedQueue(){}
-
-			template<typename... Args>
-			void emplace(Args&&... args)
-			{
-				std::lock_guard<std::mutex> lock(m_mtx);
-				m_queue.emplace(std::forward<Args>(args)...);
-				m_data_cond.notify_one();
-			}
-
-			template<typename T>
-			void push(T&& item){
-				std::lock_guard<std::mutex> lock(m_mtx);
-				m_queue.push(std::forward<T>(item));
-				m_data_cond.notify_one();
-			}
-
-			//! Tries to pop an item from the queue. It does not block waiting for
-			// items.
-			// \return Returns true if an Items was retrieved
-			bool try_and_pop(T& popped_item){
-				std::lock_guard<std::mutex> lock(m_mtx);
-				if (m_queue.empty()){
-					return false;
-				}
-				popped_item = std::move(m_queue.front());
-				m_queue.pop();
-				return true;
-			}
-
-			//! Retrieves all items into the supplied queue.
-			// This should be more efficient than retrieving one item at a time when a
-			// thread wants to process as many items as there are currently in the
-			// queue. Example:
-			// std::queue<Foo> local;
-			// if (q.try_and_popAll(local)) {
-			//     ... process items in local ...
-			// }
-			//
-			// \return
-			//	True if any items were retrieved
-			// \note
-			//	Any elements in the destination queue will be lost.
-			bool try_and_popAll(std::queue<T>& dest)
-			{
-				std::lock_guard<std::mutex> lock(m_mtx);
-				dest = std::move(m_queue);
-				return dest.size()!=0;
-			}
-
-			// Retrieves an item, blocking if necessary to wait for items.
-			void wait_and_pop(T& popped_item){
-				std::unique_lock<std::mutex> lock(m_mtx);
-				m_data_cond.wait(lock, [this] { return !m_queue.empty();});
-				popped_item = std::move(m_queue.front());
-				m_queue.pop();
-			}
-
-			//! Retrieves an item, blocking if necessary for the specified duration
-			// until items arrive.
-			//
-			// \return
-			//	false : Timed out (There were no items)
-			//	true  : Item retrieved
-			bool wait_and_pop(T& popped_item, int64_t timeoutMs){
-				std::unique_lock<std::mutex> lock(m_mtx);
-				if (!m_data_cond.wait_for(lock, std::chrono::milliseconds(timeoutMs), [this] { return !m_queue.empty();}))
-					return false;
-
-				popped_item = std::move(m_queue.front());
-				m_queue.pop();
-				return true;
-			}
-
-			//! Checks if the queue is empty
-			bool empty() const{
-				std::lock_guard<std::mutex> lock(m_mtx);
-				return m_queue.empty();
-			}
-
-			//! Returns how many items there are in the queue
-			unsigned size() const{
-				std::lock_guard<std::mutex> lock(m_mtx);
-				return static_cast<unsigned>(m_queue.size());
-			}
-		};
-	};
-} // namespace details
-
 
 struct TCPError
 {
@@ -363,15 +120,51 @@ struct TCPError
 	std::shared_ptr<std::string> optionalMsg;
 };
 
-// ErrorWrapper
 namespace details
 {
 	class ErrorWrapper
 	{
 	public:
 #if CZRPC_WINSOCK
+		static std::string getWin32ErrorMsg(DWORD err = ERROR_SUCCESS, const char* funcname = nullptr)
+		{
+			LPVOID lpMsgBuf;
+			LPVOID lpDisplayBuf;
+			if (err == ERROR_SUCCESS)
+				err = GetLastError();
+
+			FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+				NULL,
+				err,
+				MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+				(char*)&lpMsgBuf,
+				0,
+				NULL);
+
+			int funcnameLength = funcname ? (int)strlen(funcname) : 0;
+			lpDisplayBuf =
+				(LPVOID)LocalAlloc(LMEM_ZEROINIT, (strlen((char*)lpMsgBuf) + funcnameLength + 50));
+			StringCchPrintfA(
+				(char*)lpDisplayBuf,
+				LocalSize(lpDisplayBuf),
+				"%s failed with error %d: %s",
+				funcname ? funcname : "",
+				err,
+				lpMsgBuf);
+
+			std::string ret = (char*)lpDisplayBuf;
+			LocalFree(lpMsgBuf);
+			LocalFree(lpDisplayBuf);
+
+			// Remove the \r\n at the end
+			while (ret.size() && ret.back() < ' ')
+				ret.pop_back();
+
+			return std::move(ret);
+		}
+
 		ErrorWrapper() { err = WSAGetLastError(); }
-		std::string msg() const { return details::TCPUtils::getWin32ErrorMsg(err); }
+		std::string msg() const { return getWin32ErrorMsg(err); }
 		bool isBlockError() const { return err == WSAEWOULDBLOCK; }
 #else
 		ErrorWrapper() { err = errno; }
@@ -384,11 +177,96 @@ namespace details
 	private:
 		int err;
 	};
-}
+
+	struct utils
+	{
+		static void setBlocking(SOCKET s, bool blocking)
+		{
+			TCPASSERT(s != INVALID_SOCKET);
+			// 0: Blocking. !=0 : Non-blocking
+			u_long mode = blocking ? 0 : 1;
+			int res = ioctlsocket(s, FIONBIO, &mode);
+			if (res != 0)
+				TCPFATAL(ErrorWrapper().msg().c_str());
+		}
+
+		static void disableNagle(SOCKET s)
+		{
+			int flag = 1;
+			int result = setsockopt(
+				s, /* socket affected */
+				IPPROTO_TCP,     /* set option at TCP level */
+				TCP_NODELAY,     /* name of option */
+				(char *)&flag,   /* the cast is historical cruft */
+				sizeof(flag));   /* length of option value */
+			if (result != 0)
+				TCPFATAL(ErrorWrapper().msg().c_str());
+		}
+
+		static std::pair<std::string, int> addrToPair(sockaddr_in& addr)
+		{
+			std::pair<std::string, int> res;
+			char str[INET_ADDRSTRLEN];
+			inet_ntop(AF_INET, &(addr.sin_addr), str, INET_ADDRSTRLEN);
+			res.first = str;
+			res.second = ntohs(addr.sin_port);
+			return res;
+		}
+
+		static std::pair<std::string, int> getLocalAddr(SOCKET s)
+		{
+			sockaddr_in addr;
+			int size = sizeof(addr);
+			if (getsockname(s, (SOCKADDR*)&addr, &size) != SOCKET_ERROR && size == sizeof(addr))
+				return addrToPair(addr);
+			else
+			{
+				TCPFATAL(ErrorWrapper().msg().c_str());
+				return std::make_pair("", 0);
+			}
+		}
+
+		static std::pair<std::string, int> getRemoteAddr(SOCKET s)
+		{
+			sockaddr_in addr;
+			int size = sizeof(addr);
+			if (getpeername(s, (SOCKADDR*)&addr, &size) != SOCKET_ERROR)
+				return addrToPair(addr);
+			else
+			{
+				TCPFATAL(ErrorWrapper().msg().c_str());
+				return std::make_pair("", 0);
+			}
+		}
+	};
+
+	struct WSAInstance
+	{
+		WSAInstance()
+		{
+			WORD wVersionRequested = MAKEWORD(2, 2);
+			WSADATA wsaData;
+			int err = WSAStartup(wVersionRequested, &wsaData);
+			if (err != 0)
+				TCPFATAL(ErrorWrapper().msg().c_str());
+
+			if (LOBYTE(wsaData.wVersion) != 2 || HIBYTE(wsaData.wVersion) != 2)
+			{
+				WSACleanup();
+				TCPFATAL("Could not find a usable version of Winsock.dll");
+			}
+		}
+		~WSAInstance()
+		{
+			WSACleanup();
+		}
+	};
+} // namespace details
+
+
 
 class TCPService;
 class TCPSocket;
-
 
 class TCPBaseSocket : public std::enable_shared_from_this<TCPBaseSocket>
 {
@@ -412,7 +290,7 @@ class TCPAcceptor : public TCPBaseSocket
 public:
 	virtual ~TCPAcceptor()
 	{
-		assert(m_accepts.size() == 0);
+		TCPASSERT(m_accepts.size() == 0);
 	}
 	using AcceptHandler = std::function<void(const TCPError& ec, std::shared_ptr<TCPSocket> sock)>;
 
@@ -474,8 +352,8 @@ class TCPSocket : public TCPBaseSocket
 public:
 	virtual ~TCPSocket()
 	{
-		assert(m_recvs.size() == 0);
-		assert(m_sends.size() == 0);
+		TCPASSERT(m_recvs.size() == 0);
+		TCPASSERT(m_sends.size() == 0);
 	}
 	using Handler = std::function<void(const TCPError& ec, int bytesTransfered)>;
 
@@ -577,11 +455,6 @@ public:
 	TCPService();
 	~TCPService();
 
-	enum
-	{
-		MAX_CONN = SOMAXCONN
-	};
-
 	using ConnectHandler = std::function<void(const TCPError&, std::shared_ptr<TCPSocket>)>;
 
 	//! Creates a listening socket at the specified port
@@ -625,7 +498,7 @@ protected:
 	friend class TCPAcceptor;
 	friend class TCPSocket;
 
-	details::TCPUtils::WSAInstance m_wsaInstance;
+	details::WSAInstance m_wsaInstance;
 	std::shared_ptr<TCPSocket> m_signalIn;
 	std::shared_ptr<TCPSocket> m_signalOut;
 
@@ -633,15 +506,14 @@ protected:
 
 	struct ConnectOp
 	{
-		std::chrono::time_point<std::chrono::high_resolution_clock> start; // #TODO : Remove this
 		std::chrono::time_point<std::chrono::high_resolution_clock> timeoutPoint;
 		ConnectHandler h;
 	};
 
 	std::unordered_map<std::shared_ptr<TCPSocket>, ConnectOp> m_connects;  // Pending connects
-	std::set<std::shared_ptr<TCPAcceptor>> m_accepts; // Set pending accepts
-	std::set<std::shared_ptr<TCPSocket>> m_recvs; // Set of pending reads
-	std::set<std::shared_ptr<TCPSocket>> m_sends; // Set of pending writes
+	std::set<std::shared_ptr<TCPAcceptor>> m_accepts; // pending accepts
+	std::set<std::shared_ptr<TCPSocket>> m_recvs; // pending reads
+	std::set<std::shared_ptr<TCPSocket>> m_sends; // pending writes
 
 	using CmdQueue = std::queue<std::function<void()>>;
 	Monitor<CmdQueue> m_cmdQueue;
@@ -694,17 +566,18 @@ bool TCPAcceptor::doAccept()
 	SOCKET s = ::accept(m_s, (struct sockaddr*)&clientAddr, &size);
 	if (s == INVALID_SOCKET)
 	{
-		BUILDERROR();
+		auto ec = details::ErrorWrapper().getError();
+		TCPERROR(ec.msg());
 		h(ec, nullptr);
 		return m_accepts.size() > 0;
 	}
 
 	auto sock = std::make_shared<TCPSocket>();
 	sock->m_s = s;
-	sock->m_localAddr = details::TCPUtils::getLocalAddr(s);
-	sock->m_peerAddr = details::TCPUtils::getRemoteAddr(s);
+	sock->m_localAddr = details::utils::getLocalAddr(s);
+	sock->m_peerAddr = details::utils::getRemoteAddr(s);
 	sock->m_owner = m_owner;
-	details::TCPUtils::setBlocking(sock->m_s, false);
+	details::utils::setBlocking(sock->m_s, false);
 	TCPINFO("Server side socket %d connected to %s:%d, socket %d",
 			(int)s, sock->m_peerAddr.first.c_str(), sock->m_peerAddr.second,
 			(int)m_s);
@@ -771,23 +644,10 @@ bool TCPSocket::doRecv()
 		int len = ::recv(m_s, op.buf+op.bytesTransfered, op.bufLen-op.bytesTransfered, 0);
 		if (len == SOCKET_ERROR)
 		{
-			bool wouldblock = false;
-			// #TODO : Use ErrorWrapper here
-#if CZRPC_WINSOCK
-			auto err = WSAGetLastError();
-			if (err == WSAEWOULDBLOCK)
-				wouldblock = true;
-#elif CZRPC_BSD
-			auto err = errno;
-			if (err == EAGAIN || err == EWOULDBLOCK)
-				wouldblock = true;
-#else
-			#error "Unknown"
-#endif
-			else
-				TCPERROR(details::TCPUtils::getWin32ErrorMsg().c_str()); 
-			if (wouldblock)
+			details::ErrorWrapper err;
+			if (err.isBlockError())
 			{
+				TCPASSERT(op.bytesTransfered);
 				// If this operation doesn't require a full buffer, we call the handler with
 				// whatever data we received, and discard the operation
 		
@@ -798,6 +658,10 @@ bool TCPSocket::doRecv()
 				}
 				// Done receiving, since the socket doesn't have more incoming data
 				break;
+			}
+			else
+			{
+				TCPERROR(err.msg().c_str());
 			}
 		}
 		else if (len>0)
@@ -828,14 +692,13 @@ bool TCPSocket::doRecv()
 
 bool TCPSocket::doSend()
 {
-	using namespace details;
 	while(m_sends.size())
 	{
 		SendOp& op = m_sends.front();
 		auto res = ::send(m_s, op.buf + op.bytesTransfered, op.bufLen - op.bytesTransfered, 0);
 		if (res==SOCKET_ERROR)
 		{
-			ErrorWrapper err;
+			details::ErrorWrapper err;
 			if (err.isBlockError())
 			{
 				// We can't send more data at the moment, so we are done trying
@@ -843,7 +706,7 @@ bool TCPSocket::doSend()
 			}
 			else
 			{
-				TCPERROR(err.msg());
+				TCPERROR(err.msg().c_str());
 				if (op.h)
 					op.h(TCPError(TCPError::Code::ConnectionClosed, err.msg()), op.bytesTransfered);
 				m_sends.pop();
@@ -925,16 +788,18 @@ TCPService::TCPService()
 
 	dummyListen = nullptr; // Not needed, since it goes out of scope, but easier to debug
 
-	details::TCPUtils::disableNagle(m_signalIn->m_s);
-	details::TCPUtils::disableNagle(m_signalOut->m_s);
+	details::utils::disableNagle(m_signalIn->m_s);
+	details::utils::disableNagle(m_signalOut->m_s);
 }
 
 TCPService::~TCPService()
 {
-	assert(m_stopped);
+	TCPASSERT(m_stopped);
+	m_signalOut->doCancel();
+	m_signalIn->doCancel();
 	m_cmdQueue([&](CmdQueue& q)
 	{
-		assert(q.size() == 0);
+		TCPASSERT(q.size() == 0);
 	});
 }
 
@@ -946,7 +811,8 @@ std::shared_ptr<TCPAcceptor> TCPService::listen(int port, int backlog, TCPError&
 	sock->m_s = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	if (sock->m_s == INVALID_SOCKET)
 	{
-		SETERROR();
+		ec = details::ErrorWrapper().getError();
+		TCPERROR(ec.msg());
 		return nullptr;
 	}
 
@@ -958,17 +824,19 @@ std::shared_ptr<TCPAcceptor> TCPService::listen(int port, int backlog, TCPError&
 	addr.sin_addr.s_addr = htonl(INADDR_ANY);
 	if (::bind(sock->m_s, (LPSOCKADDR)&addr, sizeof(addr)) == SOCKET_ERROR)
 	{
-		SETERROR();
+		ec = details::ErrorWrapper().getError();
+		TCPERROR(ec.msg());
 		return nullptr;
 	}
 
 	if (::listen(sock->m_s, backlog) == SOCKET_ERROR)
 	{
-		SETERROR();
+		ec = details::ErrorWrapper().getError();
+		TCPERROR(ec.msg());
 		return nullptr;
 	}
 
-	sock->m_localAddr = details::TCPUtils::getLocalAddr(sock->m_s);
+	sock->m_localAddr = details::utils::getLocalAddr(sock->m_s);
 
 	ec = TCPError();
 	return sock;
@@ -976,7 +844,7 @@ std::shared_ptr<TCPAcceptor> TCPService::listen(int port, int backlog, TCPError&
 
 std::shared_ptr<TCPSocket> TCPService::connect(const char* ip, int port, TCPError& ec)
 {
-	assert(!m_stopped);
+	TCPASSERT(!m_stopped);
 
 	SOCKADDR_IN addr;
 	ZeroMemory(&addr, sizeof(addr));
@@ -988,7 +856,8 @@ std::shared_ptr<TCPSocket> TCPService::connect(const char* ip, int port, TCPErro
 	sock->m_s = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	if (sock->m_s == INVALID_SOCKET)
 	{
-		SETERROR();
+		ec = details::ErrorWrapper().getError();
+		TCPERROR(ec.msg());
 		return nullptr;
 	}
 
@@ -996,15 +865,16 @@ std::shared_ptr<TCPSocket> TCPService::connect(const char* ip, int port, TCPErro
 
 	if (::connect(sock->m_s, (SOCKADDR*)&addr, sizeof(addr)) == SOCKET_ERROR)
 	{
-		SETERROR();
+		ec = details::ErrorWrapper().getError();
+		TCPERROR(ec.msg());
 		return nullptr;
 	}
 
-	details::TCPUtils::setBlocking(sock->m_s, false);
+	details::utils::setBlocking(sock->m_s, false);
 
 	sock->m_owner = this;
-	sock->m_localAddr = details::TCPUtils::getLocalAddr(sock->m_s);
-	sock->m_peerAddr = details::TCPUtils::getRemoteAddr(sock->m_s);
+	sock->m_localAddr = details::utils::getLocalAddr(sock->m_s);
+	sock->m_peerAddr = details::utils::getRemoteAddr(sock->m_s);
 	TCPINFO("Socket %d connected to %s:%d", (int)sock->m_s, sock->m_peerAddr.first.c_str(), sock->m_peerAddr.second);
 
 	ec = TCPError();
@@ -1013,9 +883,7 @@ std::shared_ptr<TCPSocket> TCPService::connect(const char* ip, int port, TCPErro
 
 void TCPService::connect(const char* ip, int port, ConnectHandler h, int timeoutMs)
 {
-	using namespace details;
-	assert(!m_stopped);
-	//assert(timeoutMs > 0);
+	TCPASSERT(!m_stopped);
 
 	SOCKADDR_IN addr;
 	ZeroMemory(&addr, sizeof(addr));
@@ -1028,7 +896,7 @@ void TCPService::connect(const char* ip, int port, ConnectHandler h, int timeout
 	// If the socket creation fails, send the handler to the service thread to execute with an error
 	if (sock->m_s == INVALID_SOCKET)
 	{
-		TCPError ec(ErrorWrapper().getError());
+		TCPError ec = details::ErrorWrapper().getError();
 		addCmd([ec=std::move(ec), h=std::move(h)]
 		{
 			h(ec, nullptr);
@@ -1037,17 +905,16 @@ void TCPService::connect(const char* ip, int port, ConnectHandler h, int timeout
 	TCPINFO("Connect socket=%d", (int)sock->m_s);
 
 	// Set to non-blocking, so we can do an asynchronous connect
-	details::TCPUtils::setBlocking(sock->m_s, false);
+	details::utils::setBlocking(sock->m_s, false);
 	if (::connect(sock->m_s, (SOCKADDR*)&addr, sizeof(addr)) == SOCKET_ERROR)
 	{
-		ErrorWrapper err;
+		details::ErrorWrapper err;
 		if (err.isBlockError())
 		{
 			// Normal behavior, so setup the connect detection with select
 			addCmd([this, sock=std::move(sock), h=std::move(h), timeoutMs]
 			{
 				ConnectOp op;
-				op.start = std::chrono::high_resolution_clock::now();
 				op.timeoutPoint = std::chrono::high_resolution_clock::now() + std::chrono::milliseconds(timeoutMs);
 				op.h = std::move(h);
 				m_connects[sock] = std::move(op);
@@ -1056,8 +923,7 @@ void TCPService::connect(const char* ip, int port, ConnectHandler h, int timeout
 		else
 		{
 			// Anything else than a blocking error is a real error
-			TCPError ec(err.getError());
-			addCmd([ec = std::move(ec), h = std::move(h)]
+			addCmd([ec = err.getError(), h = std::move(h)]
 			{
 				h(ec, nullptr);
 			});
@@ -1099,7 +965,7 @@ bool TCPService::tick()
 	if (finished)
 	{
 		// If we are finished, then there can't be any commands left
-		assert(m_tmpQueue.size() == 0);
+		TCPASSERT(m_tmpQueue.size() == 0);
 
 		//
 		// Cancel all handlers in all the sockets we have at the moment
@@ -1108,17 +974,15 @@ bool TCPService::tick()
 			s.second.h(TCPError(TCPError::Code::Cancelled), nullptr);
 		m_connects.clear();
 
-		for(auto&& s : m_accepts)
-			s->doCancel();
-		m_accepts.clear();
-
-		for (auto&& s : m_recvs)
-			s->doCancel();
-		m_recvs.clear();
-
-		for (auto&& s : m_sends)
-			s->doCancel();
-		m_sends.clear();
+		auto cancel = [](auto&& container)
+		{
+			for (auto&& s : container)
+				s->doCancel();
+			container.clear();
+		};
+		cancel(m_accepts);
+		cancel(m_recvs);
+		cancel(m_sends);
 
 		return false;
 	}
@@ -1127,33 +991,18 @@ bool TCPService::tick()
 	FD_ZERO(&readfds);
 	FD_ZERO(&writefds);
 	SOCKET maxfd = 0;
-	auto addS = [&maxfd](SOCKET s, fd_set& fds)
+	auto addSockets = [&maxfd](auto&& container, fd_set& fds)
 	{
-		if (s > maxfd)
-			maxfd = s;
-		FD_SET(s, &fds);
+		for(auto&& s : container)
+		{
+			if (s->m_s > maxfd)
+				maxfd = s->m_s;
+			FD_SET(s->m_s, &fds);
+		}
 	};
-
-	//# TODO : Remove these
-	std::string rstr, wstr;
-
-	for(auto&& s : m_accepts)
-	{
-		rstr += std::to_string((int)s->m_s) + ", ";
-		addS(s->m_s, readfds);
-	}
-
-	for(auto&& s : m_recvs)
-	{
-		rstr += std::to_string((int)s->m_s) + ", ";
-		addS(s->m_s, readfds);
-	}
-
-	for(auto&& s : m_sends)
-	{
-		wstr += std::to_string((int)s->m_s) + ", ";
-		addS(s->m_s, writefds);
-	}
+	addSockets(m_accepts, readfds);
+	addSockets(m_recvs, readfds);
+	addSockets(m_sends, writefds);
 
 	// For non-blocking connects, select will let us know a connect finished through the write fds
 	TIMEVAL timeout{ 0,0 };
@@ -1163,8 +1012,9 @@ bool TCPService::tick()
 		std::chrono::nanoseconds t(std::numeric_limits<long long>::max());
 		for (auto&& s : m_connects)
 		{
-			wstr += std::to_string((int)s.first->m_s) + ", ";
-			addS(s.first->m_s, writefds);
+			if (s.first->m_s > maxfd)
+				maxfd = s.first->m_s;
+			FD_SET(s.first->m_s, &writefds);
 			// Calculate timeout
 			std::chrono::nanoseconds remain = s.second.timeoutPoint - start;
 			if (remain < t)
@@ -1181,16 +1031,12 @@ bool TCPService::tick()
 	if (readfds.fd_count == 0 && writefds.fd_count == 0)
 		return true;
 
-	TCPINFO("SELECT %d, readCount=%d(%s), writeCount=%d(%s)",
-			(int)maxfd + 1, readfds.fd_count, rstr.c_str(), writefds.fd_count, wstr.c_str());
-
 	auto res = select(
 		(int)maxfd + 1,
 		&readfds,
 		&writefds,
 		NULL,
 		(m_connects.size()) ? &timeout : NULL);
-	TCPINFO("    SELECT RES=%d", res);
 
 	// get current time, if we are running 
 	std::chrono::time_point<std::chrono::high_resolution_clock> end;
@@ -1198,7 +1044,7 @@ bool TCPService::tick()
 		end = std::chrono::high_resolution_clock::now();
 
 	if (res == SOCKET_ERROR)
-		TCPERROR(details::TCPUtils::getWin32ErrorMsg().c_str());
+		TCPERROR(details::ErrorWrapper().msg().c_str());
 
 	if (readfds.fd_count)
 	{
@@ -1253,8 +1099,8 @@ bool TCPService::tick()
 				auto sock = it->first;
 				sock->m_owner = this;
 				// #TODO : Test what happens if the getRemoteAddr fails
-				sock->m_peerAddr = details::TCPUtils::getRemoteAddr(sock->m_s);
-				sock->m_localAddr = details::TCPUtils::getLocalAddr(sock->m_s);
+				sock->m_peerAddr = details::utils::getRemoteAddr(sock->m_s);
+				sock->m_localAddr = details::utils::getLocalAddr(sock->m_s);
 				TCPINFO("Socket %d connected to %s:%d", (int)sock->m_s, sock->m_peerAddr.first.c_str(), sock->m_peerAddr.second);
 				it->second.h(TCPError(), sock);
 				it = m_connects.erase(it);
@@ -1270,7 +1116,6 @@ bool TCPService::tick()
 	{
 		if (it->second.timeoutPoint < end)
 		{
-			auto d = std::chrono::duration_cast<std::chrono::milliseconds>(end - it->second.start).count();
 			it->second.h(TCPError::Code::Timeout, nullptr);
 			it = m_connects.erase(it);
 		}
@@ -1312,7 +1157,7 @@ void TCPService::signal()
 		return;
 	char buf = 0;
 	if (::send(m_signalOut->m_s, &buf, 1, 0)!=1)
-		TCPFATAL(details::TCPUtils::getWin32ErrorMsg().c_str());
+		TCPFATAL(details::ErrorWrapper().msg().c_str());
 }
 
 

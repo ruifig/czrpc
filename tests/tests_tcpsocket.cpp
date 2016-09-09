@@ -26,9 +26,9 @@ namespace cz {
 			}
 		};
 
-//#define TCPINFO(fmt, ...) MyTCPLog::out(false, "Info: ", fmt, ##__VA_ARGS__)
-#define TCPINFO(...)
-#define TCPERROR(...)
+#define TCPINFO(fmt, ...) MyTCPLog::out(false, "Info: ", fmt, ##__VA_ARGS__)
+//#define TCPINFO(...) ((void)0)
+#define TCPERROR(...) ((void)0)
 }
 }
 
@@ -47,6 +47,7 @@ using namespace cz::rpc;
 SUITE(TCPSocket)
 {
 
+#if 1
 TEST(TCPService_Listen_Success)
 {
 	TCPService io;
@@ -296,6 +297,8 @@ TEST(TCPSocket_recv_Success)
 	th.join();
 }
 
+#endif 
+
 TEST(TCPSocket_recv_Failure)
 {
 	TCPService io;
@@ -385,6 +388,7 @@ TEST(TCPSocket_recv_Failure)
 	th.join();
 }
 
+#if 1
 
 // Test if the TCPSocket gets destroyed when we call cancel and we don't hold any strong references
 TEST(TCPSocket_cancel_lifetime)
@@ -487,5 +491,6 @@ TEST(TCPAcceptor_backlog)
 	th.join();
 }
 
+#endif
 
 }
