@@ -1,8 +1,3 @@
-#pragma once
-
-#define CZRPC_WINSOCK 1
-//#define CZRPC_BSD 2
-
 //
 // Excellent BSD socket tutorial:
 // http://beej.us/guide/bgnet/
@@ -13,16 +8,18 @@
 // Nice question/answer about socket states, including a neat state diagram:
 //	http://stackoverflow.com/questions/5328155/preventing-fin-wait2-when-closing-socket
 
+#pragma once
 
-/*
-*/
 
-#include <WinSock2.h>
-#include <WS2tcpip.h>
+#ifdef _WIN32
+	#define CZRPC_WINSOCK 1
+	#include <WinSock2.h>
+	#include <WS2tcpip.h>
+#endif
+
 #include <strsafe.h>
 #include <set>
 #include <stdio.h>
-
 
 namespace cz
 {
@@ -66,6 +63,25 @@ struct TCPSocketDefaultLog
 	#define TCPASSERT(expr) \
 		if (!(expr)) TCPFATAL(#expr)
 #endif
+
+/*! Utility buffer struct
+Simply ties together shared raw buffer pointer and its size
+This makes it for shorter code when passing it around in lambdas such as for
+receiving and sending data.
+*/
+struct TCPBuffer
+{
+	TCPBuffer(int size) : size(size)
+	{
+		// Allocate with custom deleter
+		buf = std::shared_ptr<char>(new char[size], [](char* p) { delete[] p;});
+	}
+	char* ptr() { return buf.get(); }
+	const char* ptr() const { return buf.get(); }
+
+	std::shared_ptr<char> buf;
+	int size;
+};
 
 struct TCPError
 {
@@ -264,41 +280,70 @@ namespace details
 } // namespace details
 
 
+template<typename T> class TTCPAcceptor;
+template<typename T> class TTCPSocket;
+template<typename T> class TTCPService;
 
-class TCPService;
-class TCPSocket;
+using TCPAcceptor = TTCPAcceptor<bool>;
+using TCPSocket = TTCPSocket<bool>;
+using TCPService = TTCPService<bool>;
 
+//////////////////////////////////////////////////////////////////////////
+// TCPBaseSocket
+//////////////////////////////////////////////////////////////////////////
 class TCPBaseSocket : public std::enable_shared_from_this<TCPBaseSocket>
 {
 public:
 	TCPBaseSocket() {}
-	virtual ~TCPBaseSocket();
+	virtual ~TCPBaseSocket()
+	{
+		::shutdown(m_s, SD_BOTH);
+		::closesocket(m_s);
+	}
 protected:
-	friend class TCPSocket;
 	TCPService* m_owner = nullptr;
 	SOCKET m_s = INVALID_SOCKET;
 };
 
+
+//////////////////////////////////////////////////////////////////////////
+// TCPAcceptor
+//////////////////////////////////////////////////////////////////////////
 /*!
 With TCPAcceptor you can listen for new connections on a specified port.
 Thread Safety:
 	Distinct objects  : Safe
 	Shared objects : Unsafe
 */
-class TCPAcceptor : public TCPBaseSocket
+template<typename T>
+class TTCPAcceptor : public TCPBaseSocket
 {
 public:
-	virtual ~TCPAcceptor()
+	virtual ~TTCPAcceptor()
 	{
 		TCPASSERT(m_accepts.size() == 0);
 	}
 	using AcceptHandler = std::function<void(const TCPError& ec, std::shared_ptr<TCPSocket> sock)>;
 
 	//! Starts an asynchronous accept
-	void accept(AcceptHandler h);
+	void accept(AcceptHandler h)
+	{
+		m_owner->addCmd([this_ = shared_from_this(), h(std::move(h))]
+		{
+			this_->m_accepts.push(std::move(h));
+			this_->m_owner->m_accepts.insert(this_);
+		});
+	}
 
 	//! Cancels all outstanding asynchronous operations
-	void cancel();
+	void cancel()
+	{
+		m_owner->addCmd([this_ = shared_from_this()]
+		{
+			this_->doCancel();
+			this_->m_owner->m_accepts.erase(this_);
+		});
+	}
 
 	const std::pair<std::string, int>& getLocalAddress() const
 	{
@@ -311,35 +356,59 @@ public:
 	}
 
 protected:
-	friend class TCPService;
+	friend class TTCPService<bool>;
 
 	// Called from TCPSocketSet
 	// Returns true if we still have pending accepts, false otherwise
-	bool doAccept();
-	void doCancel();
+	bool doAccept()
+	{
+		TCPASSERT(m_accepts.size());
+
+		auto h = std::move(m_accepts.front());
+		m_accepts.pop();
+
+		sockaddr_in clientAddr;
+		int size = sizeof(clientAddr);
+		SOCKET s = ::accept(m_s, (struct sockaddr*)&clientAddr, &size);
+		if (s == INVALID_SOCKET)
+		{
+			auto ec = details::ErrorWrapper().getError();
+			TCPERROR(ec.msg());
+			h(ec, nullptr);
+			return m_accepts.size() > 0;
+		}
+
+		auto sock = std::make_shared<TCPSocket>();
+		sock->m_s = s;
+		sock->m_localAddr = details::utils::getLocalAddr(s);
+		sock->m_peerAddr = details::utils::getRemoteAddr(s);
+		sock->m_owner = m_owner;
+		details::utils::setBlocking(sock->m_s, false);
+		TCPINFO("Server side socket %d connected to %s:%d, socket %d",
+			(int)s, sock->m_peerAddr.first.c_str(), sock->m_peerAddr.second,
+			(int)m_s);
+		h(TCPError(), sock);
+
+		return m_accepts.size() > 0;
+	}
+
+	void doCancel()
+	{
+		while (m_accepts.size())
+		{
+			m_accepts.front()(TCPError::Code::Cancelled, nullptr);
+			m_accepts.pop();
+		}
+	}
+
 	std::queue<AcceptHandler> m_accepts;
 	std::pair<std::string, int> m_localAddr;
 };
 
-/*! Utility buffer struct
-Simply ties together shared raw buffer pointer and its size
-This makes it for shorter code when passing it around in lambdas such as for
-receiving and sending data.
-*/
-struct TCPBuffer
-{
-	TCPBuffer(int size) : size(size)
-	{
-		// Allocate with custom deleter
-		buf = std::shared_ptr<char>(new char[size], [](char* p) { delete[] p;});
-	}
-	char* ptr() { return buf.get(); }
-	const char* ptr() const { return buf.get(); }
 
-	std::shared_ptr<char> buf;
-	int size;
-};
-
+//////////////////////////////////////////////////////////////////////////
+// TCPSocket
+//////////////////////////////////////////////////////////////////////////
 /*!
 Main socket class, used to send and receive data
 
@@ -347,52 +416,74 @@ Thread Safety:
 	Distinct objects  : Safe
 	Shared objects : Unsafe
 */
-class TCPSocket : public TCPBaseSocket
+template<typename T>
+class TTCPSocket : public TCPBaseSocket
 {
 public:
-	virtual ~TCPSocket()
+	using Handler = std::function<void(const TCPError& ec, int bytesTransfered)>;
+
+	virtual ~TTCPSocket()
 	{
 		TCPASSERT(m_recvs.size() == 0);
 		TCPASSERT(m_sends.size() == 0);
 	}
-	using Handler = std::function<void(const TCPError& ec, int bytesTransfered)>;
 
 	//
 	// Asynchronous reading 
 	//
 	template<typename H>
-	void recv(char* buf, int len, H&& h)
+	void asyncRecv(char* buf, int len, H&& h)
 	{
-		recvImpl(buf, len, std::forward<H>(h), false);
+		asyncRecvImpl(buf, len, std::forward<H>(h), false);
 	}
 	template<typename H>
-	void recv(TCPBuffer& buf, H&& h)
+	void asyncRecv(TCPBuffer& buf, H&& h)
 	{
-		recvImpl(buf.buf.get(), buf.size, std::forward<H>(h), false);
+		asyncRecvImpl(buf.buf.get(), buf.size, std::forward<H>(h), false);
 	}
 	template<typename H>
-	void recvFull(char* buf, int len, H&& h)
+	void asyncRecvFull(char* buf, int len, H&& h)
 	{
-		recvImpl(buf, len, std::forward<H>(h), true);
+		asyncRecvImpl(buf, len, std::forward<H>(h), true);
 	}
 	template<typename H>
-	void recvFull(TCPBuffer& buf, H&& h)
+	void asyncRecvFull(TCPBuffer& buf, H&& h)
 	{
-		recvImpl(buf.buf.get(), buf.size, std::forward<H>(h), true);
+		asyncRecvImpl(buf.buf.get(), buf.size, std::forward<H>(h), true);
 	}
 
 	//
 	// Asynchronous sending
 	//
-	void send(const char* buf, int len, Handler h);
-	template<typename H>
-	void send(const TCPBuffer& buf, H&& h)
+	void asyncSend(const char* buf, int len, Handler h)
 	{
-		send(buf.buf.get(), buf.size, std::forward<H>(h));
+		SendOp op;
+		op.buf = buf;
+		op.bufLen = len;
+		op.h = std::move(h);
+		m_owner->addCmd([this_ = shared_from_this(), op = std::move(op)]
+		{
+			this_->m_sends.push(std::move(op));
+			this_->m_owner->m_sends.insert(this_);
+		});
+	}
+
+	template<typename H>
+	void asyncSend(const TCPBuffer& buf, H&& h)
+	{
+		asyncSend(buf.buf.get(), buf.size, std::forward<H>(h));
 	}
 
 	//! Cancels all outstanding asynchronous operations
-	void cancel();
+	void cancel()
+	{
+		m_owner->addCmd([this_ = shared_from_this()]
+		{
+			this_->doCancel();
+			this_->m_owner->m_recvs.erase(this_);
+			this_->m_owner->m_sends.erase(this_);
+		});
+	}
 
 	const std::pair<std::string, int>& getLocalAddress() const
 	{
@@ -410,7 +501,19 @@ public:
 	}
 
 protected:
-	void recvImpl(char* buf, int len, Handler h, bool fill);
+	void asyncRecvImpl(char* buf, int len, Handler h, bool fill)
+	{
+		RecvOp op;
+		op.buf = buf;
+		op.bufLen = len;
+		op.fill = fill;
+		op.h = std::move(h);
+		m_owner->addCmd([this_ = shared_from_this(), op = std::move(op)]
+		{
+			this_->m_recvs.push(std::move(op));
+			this_->m_owner->m_recvs.insert(this_);
+		});
+	}
 
 	struct RecvOp
 	{
@@ -432,28 +535,182 @@ protected:
 		Handler h;
 	};
 
-	friend class TCPService;
-	friend class TCPAcceptor;
+	friend class TTCPService<bool>;
+	friend class TTCPAcceptor<bool>;
 	std::pair<std::string, int> m_localAddr;
 	std::pair<std::string, int> m_peerAddr;
 
-	bool doRecv();
-	bool doSend();
-	void doCancel();
+	bool doRecv()
+	{
+		TCPASSERT(m_recvs.size());
+
+		while (m_recvs.size())
+		{
+			RecvOp& op = m_recvs.front();
+			int len = ::recv(m_s, op.buf + op.bytesTransfered, op.bufLen - op.bytesTransfered, 0);
+			if (len == SOCKET_ERROR)
+			{
+				details::ErrorWrapper err;
+				if (err.isBlockError())
+				{
+					TCPASSERT(op.bytesTransfered);
+					// If this operation doesn't require a full buffer, we call the handler with
+					// whatever data we received, and discard the operation
+
+					if (!op.fill)
+					{
+						op.h(TCPError(), op.bytesTransfered);
+						m_recvs.pop();
+					}
+					// Done receiving, since the socket doesn't have more incoming data
+					break;
+				}
+				else
+				{
+					TCPERROR(err.msg().c_str());
+				}
+			}
+			else if (len > 0)
+			{
+				op.bytesTransfered += len;
+				if (op.bufLen == op.bytesTransfered)
+				{
+					op.h(TCPError(), op.bytesTransfered);
+					m_recvs.pop();
+				}
+			}
+			else if (len == 0)
+			{
+				// #TODO : Peer disconnected gracefully.
+				// #TODO : Cancel all pending receives?
+				op.h(TCPError(TCPError::Code::ConnectionClosed), op.bytesTransfered);
+				m_recvs.pop();
+				break;
+			}
+			else
+			{
+				TCPASSERT(0 && "This should not happen");
+			}
+		}
+
+		return m_recvs.size() > 0;
+	}
+
+	bool doSend()
+	{
+		while (m_sends.size())
+		{
+			SendOp& op = m_sends.front();
+			auto res = ::send(m_s, op.buf + op.bytesTransfered, op.bufLen - op.bytesTransfered, 0);
+			if (res == SOCKET_ERROR)
+			{
+				details::ErrorWrapper err;
+				if (err.isBlockError())
+				{
+					// We can't send more data at the moment, so we are done trying
+					break;
+				}
+				else
+				{
+					TCPERROR(err.msg().c_str());
+					if (op.h)
+						op.h(TCPError(TCPError::Code::ConnectionClosed, err.msg()), op.bytesTransfered);
+					m_sends.pop();
+				}
+			}
+			else
+			{
+				op.bytesTransfered += res;
+				if (op.bufLen == op.bytesTransfered)
+				{
+					if (op.h)
+						op.h(TCPError(), op.bytesTransfered);
+					m_sends.pop();
+				}
+			}
+		}
+
+		return m_sends.size() > 0;
+	}
+
+	void doCancel()
+	{
+		while (m_recvs.size())
+		{
+			m_recvs.front().h(TCPError::Code::Cancelled, m_recvs.front().bytesTransfered);
+			m_recvs.pop();
+		}
+
+		while (m_sends.size())
+		{
+			m_sends.front().h(TCPError::Code::Cancelled, m_sends.front().bytesTransfered);
+			m_sends.pop();
+		}
+	}
+
 	std::queue<RecvOp> m_recvs;
 	std::queue<SendOp> m_sends;
 };
 
+
+//////////////////////////////////////////////////////////////////////////
+// TCPService
+//////////////////////////////////////////////////////////////////////////
 /*
 Thread Safety:
 	Distinct objects  : Safe
 	Shared objects : Unsafe
 */
-class TCPService
+template<typename T=int>
+class TTCPService
 {
 public:
-	TCPService();
-	~TCPService();
+	TTCPService()
+	{
+
+		TCPError ec;
+		auto dummyListen = listen(0, 1, ec);
+		TCPASSERT(!ec);
+		dummyListen->accept([this](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
+		{
+			TCPASSERT(!ec);
+			m_signalIn = sock;
+			TCPINFO("m_signalIn socket=%d", (int)(m_signalIn->m_s));
+		});
+
+		// Do this temporary ticking in a different thread, since our signal socket
+		// is connected here synchronously
+		TCPINFO("Dummy listen socket=%d", (int)(dummyListen->m_s));
+		auto tmptick = std::async(std::launch::async, [this]
+		{
+			while (!m_signalIn)
+				tick();
+		});
+
+		m_signalOut = connect("127.0.0.1", dummyListen->m_localAddr.second, ec);
+		TCPASSERT(!ec);
+		TCPINFO("m_signalOut socket=%d", (int)(m_signalOut->m_s));
+		tmptick.get();
+
+		// Initiate reading for the dummy input socket
+		startSignalIn();
+
+		dummyListen = nullptr; // Not needed, since it goes out of scope, but easier to debug
+
+		details::utils::disableNagle(m_signalIn->m_s);
+		details::utils::disableNagle(m_signalOut->m_s);
+	}
+
+	~TTCPService()
+	{
+		TCPASSERT(m_stopped);
+		m_signalOut->doCancel();
+		m_signalIn->doCancel();
+		m_cmdQueue([&](CmdQueue& q)
+		{
+			TCPASSERT(q.size() == 0);
+		});
+	}
 
 	using ConnectHandler = std::function<void(const TCPError&, std::shared_ptr<TCPSocket>)>;
 
@@ -470,33 +727,356 @@ public:
 	\return
 		The Acceptor socket, or nullptr, if there was an error
 	*/
-	std::shared_ptr<TCPAcceptor> listen(int port, int backlog, TCPError& ec);
+	std::shared_ptr<TCPAcceptor> listen(int port, int backlog, TCPError& ec)
+	{
+		auto sock = std::make_shared<TCPAcceptor>();
+		sock->m_owner = this;
+
+		sock->m_s = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+		if (sock->m_s == INVALID_SOCKET)
+		{
+			ec = details::ErrorWrapper().getError();
+			TCPERROR(ec.msg());
+			return nullptr;
+		}
+
+		TCPINFO("Listen socket=%d", (int)sock->m_s);
+
+		SOCKADDR_IN addr;
+		addr.sin_family = AF_INET;
+		addr.sin_port = htons(port);
+		addr.sin_addr.s_addr = htonl(INADDR_ANY);
+		if (::bind(sock->m_s, (LPSOCKADDR)&addr, sizeof(addr)) == SOCKET_ERROR)
+		{
+			ec = details::ErrorWrapper().getError();
+			TCPERROR(ec.msg());
+			return nullptr;
+		}
+
+		if (::listen(sock->m_s, backlog) == SOCKET_ERROR)
+		{
+			ec = details::ErrorWrapper().getError();
+			TCPERROR(ec.msg());
+			return nullptr;
+		}
+
+		sock->m_localAddr = details::utils::getLocalAddr(sock->m_s);
+
+		ec = TCPError();
+		return sock;
+	}
 
 	//! Creates a connection
 	/*
 	This operation is synchronous.
 	*/
-	std::shared_ptr<TCPSocket> connect(const char* ip, int port, TCPError& ec);
+	std::shared_ptr<TCPSocket> connect(const char* ip, int port, TCPError& ec)
+	{
+		TCPASSERT(!m_stopped);
+
+		SOCKADDR_IN addr;
+		ZeroMemory(&addr, sizeof(addr));
+		addr.sin_family = AF_INET;
+		addr.sin_port = htons(port);
+		inet_pton(AF_INET, ip, &(addr.sin_addr));
+
+		auto sock = std::make_shared<TCPSocket>();
+		sock->m_s = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+		if (sock->m_s == INVALID_SOCKET)
+		{
+			ec = details::ErrorWrapper().getError();
+			TCPERROR(ec.msg());
+			return nullptr;
+		}
+
+		TCPINFO("Connect socket=%d", (int)sock->m_s);
+
+		if (::connect(sock->m_s, (SOCKADDR*)&addr, sizeof(addr)) == SOCKET_ERROR)
+		{
+			ec = details::ErrorWrapper().getError();
+			TCPERROR(ec.msg());
+			return nullptr;
+		}
+
+		details::utils::setBlocking(sock->m_s, false);
+
+		sock->m_owner = this;
+		sock->m_localAddr = details::utils::getLocalAddr(sock->m_s);
+		sock->m_peerAddr = details::utils::getRemoteAddr(sock->m_s);
+		TCPINFO("Socket %d connected to %s:%d", (int)sock->m_s, sock->m_peerAddr.first.c_str(), sock->m_peerAddr.second);
+
+		ec = TCPError();
+		return sock;
+	}
 
 	/*! Asynchronously creates a connection
 	*/
-	void connect(const char* ip, int port, ConnectHandler h, int timeoutMs = 200);
+	void connect(const char* ip, int port, ConnectHandler h, int timeoutMs = 200)
+	{
+		TCPASSERT(!m_stopped);
+
+		SOCKADDR_IN addr;
+		ZeroMemory(&addr, sizeof(addr));
+		addr.sin_family = AF_INET;
+		addr.sin_port = htons(port);
+		inet_pton(AF_INET, ip, &(addr.sin_addr));
+
+		auto sock = std::make_shared<TCPSocket>();
+		sock->m_s = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+		// If the socket creation fails, send the handler to the service thread to execute with an error
+		if (sock->m_s == INVALID_SOCKET)
+		{
+			TCPError ec = details::ErrorWrapper().getError();
+			addCmd([ec = std::move(ec), h = std::move(h)]
+			{
+				h(ec, nullptr);
+			});
+		}
+		TCPINFO("Connect socket=%d", (int)sock->m_s);
+
+		// Set to non-blocking, so we can do an asynchronous connect
+		details::utils::setBlocking(sock->m_s, false);
+		if (::connect(sock->m_s, (SOCKADDR*)&addr, sizeof(addr)) == SOCKET_ERROR)
+		{
+			details::ErrorWrapper err;
+			if (err.isBlockError())
+			{
+				// Normal behavior, so setup the connect detection with select
+				addCmd([this, sock = std::move(sock), h = std::move(h), timeoutMs]
+				{
+					ConnectOp op;
+					op.timeoutPoint = std::chrono::high_resolution_clock::now() + std::chrono::milliseconds(timeoutMs);
+					op.h = std::move(h);
+					m_connects[sock] = std::move(op);
+				});
+			}
+			else
+			{
+				// Anything else than a blocking error is a real error
+				addCmd([ec = err.getError(), h = std::move(h)]
+				{
+					h(ec, nullptr);
+				});
+			}
+		}
+		else
+		{
+			// It may happen that the connect succeeds right away.
+			addCmd([sock = std::move(sock), h = std::move(h)]
+			{
+				h(TCPError(), std::move(sock));
+			});
+		}
+	}
 
 	//! Processes whatever it needs
 	// \return
 	//		false : We are shutting down, and no need to call again
 	//		true  : We should call tick again
-	bool tick();
+	bool tick()
+	{
+		//
+		// Execute any pending commands
+		m_cmdQueue([&](CmdQueue& q)
+		{
+			std::swap(q, m_tmpQueue);
+		});
+		bool finished = false;
+		while (!finished && m_tmpQueue.size())
+		{
+			auto&& fn = m_tmpQueue.front();
+			if (fn)
+			{
+				fn();
+			}
+			else
+			{
+				finished = true;
+			}
+			m_tmpQueue.pop();
+		}
+
+		if (finished)
+		{
+			// If we are finished, then there can't be any commands left
+			TCPASSERT(m_tmpQueue.size() == 0);
+
+			//
+			// Cancel all handlers in all the sockets we have at the moment
+			//
+			for (auto&& s : m_connects)
+				s.second.h(TCPError(TCPError::Code::Cancelled), nullptr);
+			m_connects.clear();
+
+			auto cancel = [](auto&& container)
+			{
+				for (auto&& s : container)
+					s->doCancel();
+				container.clear();
+			};
+			cancel(m_accepts);
+			cancel(m_recvs);
+			cancel(m_sends);
+
+			return false;
+		}
+
+		fd_set readfds, writefds;
+		FD_ZERO(&readfds);
+		FD_ZERO(&writefds);
+		SOCKET maxfd = 0;
+		auto addSockets = [&maxfd](auto&& container, fd_set& fds)
+		{
+			for (auto&& s : container)
+			{
+				if (s->m_s > maxfd)
+					maxfd = s->m_s;
+				FD_SET(s->m_s, &fds);
+			}
+		};
+		addSockets(m_accepts, readfds);
+		addSockets(m_recvs, readfds);
+		addSockets(m_sends, writefds);
+
+		// For non-blocking connects, select will let us know a connect finished through the write fds
+		TIMEVAL timeout{ 0,0 };
+		if (m_connects.size())
+		{
+			auto start = std::chrono::high_resolution_clock::now();
+			std::chrono::nanoseconds t(std::numeric_limits<long long>::max());
+			for (auto&& s : m_connects)
+			{
+				if (s.first->m_s > maxfd)
+					maxfd = s.first->m_s;
+				FD_SET(s.first->m_s, &writefds);
+				// Calculate timeout
+				std::chrono::nanoseconds remain = s.second.timeoutPoint - start;
+				if (remain < t)
+					t = remain;
+			}
+
+			if (t.count() > 0)
+			{
+				timeout.tv_sec = static_cast<long>(t.count() / (1000 * 1000 * 1000));
+				timeout.tv_usec = static_cast<long>((t.count() % (1000 * 1000 * 1000)) / 1000);
+			}
+		}
+
+		if (readfds.fd_count == 0 && writefds.fd_count == 0)
+			return true;
+
+		auto res = select(
+			(int)maxfd + 1,
+			&readfds,
+			&writefds,
+			NULL,
+			(m_connects.size()) ? &timeout : NULL);
+
+		// get current time, if we are running 
+		std::chrono::time_point<std::chrono::high_resolution_clock> end;
+		if (m_connects.size())
+			end = std::chrono::high_resolution_clock::now();
+
+		if (res == SOCKET_ERROR)
+			TCPERROR(details::ErrorWrapper().msg().c_str());
+
+		if (readfds.fd_count)
+		{
+			for (auto it = m_accepts.begin(); it != m_accepts.end(); )
+			{
+				if (FD_ISSET((*it)->m_s, &readfds))
+				{
+					if ((*it)->doAccept())
+						++it;
+					else
+						it = m_accepts.erase(it);
+				}
+				else
+					++it;
+			}
+
+			for (auto it = m_recvs.begin(); it != m_recvs.end(); )
+			{
+				if (FD_ISSET((*it)->m_s, &readfds))
+				{
+					if ((*it)->doRecv())
+						++it;
+					else
+						it = m_recvs.erase(it);
+				}
+				else
+					++it;
+			}
+		}
+
+		if (writefds.fd_count)
+		{
+			// Check writes
+			for (auto it = m_sends.begin(); it != m_sends.end(); )
+			{
+				if (FD_ISSET((*it)->m_s, &writefds))
+				{
+					if ((*it)->doSend())
+						++it;
+					else
+						it = m_sends.erase(it);
+				}
+				else
+					++it;
+			}
+
+			// Check the pending connects
+			for (auto it = m_connects.begin(); it != m_connects.end();)
+			{
+				if (FD_ISSET(it->first->m_s, &writefds))
+				{
+					auto sock = it->first;
+					sock->m_owner = this;
+					// #TODO : Test what happens if the getRemoteAddr fails
+					sock->m_peerAddr = details::utils::getRemoteAddr(sock->m_s);
+					sock->m_localAddr = details::utils::getLocalAddr(sock->m_s);
+					TCPINFO("Socket %d connected to %s:%d", (int)sock->m_s, sock->m_peerAddr.first.c_str(), sock->m_peerAddr.second);
+					it->second.h(TCPError(), sock);
+					it = m_connects.erase(it);
+				}
+				else
+					++it;
+			}
+
+		}
+
+		// Check for expired connection attempts
+		for (auto it = m_connects.begin(); it != m_connects.end();)
+		{
+			if (it->second.timeoutPoint < end)
+			{
+				it->second.h(TCPError::Code::Timeout, nullptr);
+				it = m_connects.erase(it);
+			}
+			else
+			{
+				++it;
+			}
+		}
+
+		return true;
+	}
+
 
 	//! Interrupts any tick calls in progress, and marks service as finishing
 	// You should not make any other calls to the service after this
-	void stop();
+	void stop()
+	{
+		m_stopped = true;
+		// Signal the end by sending an empty command
+		addCmd(nullptr);
+	}
 
 	//! Used only by the unit tests
 protected:
 	
-	friend class TCPAcceptor;
-	friend class TCPSocket;
+	friend class TTCPAcceptor<bool>;
+	friend class TTCPSocket<bool>;
 
 	details::WSAInstance m_wsaInstance;
 	std::shared_ptr<TCPSocket> m_signalIn;
@@ -529,637 +1109,32 @@ protected:
 		signal();
 	}
 
-	void signal();
-	void startSignalIn();
-};
-
-///////////////////////////////////////////////
-//	TCPBaseSocket
-///////////////////////////////////////////////
-TCPBaseSocket::~TCPBaseSocket()
-{
-	::shutdown(m_s, SD_BOTH);
-	::closesocket(m_s);
-}
-
-///////////////////////////////////////////////
-//	TCPAcceptor
-///////////////////////////////////////////////
-void TCPAcceptor::accept(AcceptHandler h)
-{
-	m_owner->addCmd([this_=shared_from_this(), h(std::move(h))]
+	void signal()
 	{
-		this_->m_accepts.push(std::move(h));
-		this_->m_owner->m_accepts.insert(this_);
-	});
-}
-
-bool TCPAcceptor::doAccept()
-{
-	TCPASSERT(m_accepts.size());
-
-	auto h = std::move(m_accepts.front());
-	m_accepts.pop();
-
-	sockaddr_in clientAddr;
-	int size = sizeof(clientAddr);
-	SOCKET s = ::accept(m_s, (struct sockaddr*)&clientAddr, &size);
-	if (s == INVALID_SOCKET)
-	{
-		auto ec = details::ErrorWrapper().getError();
-		TCPERROR(ec.msg());
-		h(ec, nullptr);
-		return m_accepts.size() > 0;
-	}
-
-	auto sock = std::make_shared<TCPSocket>();
-	sock->m_s = s;
-	sock->m_localAddr = details::utils::getLocalAddr(s);
-	sock->m_peerAddr = details::utils::getRemoteAddr(s);
-	sock->m_owner = m_owner;
-	details::utils::setBlocking(sock->m_s, false);
-	TCPINFO("Server side socket %d connected to %s:%d, socket %d",
-			(int)s, sock->m_peerAddr.first.c_str(), sock->m_peerAddr.second,
-			(int)m_s);
-	h(TCPError(), sock);
-
-	return m_accepts.size()>0;
-}
-
-void TCPAcceptor::cancel()
-{
-	m_owner->addCmd([this_=shared_from_this()]
-	{
-		this_->doCancel();
-		this_->m_owner->m_accepts.erase(this_);
-	});
-}
-void TCPAcceptor::doCancel()
-{
-	while(m_accepts.size())
-	{
-		m_accepts.front()(TCPError::Code::Cancelled, nullptr);
-		m_accepts.pop();
-	}
-}
-
-///////////////////////////////////////////////
-//	TCPSocket
-///////////////////////////////////////////////
-void TCPSocket::recvImpl(char* buf, int len, Handler h, bool fill)
-{
-	RecvOp op;
-	op.buf = buf;
-	op.bufLen = len;
-	op.fill = fill;
-	op.h = std::move(h);
-	m_owner->addCmd([this_=shared_from_this(), op=std::move(op)]
-	{
-		this_->m_recvs.push(std::move(op));
-		this_->m_owner->m_recvs.insert(this_);
-	});
-}
-
-void TCPSocket::send(const char* buf, int len, Handler h)
-{
-	SendOp op;
-	op.buf = buf;
-	op.bufLen = len;
-	op.h = std::move(h);
-	m_owner->addCmd([this_=shared_from_this(), op=std::move(op)]
-	{
-		this_->m_sends.push(std::move(op));
-		this_->m_owner->m_sends.insert(this_);
-	});
-
-}
-
-bool TCPSocket::doRecv()
-{
-	TCPASSERT(m_recvs.size());
-
-	while(m_recvs.size())
-	{
-		RecvOp& op = m_recvs.front();
-		int len = ::recv(m_s, op.buf+op.bytesTransfered, op.bufLen-op.bytesTransfered, 0);
-		if (len == SOCKET_ERROR)
-		{
-			details::ErrorWrapper err;
-			if (err.isBlockError())
-			{
-				TCPASSERT(op.bytesTransfered);
-				// If this operation doesn't require a full buffer, we call the handler with
-				// whatever data we received, and discard the operation
-		
-				if (!op.fill)
-				{
-					op.h(TCPError(), op.bytesTransfered);
-					m_recvs.pop();
-				}
-				// Done receiving, since the socket doesn't have more incoming data
-				break;
-			}
-			else
-			{
-				TCPERROR(err.msg().c_str());
-			}
-		}
-		else if (len>0)
-		{
-			op.bytesTransfered += len;
-			if (op.bufLen==op.bytesTransfered)
-			{
-				op.h(TCPError(), op.bytesTransfered);
-				m_recvs.pop();
-			}
-		}
-		else if (len==0)
-		{
-			// #TODO : Peer disconnected gracefully.
-			// #TODO : Cancel all pending receives?
-			op.h(TCPError(TCPError::Code::ConnectionClosed), op.bytesTransfered);
-			m_recvs.pop();
-			break;
-		}
-		else
-		{
-			TCPASSERT(0 && "This should not happen");
-		}
-	}
-
-	return m_recvs.size()>0;
-}
-
-bool TCPSocket::doSend()
-{
-	while(m_sends.size())
-	{
-		SendOp& op = m_sends.front();
-		auto res = ::send(m_s, op.buf + op.bytesTransfered, op.bufLen - op.bytesTransfered, 0);
-		if (res==SOCKET_ERROR)
-		{
-			details::ErrorWrapper err;
-			if (err.isBlockError())
-			{
-				// We can't send more data at the moment, so we are done trying
-				break;
-			}
-			else
-			{
-				TCPERROR(err.msg().c_str());
-				if (op.h)
-					op.h(TCPError(TCPError::Code::ConnectionClosed, err.msg()), op.bytesTransfered);
-				m_sends.pop();
-			}
-		}
-		else
-		{
-			op.bytesTransfered += res;
-			if (op.bufLen == op.bytesTransfered)
-			{
-				if (op.h)
-					op.h(TCPError(), op.bytesTransfered);
-				m_sends.pop();
-			}
-		}
-	}
-
-	return m_sends.size()>0;
-}
-
-void TCPSocket::cancel()
-{
-	m_owner->addCmd([this_=shared_from_this()]
-	{
-		this_->doCancel();
-		this_->m_owner->m_recvs.erase(this_);
-		this_->m_owner->m_sends.erase(this_);
-	});
-}
-
-void TCPSocket::doCancel()
-{
-	while(m_recvs.size())
-	{
-		m_recvs.front().h(TCPError::Code::Cancelled, m_recvs.front().bytesTransfered);
-		m_recvs.pop();
-	}
-
-	while(m_sends.size())
-	{
-		m_sends.front().h(TCPError::Code::Cancelled, m_sends.front().bytesTransfered);
-		m_sends.pop();
-	}
-}
-
-///////////////////////////////////////////////
-//	TCPSocketSet
-///////////////////////////////////////////////
-
-TCPService::TCPService()
-{
-
-	TCPError ec;
-	auto dummyListen = listen(0, 1, ec);
-	TCPASSERT(!ec);
-	dummyListen->accept([this](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
-	{
-		TCPASSERT(!ec);
-		m_signalIn = sock;
-		TCPINFO("m_signalIn socket=%d", (int)(m_signalIn->m_s));
-	});
-
-	// Do this temporary ticking in a different thread, since our signal socket
-	// is connected here synchronously
-	TCPINFO("Dummy listen socket=%d", (int)(dummyListen->m_s));
-	auto tmptick = std::async(std::launch::async, [this]
-	{
-		while (!m_signalIn)
-			tick();
-	});
-
-	m_signalOut = connect("127.0.0.1", dummyListen->m_localAddr.second, ec);
-	TCPASSERT(!ec);
-	TCPINFO("m_signalOut socket=%d", (int)(m_signalOut->m_s));
-	tmptick.get();
-
-	// Initiate reading for the dummy input socket
-	startSignalIn();
-
-	dummyListen = nullptr; // Not needed, since it goes out of scope, but easier to debug
-
-	details::utils::disableNagle(m_signalIn->m_s);
-	details::utils::disableNagle(m_signalOut->m_s);
-}
-
-TCPService::~TCPService()
-{
-	TCPASSERT(m_stopped);
-	m_signalOut->doCancel();
-	m_signalIn->doCancel();
-	m_cmdQueue([&](CmdQueue& q)
-	{
-		TCPASSERT(q.size() == 0);
-	});
-}
-
-std::shared_ptr<TCPAcceptor> TCPService::listen(int port, int backlog, TCPError& ec)
-{
-	auto sock = std::make_shared<TCPAcceptor>();
-	sock->m_owner = this;
-
-	sock->m_s = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-	if (sock->m_s == INVALID_SOCKET)
-	{
-		ec = details::ErrorWrapper().getError();
-		TCPERROR(ec.msg());
-		return nullptr;
-	}
-
-	TCPINFO("Listen socket=%d", (int)sock->m_s);
-
-	SOCKADDR_IN addr;
-	addr.sin_family = AF_INET;
-	addr.sin_port = htons(port);
-	addr.sin_addr.s_addr = htonl(INADDR_ANY);
-	if (::bind(sock->m_s, (LPSOCKADDR)&addr, sizeof(addr)) == SOCKET_ERROR)
-	{
-		ec = details::ErrorWrapper().getError();
-		TCPERROR(ec.msg());
-		return nullptr;
-	}
-
-	if (::listen(sock->m_s, backlog) == SOCKET_ERROR)
-	{
-		ec = details::ErrorWrapper().getError();
-		TCPERROR(ec.msg());
-		return nullptr;
-	}
-
-	sock->m_localAddr = details::utils::getLocalAddr(sock->m_s);
-
-	ec = TCPError();
-	return sock;
-}
-
-std::shared_ptr<TCPSocket> TCPService::connect(const char* ip, int port, TCPError& ec)
-{
-	TCPASSERT(!m_stopped);
-
-	SOCKADDR_IN addr;
-	ZeroMemory(&addr, sizeof(addr));
-	addr.sin_family = AF_INET;
-	addr.sin_port = htons(port);
-	inet_pton(AF_INET, ip, &(addr.sin_addr));
-
-	auto sock = std::make_shared<TCPSocket>();
-	sock->m_s = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-	if (sock->m_s == INVALID_SOCKET)
-	{
-		ec = details::ErrorWrapper().getError();
-		TCPERROR(ec.msg());
-		return nullptr;
-	}
-
-	TCPINFO("Connect socket=%d", (int)sock->m_s);
-
-	if (::connect(sock->m_s, (SOCKADDR*)&addr, sizeof(addr)) == SOCKET_ERROR)
-	{
-		ec = details::ErrorWrapper().getError();
-		TCPERROR(ec.msg());
-		return nullptr;
-	}
-
-	details::utils::setBlocking(sock->m_s, false);
-
-	sock->m_owner = this;
-	sock->m_localAddr = details::utils::getLocalAddr(sock->m_s);
-	sock->m_peerAddr = details::utils::getRemoteAddr(sock->m_s);
-	TCPINFO("Socket %d connected to %s:%d", (int)sock->m_s, sock->m_peerAddr.first.c_str(), sock->m_peerAddr.second);
-
-	ec = TCPError();
-	return sock;
-}
-
-void TCPService::connect(const char* ip, int port, ConnectHandler h, int timeoutMs)
-{
-	TCPASSERT(!m_stopped);
-
-	SOCKADDR_IN addr;
-	ZeroMemory(&addr, sizeof(addr));
-	addr.sin_family = AF_INET;
-	addr.sin_port = htons(port);
-	inet_pton(AF_INET, ip, &(addr.sin_addr));
-
-	auto sock = std::make_shared<TCPSocket>();
-	sock->m_s = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-	// If the socket creation fails, send the handler to the service thread to execute with an error
-	if (sock->m_s == INVALID_SOCKET)
-	{
-		TCPError ec = details::ErrorWrapper().getError();
-		addCmd([ec=std::move(ec), h=std::move(h)]
-		{
-			h(ec, nullptr);
-		});
-	}
-	TCPINFO("Connect socket=%d", (int)sock->m_s);
-
-	// Set to non-blocking, so we can do an asynchronous connect
-	details::utils::setBlocking(sock->m_s, false);
-	if (::connect(sock->m_s, (SOCKADDR*)&addr, sizeof(addr)) == SOCKET_ERROR)
-	{
-		details::ErrorWrapper err;
-		if (err.isBlockError())
-		{
-			// Normal behavior, so setup the connect detection with select
-			addCmd([this, sock=std::move(sock), h=std::move(h), timeoutMs]
-			{
-				ConnectOp op;
-				op.timeoutPoint = std::chrono::high_resolution_clock::now() + std::chrono::milliseconds(timeoutMs);
-				op.h = std::move(h);
-				m_connects[sock] = std::move(op);
-			});
-		}
-		else
-		{
-			// Anything else than a blocking error is a real error
-			addCmd([ec = err.getError(), h = std::move(h)]
-			{
-				h(ec, nullptr);
-			});
-		}
-	}
-	else
-	{
-		// It may happen that the connect succeeds right away.
-		addCmd([sock=std::move(sock), h = std::move(h)]
-		{
-			h(TCPError(), std::move(sock));
-		});
-	}
-}
-
-bool TCPService::tick()
-{
-	//
-	// Execute any pending commands
-	m_cmdQueue([&](CmdQueue& q)
-	{
-		std::swap(q, m_tmpQueue);
-	});
-	bool finished = false;
-	while(!finished && m_tmpQueue.size())
-	{
-		auto&& fn = m_tmpQueue.front();
-		if (fn)
-		{
-			fn();
-		}
-		else
-		{
-			finished = true;
-		}
-		m_tmpQueue.pop();
-	}
-
-	if (finished)
-	{
-		// If we are finished, then there can't be any commands left
-		TCPASSERT(m_tmpQueue.size() == 0);
-
-		//
-		// Cancel all handlers in all the sockets we have at the moment
-		//
-		for (auto&& s : m_connects)
-			s.second.h(TCPError(TCPError::Code::Cancelled), nullptr);
-		m_connects.clear();
-
-		auto cancel = [](auto&& container)
-		{
-			for (auto&& s : container)
-				s->doCancel();
-			container.clear();
-		};
-		cancel(m_accepts);
-		cancel(m_recvs);
-		cancel(m_sends);
-
-		return false;
-	}
-
-	fd_set readfds, writefds;
-	FD_ZERO(&readfds);
-	FD_ZERO(&writefds);
-	SOCKET maxfd = 0;
-	auto addSockets = [&maxfd](auto&& container, fd_set& fds)
-	{
-		for(auto&& s : container)
-		{
-			if (s->m_s > maxfd)
-				maxfd = s->m_s;
-			FD_SET(s->m_s, &fds);
-		}
-	};
-	addSockets(m_accepts, readfds);
-	addSockets(m_recvs, readfds);
-	addSockets(m_sends, writefds);
-
-	// For non-blocking connects, select will let us know a connect finished through the write fds
-	TIMEVAL timeout{ 0,0 };
-	if (m_connects.size())
-	{
-		auto start = std::chrono::high_resolution_clock::now();
-		std::chrono::nanoseconds t(std::numeric_limits<long long>::max());
-		for (auto&& s : m_connects)
-		{
-			if (s.first->m_s > maxfd)
-				maxfd = s.first->m_s;
-			FD_SET(s.first->m_s, &writefds);
-			// Calculate timeout
-			std::chrono::nanoseconds remain = s.second.timeoutPoint - start;
-			if (remain < t)
-				t = remain;
-		}
-
-		if (t.count()>0)
-		{
-			timeout.tv_sec = static_cast<long>(t.count() / (1000 * 1000 * 1000));
-			timeout.tv_usec = static_cast<long>((t.count() % (1000 * 1000 * 1000)) / 1000);
-		}
-	}
-
-	if (readfds.fd_count == 0 && writefds.fd_count == 0)
-		return true;
-
-	auto res = select(
-		(int)maxfd + 1,
-		&readfds,
-		&writefds,
-		NULL,
-		(m_connects.size()) ? &timeout : NULL);
-
-	// get current time, if we are running 
-	std::chrono::time_point<std::chrono::high_resolution_clock> end;
-	if (m_connects.size())
-		end = std::chrono::high_resolution_clock::now();
-
-	if (res == SOCKET_ERROR)
-		TCPERROR(details::ErrorWrapper().msg().c_str());
-
-	if (readfds.fd_count)
-	{
-		for(auto it = m_accepts.begin(); it!=m_accepts.end(); )
-		{
-			if (FD_ISSET((*it)->m_s, &readfds))
-			{
-				if ((*it)->doAccept())
-					++it;
-				else
-					it = m_accepts.erase(it);
-			}
-			else
-				++it;
-		}
-
-		for(auto it = m_recvs.begin(); it!=m_recvs.end(); )
-		{
-			if (FD_ISSET((*it)->m_s, &readfds))
-			{
-				if ((*it)->doRecv())
-					++it;
-				else
-					it = m_recvs.erase(it);
-			}
-			else
-				++it;
-		}
-	}
-
-	if (writefds.fd_count)
-	{
-		// Check writes
-		for(auto it = m_sends.begin(); it!=m_sends.end(); )
-		{
-			if (FD_ISSET((*it)->m_s, &writefds))
-			{
-				if ((*it)->doSend())
-					++it;
-				else
-					it = m_sends.erase(it);
-			}
-			else
-				++it;
-		}
-
-		// Check the pending connects
-		for(auto it = m_connects.begin(); it!=m_connects.end();)
-		{
-			if (FD_ISSET(it->first->m_s, &writefds))
-			{
-				auto sock = it->first;
-				sock->m_owner = this;
-				// #TODO : Test what happens if the getRemoteAddr fails
-				sock->m_peerAddr = details::utils::getRemoteAddr(sock->m_s);
-				sock->m_localAddr = details::utils::getLocalAddr(sock->m_s);
-				TCPINFO("Socket %d connected to %s:%d", (int)sock->m_s, sock->m_peerAddr.first.c_str(), sock->m_peerAddr.second);
-				it->second.h(TCPError(), sock);
-				it = m_connects.erase(it);
-			}
-			else
-				++it;
-		}
-
-	}
-
-	// Check for expired connection attempts
-	for (auto it = m_connects.begin(); it != m_connects.end();)
-	{
-		if (it->second.timeoutPoint < end)
-		{
-			it->second.h(TCPError::Code::Timeout, nullptr);
-			it = m_connects.erase(it);
-		}
-		else
-		{
-			++it;
-		}
-	}
-
-	return true;
-}
-
-void TCPService::stop()
-{
-	m_stopped = true;
-	// Signal the end by sending an empty command
-	addCmd(nullptr);
-}
-
-void TCPService::startSignalIn()
-{
-	TCPSocket::RecvOp op;
-	op.buf = m_signalInBuf;
-	op.bufLen = sizeof(m_signalInBuf);
-	op.fill = true;
-	op.h = [this](const TCPError& ec, int bytesTransfered)
-	{
-		if (ec)
+		if (!m_signalOut)
 			return;
-		startSignalIn();
-	};
-	m_signalIn->m_recvs.push(std::move(op));
-	m_recvs.insert(m_signalIn);
-}
+		char buf = 0;
+		if (::send(m_signalOut->m_s, &buf, 1, 0) != 1)
+			TCPFATAL(details::ErrorWrapper().msg().c_str());
+	}
 
-void TCPService::signal()
-{
-	if (!m_signalOut)
-		return;
-	char buf = 0;
-	if (::send(m_signalOut->m_s, &buf, 1, 0)!=1)
-		TCPFATAL(details::ErrorWrapper().msg().c_str());
-}
+	void startSignalIn()
+	{
+		TCPSocket::RecvOp op;
+		op.buf = m_signalInBuf;
+		op.bufLen = sizeof(m_signalInBuf);
+		op.fill = true;
+		op.h = [this](const TCPError& ec, int bytesTransfered)
+		{
+			if (ec)
+				return;
+			startSignalIn();
+		};
+		m_signalIn->m_recvs.push(std::move(op));
+		m_recvs.insert(m_signalIn);
+	}
 
+};
 
 } // namespace rpc
 } // namespace cz
