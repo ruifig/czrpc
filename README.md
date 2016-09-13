@@ -35,6 +35,9 @@ It was created as part of a technical article for my blog : [http://www.crazygaz
 
 # How to build #
 
+* The *default* branch is the latest working version.
+* The *dev* branch is where I commit regularly, and it's not guaranteed to even build.
+
 The framework itself is just headers. Nothing to build.
 At the moment it only work with Visual Studio, although there isn't any platform specific code.
 To run the unit tests or the provided samples:
