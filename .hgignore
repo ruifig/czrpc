@@ -29,3 +29,6 @@ syntax: regexp
 ^build/
 
 ^doc/themes/purehugo/.git
+
+# Remove this ignore once I start working on the documentation
+^doc
