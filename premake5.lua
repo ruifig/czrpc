@@ -1,15 +1,16 @@
 language "C++"
 
+location "build"
 targetdir "build/bin"
 objdir "build/tmp/%{prj.name}/%{cfg.platform}_%{cfg.buildcfg}"
 targetname "%{prj.name}_%{cfg.platform}_%{cfg.buildcfg}"
 
-location "build"
 workspace "czrpc"
 	platforms { "x64" }
 	configurations { "Debug", "Release" }
 	-- flags { "ExtraWarnings" }
 	flags { "FloatFast", "EnableSSE2" }
+	startproject "tests"
 	configuration "Debug"
 		symbols "On"
 		defines "DEBUG"
@@ -22,9 +23,7 @@ workspace "czrpc"
 ---------------------------------------------------
 project "UnitTest++"
 	kind "StaticLib"
-	location "build"
 	targetdir "build/lib"
-
 	files { "UnitTest++/*.h", "UnitTest++/*.cpp" }
 	filter "system:Windows"
 		files { "UnitTest++/Win32/*" }
@@ -35,9 +34,8 @@ project "UnitTest++"
 --	czrpc
 ---------------------------------------------------
 project "czrpc"
-	kind "None" -- None is used for projects that only have header files
-	location "build"
-	language "C++"
+	kind "None"
+	-- language "C++"
 	files { "source/crazygaze/rpc/*.h" }
 
 ---------------------------------------------------
@@ -45,7 +43,6 @@ project "czrpc"
 ---------------------------------------------------
 project "tests"
 	kind "ConsoleApp"
-	location "build"
 
 	links {"UnitTest++"}
 	includedirs { ".", "./source", "asio/asio/include"}
@@ -57,6 +54,76 @@ project "tests"
 
 	filter "action:vs*"
 		buildoptions "/bigobj"
+
+---------------------------------------------------
+--	SamplesCommon
+---------------------------------------------------
+group "Samples"
+	project "SamplesCommon"
+		kind "StaticLib"
+		files {"samples/SamplesCommon/*.h", "samples/SamplesCommon/*.cpp"}
+		pchheader "SamplesCommonPCH.h"
+		pchsource "samples/SamplesCommon/SamplesCommonPCH.cpp"
+group ""
+
+---------------------------------
+-- Chat
+---------------------------------
+group "Samples/Chat"
+	project "ChatCommon"
+		kind "None"
+		files {"samples/Chat/ChatCommon/**" }
+	project "ChatServer"
+		kind "ConsoleApp"
+		links { "SamplesCommon" }
+		includedirs { ".", "./source", "asio/asio/include"}
+		files {"samples/Chat/ChatServer/**" }
+		pchheader "ChatServerPCH.h"
+		pchsource "samples/Chat/ChatServer/ChatServerPCH.cpp"
+	project "ChatClient"
+		kind "ConsoleApp"
+		links { "SamplesCommon" }
+		includedirs { ".", "./source", "asio/asio/include"}
+		files {"samples/Chat/ChatClient/**" }
+		pchheader "ChatClientPCH.h"
+		pchsource "samples/Chat/ChatClient/ChatClientPCH.cpp"
+group "" -- Chat end
+
+group "Samples"
+	---------------------------------
+	-- Benchmark
+	---------------------------------
+	project "Benchmark"
+		kind "ConsoleApp"
+		links { "SamplesCommon" }
+		includedirs { ".", "./source", "asio/asio/include"}
+		pchheader "%{prj.name}PCH.h"
+		pchsource "samples/%{prj.name}/%{prj.name}PCH.cpp"
+		files {"samples/%{prj.name}/*.*" }
+	---------------------------------
+	-- CalculatorServer
+	---------------------------------
+	project "CalculatorServer"
+		kind "ConsoleApp"
+		links { "SamplesCommon" }
+		includedirs { ".", "./source", "asio/asio/include"}
+		pchheader "%{prj.name}PCH.h"
+		pchsource "samples/%{prj.name}/%{prj.name}PCH.cpp"
+		files {"samples/%{prj.name}/*.*" }
+group ""
+
+group "Utils"
+	---------------------------------
+	-- ServerConsole
+	---------------------------------
+	project "ServerConsole"
+		kind "ConsoleApp"
+		links { "SamplesCommon" }
+		includedirs { ".", "./source", "asio/asio/include"}
+		pchheader "%{prj.name}PCH.h"
+		pchsource "samples/%{prj.name}/%{prj.name}PCH.cpp"
+		files {"samples/%{prj.name}/*.*" }
+group ""
 
 newaction
 {
