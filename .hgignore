@@ -21,14 +21,9 @@ syntax: glob
 syntax: regexp
 
 #^bin/[^/]*\.(exe|ilk|iobj|ipdb|exp|lib)$
-^VisualStudio/ipch/
 ^asio/
 ^boost/
-^VisualStudio/.vs/
-^VisualStudio/[^/]*\.(db)
 ^build/
-
 ^doc/themes/purehugo/.git
-
 # Remove this ignore once I start working on the documentation
-^doc
+^doc/
