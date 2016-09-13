@@ -3,6 +3,7 @@
 #pragma warning(disable:4996)
 #pragma warning(disable:4390)
 
+// #TODO : Change CHECK to CHECK_EQUAL where appropriate
 namespace cz {
 	namespace rpc {
 
@@ -282,9 +283,10 @@ TEST(TCPSocket_recv_Success)
 
 		// Read the rest
 		TCPBuffer buf2(10);
+		buf2.zero();
 		sock->asyncRecv(buf2, [buf2, &sem](const TCPError& ec, int bytesTransfered)
 		{
-			CHECK(bytesTransfered == 4);
+			CHECK_EQUAL(4, bytesTransfered);
 			CHECK_EQUAL("BCD", buf2.ptr());
 			sem.notify();
 		});

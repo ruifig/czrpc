@@ -26,8 +26,6 @@ syntax: regexp
 ^boost/
 ^VisualStudio/.vs/
 ^VisualStudio/[^/]*\.(db)
-^tmp/
-^bin/
-^lib/
+^build/
 
 ^doc/themes/purehugo/.git

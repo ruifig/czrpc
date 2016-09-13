@@ -14,6 +14,7 @@ int main()
 	while (true)
 	{
 		res = UnitTest::RunAllTests();
+		return res;
 		if (res != 0)
 			break;
 	}

@@ -79,6 +79,11 @@ struct TCPBuffer
 	char* ptr() { return buf.get(); }
 	const char* ptr() const { return buf.get(); }
 
+	void zero()
+	{
+		memset(ptr(), 0, size);
+	}
+
 	std::shared_ptr<char> buf;
 	int size;
 };
