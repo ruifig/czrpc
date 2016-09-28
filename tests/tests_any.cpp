@@ -18,7 +18,7 @@ TEST(Constructors)
 	CHECK(a.getType() == Any::Type::None);
 	TestConstructor(true, Any::Type::Bool);
 	TestConstructor(int(-1), Any::Type::Integer);
-	TestConstructor(unsigned int(1), Any::Type::UnsignedInteger);
+	TestConstructor((unsigned int)1, Any::Type::UnsignedInteger);
 	TestConstructor(float(0.5), Any::Type::Float);
 	TestConstructor("Hello", Any::Type::String);
 	TestConstructor(std::string("Hello"), Any::Type::String);

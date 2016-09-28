@@ -42,7 +42,9 @@ public:
 	{
 	}
 
-	BaseAsioTransport(ConstructorCookie, ASIO::io_service& io) : m_io(io)
+	BaseAsioTransport(ConstructorCookie, ASIO::io_service& io)
+        : m_io(io)
+        , m_conPendingProcess(false)
 	{
 	}
 
@@ -189,7 +191,7 @@ protected:
 	// Hold the currently outgoing RPC data
 	std::vector<char> m_outgoing;
 
-	std::atomic<bool> m_conPendingProcess = false;
+	std::atomic<bool> m_conPendingProcess;
 
 	void onClosed()
 	{
@@ -393,7 +395,7 @@ private:
 		auto socket = std::make_shared<ASIO::ip::tcp::socket>(m_io);
 		m_acceptor->async_accept(
 			*socket,
-			[this_ = shared_from_this(), socket](const CZRPC_ASIO_ERROR_CODE& ec)
+			[this_ = this->shared_from_this(), socket](const CZRPC_ASIO_ERROR_CODE& ec)
 		{
 			this_->doAccept(ec, std::move(socket));
 		});

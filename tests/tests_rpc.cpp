@@ -40,13 +40,13 @@ public:
 	void voidTestException(bool doThrow)
 	{
 		if (doThrow)
-			throw std::exception("Testing exception");
+			throw std::runtime_error("Testing exception");
 	}
 
 	int intTestException(bool doThrow)
 	{
 		if (doThrow)
-			throw std::exception("Testing exception");
+			throw std::runtime_error("Testing exception");
 		else
 			return 128;
 	}
@@ -117,7 +117,7 @@ public:
 	}
 };
 
-// Gather all the RPCs for Tester, but not define the Table right now, since we need to reuse the define 
+// Gather all the RPCs for Tester, but not define the Table right now, since we need to reuse the define
 #define RPCTABLE_TESTER_CONTENTS \
 	REGISTERRPC(simple) \
 	REGISTERRPC(noParams) \

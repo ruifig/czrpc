@@ -58,7 +58,7 @@ void RunTestClient() {
     auto con = AsioTransport<void, TestClass>::create(io, "127.0.0.1", 9000).get();
 
 	CZRPC_CALL(*con, add, Vec3(1,2,3), Vec3(2,3,4))
-		.async([&io](Result<Vec3>& res)
+		.async([&io](Result<Vec3> res)
 	{
 		Vec3 v  = res.get();
 		io.stop();

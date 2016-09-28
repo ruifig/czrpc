@@ -5,10 +5,10 @@ namespace cz
 namespace rpc
 {
 
-class Exception : public std::exception
+class Exception : public std::runtime_error
 {
 public:
-	Exception(const std::string& msg) : std::exception(msg.c_str()) {}
+	Exception(const std::string& msg) : std::runtime_error(msg.c_str()) {}
 };
 
 template<typename T>

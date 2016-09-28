@@ -1,5 +1,7 @@
 #include "testsPCH.h"
 
+#if 0
+
 #pragma warning(disable:4996)
 #pragma warning(disable:4390)
 
@@ -298,7 +300,7 @@ TEST(TCPSocket_recv_Success)
 	th.join();
 }
 
-#endif 
+#endif
 
 TEST(TCPSocket_recv_Failure)
 {
@@ -432,7 +434,7 @@ TEST(TCPSocket_cancel_lifetime)
 	{
 		sem.wait();
 	}
-	// Small delay to make sure the TCPIOService has time to remove strong references after calling the handlers. 
+	// Small delay to make sure the TCPIOService has time to remove strong references after calling the handlers.
 	// This is needed, because after we notify the semaphore, this thread might get here because the the io service
 	// has time to remove the strong references from the internal containers
 	UnitTest::TimeHelpers::SleepMs(10);
@@ -472,7 +474,7 @@ TEST(TCPAcceptor_backlog)
 	// Third should fail because the backlog is not big enough.
 	// This might not work properly on all Operating Systems, since the backlog setting
 	// is just an hint to the OS
-	CHECK(ec && !sock3); 
+	CHECK(ec && !sock3);
 
 	sem.wait(); // Wait for the server accept
 	CHECK(acceptor.unique());
@@ -495,3 +497,5 @@ TEST(TCPAcceptor_backlog)
 #endif
 
 }
+
+#endif
