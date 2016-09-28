@@ -22,5 +22,6 @@ int main()
 	auto res = UnitTest::RunAllTests();
 #endif
 
+	while(true) {}
 	return res == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

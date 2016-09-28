@@ -40,22 +40,28 @@ struct Foo
 
 //
 // Make Foo instances usable as RPC parameters
-template<>
-struct cz::rpc::ParamTraits<Foo> : public cz::rpc::DefaultParamTraits<Foo>
+namespace cz
 {
-	template<typename S>
-	static void write(S& s, const Foo& v) {
+namespace rpc
+{
+template <>
+struct ParamTraits<Foo> : public DefaultParamTraits<Foo>
+{
+	template <typename S>
+	static void write(S& s, const Foo& v)
+	{
 		s << v.val;
 	}
-	template<typename S>
-	static void read(S&s, Foo& v) {
+	template <typename S>
+	static void read(S& s, Foo& v)
+	{
 		s >> v.val;
 	}
 };
-
+};
+}
 //
 // Allow "const Foo&", "Foo&", and "Foo&&" as RPC parameters
-CZRPC_DEFINE_CONST_LVALUE_REF(Foo);
-CZRPC_DEFINE_NON_CONST_LVALUE_REF(Foo);
-CZRPC_DEFINE_RVALUE_REF(Foo);
-
+CZRPC_DEFINE_CONST_LVALUE_REF(Foo)
+CZRPC_DEFINE_NON_CONST_LVALUE_REF(Foo)
+CZRPC_DEFINE_RVALUE_REF(Foo)
