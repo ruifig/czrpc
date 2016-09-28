@@ -1,6 +1,8 @@
 #pragma once
 
+#ifdef _WIN32
 #include "targetver.h"
+#endif
 
 //
 // czrpc
@@ -9,17 +11,18 @@
 #include "crazygaze/rpc/RPCAsioTransport.h"
 
 #include <stdio.h>
-#include <tchar.h>
 #include <vector>
 #include <string>
 #include <queue>
 
+// #TODO : Really needed? Non-existent on Linux
+//#include <tchar.h>
+
 //
 // UnitTest++
 //
-#include "UnitTest++\UnitTest++.h"
-#include "UnitTest++\CurrentTest.h"
+#include "UnitTest++/UnitTest++.h"
+#include "UnitTest++/CurrentTest.h"
 
 #include "Semaphore.h"
-
 

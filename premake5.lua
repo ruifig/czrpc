@@ -9,10 +9,9 @@ workspace "czrpc"
 	platforms { "x64" }
 	configurations { "Debug", "Release" }
 	-- flags { "ExtraWarnings" }
-	flags { "FloatFast", "EnableSSE2" }
+	flags { "C++14", "Symbols", "FloatFast", "EnableSSE2" }
 	startproject "tests"
 	configuration "Debug"
-		symbols "On"
 		defines "DEBUG"
 	configuration "Release"
 		optimize "Speed"
@@ -49,8 +48,8 @@ project "tests"
 
 	files {"./tests/*.h", "./tests/*.cpp"} 
 
-	pchheader "testsPCH.h" -- This is treated as a string (not as a path)
-	pchsource "./tests/testsPCH.cpp" -- This is treated as a path, so needs to be the path to the file
+	-- pchheader "testsPCH.h" -- This is treated as a string (not as a path)
+	-- pchsource "./tests/testsPCH.cpp" -- This is treated as a path, so needs to be the path to the file
 
 	filter "action:vs*"
 		buildoptions "/bigobj"

@@ -1,5 +1,5 @@
 #include "testsPCH.h"
-#include "crazygaze/rpc/RPCTCPSocket.h"
+//#include "crazygaze/rpc/RPCTCPSocket.h"
 
 //
 // Entry points to try samples used in the documentation

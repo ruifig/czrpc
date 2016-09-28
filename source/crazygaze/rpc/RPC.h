@@ -32,6 +32,7 @@ transports you want to use
 #include <queue>
 #include <functional>
 #include <assert.h>
+#include <cstring>
 #include "crazygaze/rpc/RPCCallstack.h"
 #include "crazygaze/rpc/RPCParamTraits.h"
 #include "crazygaze/rpc/RPCAny.h"

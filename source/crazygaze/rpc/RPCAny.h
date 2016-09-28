@@ -1,8 +1,5 @@
 #pragma once
 
-#include <string>
-#include <vector>
-
 #if defined(_MSC_VER)
 	#pragma warning(push)
 	#pragma warning(disable:4996) // deprecated
@@ -236,9 +233,21 @@ public:
 		case Type::Bool:
 			return asF<bool>() ? "true" : "false";
 		case Type::Integer:
-			return itoa(asF<int>(), tmp, 10);
+		{
+            auto res = snprintf(tmp, sizeof(tmp), "%d", asF<int>());
+			if (res >= 0 && res < sizeof(tmp))
+				return tmp;
+			else
+				return "conversion error";
+        }
 		case Type::UnsignedInteger:
-			return itoa(asF<unsigned>(), tmp, 10);
+		{
+            auto res = snprintf(tmp, sizeof(tmp), "%u", asF<unsigned>());
+			if (res >= 0 && res < sizeof(tmp))
+				return tmp;
+			else
+				return "conversion error";
+        }
 		case Type::Float:
 		{
 			auto res = snprintf(tmp, sizeof(tmp), "%.4f", asF<float>());
@@ -276,7 +285,7 @@ public:
 		else
 			s << asF<LargestFundamental>();
 	}
-	
+
 	template<typename S>
 	void read(S& s)
 	{
@@ -366,13 +375,13 @@ private:
 		return *reinterpret_cast<const T*>(&m_f);
 	}
 
+	Type m_type;
 	union
 	{
 		int m_f; // any supported fundamental type
 		std::string m_str;
 		std::vector<unsigned char> m_blob;
 	};
-	Type m_type;
 
 };
 

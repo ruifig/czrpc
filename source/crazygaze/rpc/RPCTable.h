@@ -115,6 +115,33 @@ struct Send
 	}
 };
 
+template <typename R>
+struct Caller
+{
+    template <typename OBJ, typename F, typename P>
+    static void doCall(OBJ& obj, F f, P&& params, Stream& out, Header hdr)
+    {
+        auto r = callMethod(obj, f, std::move(params));
+        if (hdr.isGenericRPC())
+            out << Any(r);
+        else
+            out << r;
+    }
+};
+
+template <>
+struct Caller<void>
+{
+    template <typename OBJ, typename F, typename P>
+    static void doCall(OBJ& obj, F f, P&& params, Stream& out, Header hdr)
+    {
+        callMethod(obj, f, std::move(params));
+        if (hdr.isGenericRPC())
+            out << Any();
+    }
+};
+
+
 template <bool ASYNC,typename R>
 struct Dispatcher {};
 
@@ -122,33 +149,6 @@ struct Dispatcher {};
 template <typename R>
 struct Dispatcher<false, R>
 {
-
-	template <typename R>
-	struct Caller
-	{
-		template <typename OBJ, typename F, typename P>
-		static void doCall(OBJ& obj, F f, P&& params, Stream& out, Header hdr)
-		{
-			auto r = callMethod(obj, f, std::move(params));
-			if (hdr.isGenericRPC())
-				out << Any(r);
-			else
-				out << r;
-		}
-	};
-
-	template <>
-	struct Caller<void>
-	{
-		template <typename OBJ, typename F, typename P>
-		static void doCall(OBJ& obj, F f, P&& params, Stream& out, Header hdr)
-		{
-			callMethod(obj, f, std::move(params));
-			if (hdr.isGenericRPC())
-				out << Any();
-		}
-	};
-
 	template <typename OBJ, typename F, typename P>
 	static void impl(OBJ& obj, F f, P&& params, InProcessorData& out, Transport& trp, Header hdr)
 	{
@@ -181,7 +181,7 @@ struct Dispatcher<true, R>
 		out.pending([&](InProcessorData::PendingFutures& pending)
 		{
 			unsigned counter = pending.counter++;
-			auto ft = then(std::move(resFt), [&out, &trp, hdr, counter](std::future<Traits::return_type> ft)
+			auto ft = then(std::move(resFt), [&out, &trp, hdr, counter](std::future<typename Traits::return_type> ft)
 			{
 				processReady(out, trp, counter, hdr, std::move(ft));
 			});
@@ -316,7 +316,7 @@ class TableImpl : public BaseTable
 		// NOTE: For the user RPCs alone, this would not be necessary, since the enums
 		// would not allow two RPCs with the same name. But we also need to make sure user RPC names
 		// don't collide with the control RPCs
-		// 
+		//
 		assert(getByName(name) == nullptr);
 		assert(getControlByName(name) == nullptr);
 

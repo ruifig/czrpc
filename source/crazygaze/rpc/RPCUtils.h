@@ -23,7 +23,7 @@ struct FunctionTraits : public FunctionTraits<decltype(&T::operator())>
 {
 };
 */
- 
+
 namespace details
 {
 	template<typename T>
@@ -67,7 +67,7 @@ struct FunctionTraits<R(Args...)>
 	static constexpr bool isasync = details::CheckFuture<R>::value;
 	using param_tuple = std::tuple<typename ParamTraits<Args>::store_type...>;
     static constexpr std::size_t arity = sizeof...(Args);
- 
+
     template <std::size_t N>
     struct argument
     {
@@ -166,7 +166,7 @@ public:
 template <typename Fut, typename Work>
 decltype(auto) then(Fut f, Work w)
 {
-	auto fptr = std::make_shared<std::decay<Fut>::type>(std::move(f));
+	auto fptr = std::make_shared<typename std::decay<Fut>::type>(std::move(f));
 	return std::async([fptr = std::move(fptr), w = std::move(w)]
 	{
 		fptr->wait();

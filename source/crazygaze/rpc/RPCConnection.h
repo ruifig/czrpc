@@ -36,8 +36,8 @@ template<typename F, typename C>
 class Call
 {
 private:
-	using RType = typename FunctionTraits<F>::return_type;
-	using RTraits = typename ParamTraits<RType>;
+	typedef typename FunctionTraits<F>::return_type RType;
+	typedef ParamTraits<RType> RTraits;
 public:
 
 	Call(Call&& other)
@@ -54,21 +54,21 @@ public:
 	~Call()
 	{
 		if (m_data.writeSize() && !m_commited)
-			async([](Result<RTraits::store_type>&) {});
+			async([](Result<typename RTraits::store_type>&&) {});
 	}
 
 	template<typename H>
 	void async(H&& handler)
 	{
-		m_con.commit<F>(std::move(m_data), std::forward<H>(handler));
+		m_con.template commit<F>(std::move(m_data), std::forward<H>(handler));
 		m_commited = true;
 	}
 
 	std::future<class Result<typename RTraits::store_type>> ft()
 	{
-		auto pr = std::make_shared<std::promise<Result<RTraits::store_type>>>();
+		auto pr = std::make_shared<std::promise<Result<typename RTraits::store_type>>>();
 		auto ft = pr->get_future();
-		async([pr=std::move(pr)](Result<RTraits::store_type>&& res) 
+		async([pr=std::move(pr)](Result<typename RTraits::store_type>&& res)
 		{
 			pr->set_value(std::move(res));
 		});
@@ -163,7 +163,7 @@ public:
 			}
 		}
 	}
-	
+
 	virtual void close() override
 	{
 		m_transport->close();
@@ -266,7 +266,7 @@ protected:
 		Header* hdr = reinterpret_cast<Header*>(data.ptr(0));
 		hdr->bits.size = data.writeSize();
 		hdr->bits.counter = ++m_remotePrc.replyIdCounter;
-		m_remotePrc.addReplyHandler<F>(hdr->key(), std::forward<H>(handler));
+		m_remotePrc.template addReplyHandler<F>(hdr->key(), std::forward<H>(handler));
 		m_transport->send(data.extract());
 	}
 
