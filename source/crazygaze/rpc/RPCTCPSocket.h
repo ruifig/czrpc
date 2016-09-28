@@ -30,8 +30,9 @@ struct TCPSocketDefaultLog
 {
 	static void out(bool fatal, const char* type, const char* fmt, ...)
 	{
-		char buf[256];
-		strcpy(buf, type);
+		char buf[32];
+		strncpy(buf, type, sizeof(buf));
+		buf[sizeof(buf)-1] = 0;
 		va_list args;
 		va_start(args, fmt);
 		vsnprintf(buf + strlen(buf), sizeof(buf) - strlen(buf) - 1, fmt, args);
@@ -140,6 +141,10 @@ struct TCPError
 	Code code;
 	std::shared_ptr<std::string> optionalMsg;
 };
+
+class TCPAcceptor;
+class TCPSocket;
+class TCPService;
 
 namespace details
 {
@@ -282,133 +287,74 @@ namespace details
 			WSACleanup();
 		}
 	};
+
+	struct TCPServiceData;
+	//////////////////////////////////////////////////////////////////////////
+	// TCPBaseSocket
+	//////////////////////////////////////////////////////////////////////////
+	class TCPBaseSocket : public std::enable_shared_from_this<TCPBaseSocket>
+	{
+	public:
+		TCPBaseSocket() {}
+		virtual ~TCPBaseSocket()
+		{
+			::shutdown(m_s, SD_BOTH);
+			::closesocket(m_s);
+		}
+	protected:
+		friend TCPServiceData;
+		friend TCPService;
+		SOCKET m_s = INVALID_SOCKET;
+	};
+
+	// This is not part of the TCPService class, so we can break the circular dependency
+	// between TCPAcceptor/TCPSocket and TCPService
+	struct TCPServiceData
+	{
+		TCPServiceData() : m_stopped(false) { }
+		details::WSAInstance m_wsaInstance;
+		std::shared_ptr<TCPBaseSocket> m_signalIn;
+		std::shared_ptr<TCPBaseSocket> m_signalOut;
+
+		std::atomic<bool> m_stopped;
+
+		using ConnectHandler = std::function<void(const TCPError&, std::shared_ptr<TCPSocket>)>;
+		struct ConnectOp
+		{
+			std::chrono::time_point<std::chrono::high_resolution_clock> timeoutPoint;
+			ConnectHandler h;
+		};
+
+		std::unordered_map<std::shared_ptr<TCPSocket>, ConnectOp> m_connects;  // Pending connects
+		std::set<std::shared_ptr<TCPAcceptor>> m_accepts; // pending accepts
+		std::set<std::shared_ptr<TCPSocket>> m_recvs; // pending reads
+		std::set<std::shared_ptr<TCPSocket>> m_sends; // pending writes
+
+		using CmdQueue = std::queue<std::function<void()>>;
+		Monitor<CmdQueue> m_cmdQueue;
+		CmdQueue m_tmpQueue;
+		char m_signalInBuf[512];
+		void signal()
+		{
+			if (!m_signalOut)
+				return;
+			char buf = 0;
+			if (::send(m_signalOut->m_s, &buf, 1, 0) != 1)
+				TCPFATAL(details::ErrorWrapper().msg().c_str());
+		}
+
+		template<typename F>
+		void addCmd(F&& f)
+		{
+			m_cmdQueue([&](CmdQueue& q)
+			{
+				q.push(std::move(f));
+			});
+			signal();
+		}
+
+	};
 } // namespace details
-
-
-template<typename T> class TTCPAcceptor;
-template<typename T> class TTCPSocket;
-template<typename T> class TTCPService;
-
-using TCPAcceptor = TTCPAcceptor<bool>;
-using TCPSocket = TTCPSocket<bool>;
-using TCPService = TTCPService<bool>;
-
-//////////////////////////////////////////////////////////////////////////
-// TCPBaseSocket
-//////////////////////////////////////////////////////////////////////////
-class TCPBaseSocket : public std::enable_shared_from_this<TCPBaseSocket>
-{
-public:
-	TCPBaseSocket() {}
-	virtual ~TCPBaseSocket()
-	{
-		::shutdown(m_s, SD_BOTH);
-		::closesocket(m_s);
-	}
-protected:
-	TCPService* m_owner = nullptr;
-	SOCKET m_s = INVALID_SOCKET;
-};
-
-
-//////////////////////////////////////////////////////////////////////////
-// TCPAcceptor
-//////////////////////////////////////////////////////////////////////////
-/*!
-With TCPAcceptor you can listen for new connections on a specified port.
-Thread Safety:
-	Distinct objects  : Safe
-	Shared objects : Unsafe
-*/
-template<typename T>
-class TTCPAcceptor : public TCPBaseSocket
-{
-public:
-	virtual ~TTCPAcceptor()
-	{
-		TCPASSERT(m_accepts.size() == 0);
-	}
-	using AcceptHandler = std::function<void(const TCPError& ec, std::shared_ptr<TCPSocket> sock)>;
-
-	//! Starts an asynchronous accept
-	void accept(AcceptHandler h)
-	{
-		m_owner->addCmd([this_ = shared_from_this(), h(std::move(h))]
-		{
-			this_->m_accepts.push(std::move(h));
-			this_->m_owner->m_accepts.insert(this_);
-		});
-	}
-
-	//! Cancels all outstanding asynchronous operations
-	void cancel()
-	{
-		m_owner->addCmd([this_ = shared_from_this()]
-		{
-			this_->doCancel();
-			this_->m_owner->m_accepts.erase(this_);
-		});
-	}
-
-	const std::pair<std::string, int>& getLocalAddress() const
-	{
-		return m_localAddr;
-	}
-
-	std::shared_ptr<TCPAcceptor> shared_from_this()
-	{
-		return std::static_pointer_cast<TCPAcceptor>(TCPBaseSocket::shared_from_this());
-	}
-
-protected:
-	friend class TTCPService<bool>;
-
-	// Called from TCPSocketSet
-	// Returns true if we still have pending accepts, false otherwise
-	bool doAccept()
-	{
-		TCPASSERT(m_accepts.size());
-
-		auto h = std::move(m_accepts.front());
-		m_accepts.pop();
-
-		sockaddr_in clientAddr;
-		int size = sizeof(clientAddr);
-		SOCKET s = ::accept(m_s, (struct sockaddr*)&clientAddr, &size);
-		if (s == INVALID_SOCKET)
-		{
-			auto ec = details::ErrorWrapper().getError();
-			TCPERROR(ec.msg());
-			h(ec, nullptr);
-			return m_accepts.size() > 0;
-		}
-
-		auto sock = std::make_shared<TCPSocket>();
-		sock->m_s = s;
-		sock->m_localAddr = details::utils::getLocalAddr(s);
-		sock->m_peerAddr = details::utils::getRemoteAddr(s);
-		sock->m_owner = m_owner;
-		details::utils::setBlocking(sock->m_s, false);
-		TCPINFO("Server side socket %d connected to %s:%d, socket %d",
-			(int)s, sock->m_peerAddr.first.c_str(), sock->m_peerAddr.second,
-			(int)m_s);
-		h(TCPError(), sock);
-
-		return m_accepts.size() > 0;
-	}
-
-	void doCancel()
-	{
-		while (m_accepts.size())
-		{
-			m_accepts.front()(TCPError::Code::Cancelled, nullptr);
-			m_accepts.pop();
-		}
-	}
-
-	std::queue<AcceptHandler> m_accepts;
-	std::pair<std::string, int> m_localAddr;
-};
 
 
 //////////////////////////////////////////////////////////////////////////
@@ -421,13 +367,12 @@ Thread Safety:
 	Distinct objects  : Safe
 	Shared objects : Unsafe
 */
-template<typename T>
-class TTCPSocket : public TCPBaseSocket
+class TCPSocket : public details::TCPBaseSocket
 {
 public:
 	using Handler = std::function<void(const TCPError& ec, int bytesTransfered)>;
 
-	virtual ~TTCPSocket()
+	virtual ~TCPSocket()
 	{
 		TCPASSERT(m_recvs.size() == 0);
 		TCPASSERT(m_sends.size() == 0);
@@ -540,8 +485,9 @@ protected:
 		Handler h;
 	};
 
-	friend class TTCPService<bool>;
-	friend class TTCPAcceptor<bool>;
+	friend TCPService;
+	friend TCPAcceptor;
+	details::TCPServiceData* m_owner = nullptr;
 	std::pair<std::string, int> m_localAddr;
 	std::pair<std::string, int> m_peerAddr;
 
@@ -657,6 +603,107 @@ protected:
 	std::queue<SendOp> m_sends;
 };
 
+//////////////////////////////////////////////////////////////////////////
+// TCPAcceptor
+//////////////////////////////////////////////////////////////////////////
+/*!
+With TCPAcceptor you can listen for new connections on a specified port.
+Thread Safety:
+	Distinct objects  : Safe
+	Shared objects : Unsafe
+*/
+class TCPAcceptor : public details::TCPBaseSocket
+{
+public:
+	virtual ~TCPAcceptor()
+	{
+		TCPASSERT(m_accepts.size() == 0);
+	}
+	using AcceptHandler = std::function<void(const TCPError& ec, std::shared_ptr<TCPSocket> sock)>;
+
+	//! Starts an asynchronous accept
+	void accept(AcceptHandler h)
+	{
+		m_owner->addCmd([this_ = shared_from_this(), h(std::move(h))]
+		{
+			this_->m_accepts.push(std::move(h));
+			this_->m_owner->m_accepts.insert(this_);
+		});
+	}
+
+	//! Cancels all outstanding asynchronous operations
+	void cancel()
+	{
+		m_owner->addCmd([this_ = shared_from_this()]
+		{
+			this_->doCancel();
+			this_->m_owner->m_accepts.erase(this_);
+		});
+	}
+
+	const std::pair<std::string, int>& getLocalAddress() const
+	{
+		return m_localAddr;
+	}
+
+	std::shared_ptr<TCPAcceptor> shared_from_this()
+	{
+		return std::static_pointer_cast<TCPAcceptor>(TCPBaseSocket::shared_from_this());
+	}
+
+protected:
+	friend class TCPService;
+
+	// Called from TCPSocketSet
+	// Returns true if we still have pending accepts, false otherwise
+	bool doAccept()
+	{
+		TCPASSERT(m_accepts.size());
+
+		auto h = std::move(m_accepts.front());
+		m_accepts.pop();
+
+		sockaddr_in clientAddr;
+		int size = sizeof(clientAddr);
+		SOCKET s = ::accept(m_s, (struct sockaddr*)&clientAddr, &size);
+		if (s == INVALID_SOCKET)
+		{
+			auto ec = details::ErrorWrapper().getError();
+			TCPERROR(ec.msg());
+			h(ec, nullptr);
+			return m_accepts.size() > 0;
+		}
+
+		auto sock = std::make_shared<TCPSocket>();
+		sock->m_s = s;
+		sock->m_localAddr = details::utils::getLocalAddr(s);
+		sock->m_peerAddr = details::utils::getRemoteAddr(s);
+		sock->m_owner = m_owner;
+		details::utils::setBlocking(sock->m_s, false);
+		TCPINFO("Server side socket %d connected to %s:%d, socket %d",
+			(int)s, sock->m_peerAddr.first.c_str(), sock->m_peerAddr.second,
+			(int)m_s);
+		h(TCPError(), sock);
+
+		return m_accepts.size() > 0;
+	}
+
+	void doCancel()
+	{
+		while (m_accepts.size())
+		{
+			m_accepts.front()(TCPError::Code::Cancelled, nullptr);
+			m_accepts.pop();
+		}
+	}
+
+	details::TCPServiceData* m_owner = nullptr;
+	std::queue<AcceptHandler> m_accepts;
+	std::pair<std::string, int> m_localAddr;
+};
+
+
+
 
 //////////////////////////////////////////////////////////////////////////
 // TCPService
@@ -666,13 +713,11 @@ Thread Safety:
 	Distinct objects  : Safe
 	Shared objects : Unsafe
 */
-template<typename T=int>
-class TTCPService
+class TCPService : public details::TCPServiceData
 {
 public:
-	TTCPService()
+	TCPService()
 	{
-
 		TCPError ec;
 		auto dummyListen = listen(0, 1, ec);
 		TCPASSERT(!ec);
@@ -706,18 +751,16 @@ public:
 		details::utils::disableNagle(m_signalOut->m_s);
 	}
 
-	~TTCPService()
+	~TCPService()
 	{
 		TCPASSERT(m_stopped);
-		m_signalOut->doCancel();
-		m_signalIn->doCancel();
+		static_cast<TCPSocket*>(m_signalOut.get())->doCancel();
+		static_cast<TCPSocket*>(m_signalIn.get())->doCancel();
 		m_cmdQueue([&](CmdQueue& q)
 		{
 			TCPASSERT(q.size() == 0);
 		});
 	}
-
-	using ConnectHandler = std::function<void(const TCPError&, std::shared_ptr<TCPSocket>)>;
 
 	//! Creates a listening socket at the specified port
 	/*
@@ -1080,49 +1123,6 @@ public:
 	//! Used only by the unit tests
 protected:
 	
-	friend class TTCPAcceptor<bool>;
-	friend class TTCPSocket<bool>;
-
-	details::WSAInstance m_wsaInstance;
-	std::shared_ptr<TCPSocket> m_signalIn;
-	std::shared_ptr<TCPSocket> m_signalOut;
-
-	std::atomic<bool> m_stopped = false;
-
-	struct ConnectOp
-	{
-		std::chrono::time_point<std::chrono::high_resolution_clock> timeoutPoint;
-		ConnectHandler h;
-	};
-
-	std::unordered_map<std::shared_ptr<TCPSocket>, ConnectOp> m_connects;  // Pending connects
-	std::set<std::shared_ptr<TCPAcceptor>> m_accepts; // pending accepts
-	std::set<std::shared_ptr<TCPSocket>> m_recvs; // pending reads
-	std::set<std::shared_ptr<TCPSocket>> m_sends; // pending writes
-
-	using CmdQueue = std::queue<std::function<void()>>;
-	Monitor<CmdQueue> m_cmdQueue;
-	CmdQueue m_tmpQueue;
-	char m_signalInBuf[512];
-	template<typename F>
-	void addCmd(F&& f)
-	{
-		m_cmdQueue([&](CmdQueue& q)
-		{
-			q.push(std::move(f));
-		});
-		signal();
-	}
-
-	void signal()
-	{
-		if (!m_signalOut)
-			return;
-		char buf = 0;
-		if (::send(m_signalOut->m_s, &buf, 1, 0) != 1)
-			TCPFATAL(details::ErrorWrapper().msg().c_str());
-	}
-
 	void startSignalIn()
 	{
 		TCPSocket::RecvOp op;
@@ -1135,8 +1135,8 @@ protected:
 				return;
 			startSignalIn();
 		};
-		m_signalIn->m_recvs.push(std::move(op));
-		m_recvs.insert(m_signalIn);
+		static_cast<TCPSocket*>(m_signalIn.get())->m_recvs.push(std::move(op));
+		m_recvs.insert(std::dynamic_pointer_cast<TCPSocket>(m_signalIn));
 	}
 
 };
