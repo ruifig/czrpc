@@ -115,7 +115,7 @@ public:
 	{
 		m_io.post([this, con=m_con.lock()]
 		{
-			if (m_s)
+			if (m_s && m_s->is_open())
 			{
 				m_s->shutdown(ASIO::ip::tcp::socket::shutdown_both);
 				m_s->close();

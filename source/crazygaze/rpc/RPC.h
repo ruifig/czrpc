@@ -16,6 +16,12 @@ transports you want to use
 	#define CZRPC_HAS_BOOST 0
 #endif
 
+#ifdef _WIN32
+    #define CZRPC_DEBUG_BREAK __debugbreak
+#else
+    #define CZRPC_DEBUG_BREAK __builtin_trap
+#endif
+
 #include <string>
 #include <vector>
 #include <memory>
