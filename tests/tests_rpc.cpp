@@ -2,6 +2,7 @@
 #include "Semaphore.h"
 #include "Foo.h"
 
+#if 1
 
 #define TEST_PORT 9000
 
@@ -258,19 +259,21 @@ TEST(NotAuth)
 	//
 	// Calling an RPC without authenticating first (if authentication is required),
 	// will cause the transport to close;
-	bool asyncAborted = false;
+	int asyncAborted = 0;
 	// Test with async
+	Semaphore sem;
 	CZRPC_CALL(*clientCon, simple).async(
 		[&](Result<void> res)
 	{
-		asyncAborted = res.isAborted();
+		asyncAborted = res.isAborted() ? 1 : 2;
+		sem.notify();
 	});
+	sem.wait();
+	CHECK_EQUAL(1, asyncAborted);
 
 	// Test with future
 	auto ft = CZRPC_CALL(*clientCon, simple).ft();
 	auto ftRes = ft.get();
-
-	CHECK(asyncAborted);
 	CHECK(ftRes.isAborted());
 
 	io.stop();
@@ -752,3 +755,5 @@ TEST(ControlRPCs)
 
 
 }
+
+#endif

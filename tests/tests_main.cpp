@@ -11,10 +11,13 @@ int main()
 	//RunDocTest_ParamTraits();
 #if 1
 	int res;
+	int counter = 0;
 	while (true)
 	{
+		counter++;
+		printf("Run %d\n", counter);
 		res = UnitTest::RunAllTests();
-		return res;
+		//return res;
 		if (res != 0)
 			break;
 	}

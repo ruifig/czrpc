@@ -14,6 +14,7 @@
 #include <vector>
 #include <string>
 #include <queue>
+#include <cstdarg>
 
 // #TODO : Really needed? Non-existent on Linux
 //#include <tchar.h>

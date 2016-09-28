@@ -1,7 +1,5 @@
 #include "testsPCH.h"
 
-#if 1
-
 #pragma warning(disable:4996)
 #pragma warning(disable:4390)
 
@@ -19,11 +17,10 @@ namespace cz {
 				va_start(args, fmt);
 				vsnprintf(buf + strlen(buf), sizeof(buf) - strlen(buf) - 1, fmt, args);
 				va_end(args);
-				printf(buf);
-				printf("\n");
+				printf("%s\n",buf);
 				if (fatal)
 				{
-					__debugbreak();
+					CZRPC_DEBUG_BREAK();
 					exit(1);
 				}
 			}
@@ -49,7 +46,6 @@ using namespace cz::rpc;
 SUITE(TCPSocket)
 {
 
-#if 1
 TEST(TCPService_Listen_Success)
 {
 	TCPService io;
@@ -214,10 +210,17 @@ TEST(TCPService_Connect_Failure)
 	{
 		expectedTimes[i] = i * 100;
 		times[i] = timer.GetTimeInMs();
-		io.connect("127.0.0.1", SERVER_PORT, [&sem, i, &times, &timer](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
+		// Initially I was using "127.0.0.1" to test the asynchronous connect timeout, but it seems that on linux
+		// it fails right away. Probably the kernal treats connections to the localhost in a different way, detecting
+		// right away that if a connect is not possible, without taking into consideration the timeout specified in
+		// the "select" function.
+		// On Windows, connect attempts to localhost still take into consideration the timeout.
+		// The solution is to try an connect to some external ip, like "254.254.254.254". This causes Linux to
+		// to actually wait for the connect attempt.
+		io.connect("254.254.254.254", SERVER_PORT, [&sem, i, &times, &timer](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
 		{
 			times[i] = timer.GetTimeInMs() - times[i];
-			CHECK(ec.code == TCPError::Code::Timeout && !sock);
+			CHECK(ec.code == TCPError::Code::ConnectFailed && !sock);
 			sem.notify();
 		}, (int)expectedTimes[i]);
 	}
@@ -225,7 +228,7 @@ TEST(TCPService_Connect_Failure)
 	{
 		sem.wait();
 	}
-	CHECK_ARRAY_CLOSE(expectedTimes, times, count, 3.0f);
+	CHECK_ARRAY_CLOSE(expectedTimes, times, count, 100.0f);
 
 	io.stop();
 	th.join();
@@ -299,8 +302,6 @@ TEST(TCPSocket_recv_Success)
 	io.stop();
 	th.join();
 }
-
-#endif
 
 TEST(TCPSocket_recv_Failure)
 {
@@ -391,8 +392,6 @@ TEST(TCPSocket_recv_Failure)
 	th.join();
 }
 
-#if 1
-
 // Test if the TCPSocket gets destroyed when we call cancel and we don't hold any strong references
 TEST(TCPSocket_cancel_lifetime)
 {
@@ -467,17 +466,23 @@ TEST(TCPAcceptor_backlog)
 	});
 
 	auto sock1 = io.connect("127.0.0.1", SERVER_PORT, ec);
-	CHECK(!ec && sock1); // First connect should work, since the server accepts it
+	CHECK(!ec); CHECK(sock1); // First connect should work, since the server accepts it
 	auto sock2 = io.connect("127.0.0.1", SERVER_PORT, ec);
-	CHECK(!ec && sock2); // Second should work, because of the backlog
+	CHECK(!ec); CHECK(sock2); // Second should work, because of the backlog
 	auto sock3 = io.connect("127.0.0.1", SERVER_PORT, ec);
 	// Third should fail because the backlog is not big enough.
 	// This might not work properly on all Operating Systems, since the backlog setting
-	// is just an hint to the OS
-	CHECK(ec && !sock3);
+	// is just an hint to the OS.
+	// It seems to work as I expect in Windows, but not Linux:
+	// See: http://veithen.github.io/2014/01/01/how-tcp-backlog-works-in-linux.html
+#if _WIN32
+	CHECK(ec); CHECK(!sock3);
+#endif
 
 	sem.wait(); // Wait for the server accept
-	CHECK(acceptor.unique());
+    // Give time for the io thread to remove its own reference to the acceptor
+	while(!acceptor.unique())
+		UnitTest::TimeHelpers::SleepMs(1);
 	acceptor = nullptr; // Causes the acceptor to be destroy.
 
 	// This send should fail because although we connected, the Acceptor never accepted the connection
@@ -494,8 +499,5 @@ TEST(TCPAcceptor_backlog)
 	th.join();
 }
 
-#endif
-
 }
 
-#endif

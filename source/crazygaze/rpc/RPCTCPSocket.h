@@ -7,7 +7,9 @@
 //
 // Nice question/answer about socket states, including a neat state diagram:
 //	http://stackoverflow.com/questions/5328155/preventing-fin-wait2-when-closing-socket
-
+// Some differences between Windows and Linux:
+// https://www.apriorit.com/dev-blog/221-crossplatform-linux-windows-sockets
+//
 #pragma once
 
 
@@ -15,11 +17,14 @@
 	#define CZRPC_WINSOCK 1
 	#include <WinSock2.h>
 	#include <WS2tcpip.h>
+	#include <strsafe.h>
+#elif __linux__
+	#include <sys/socket.h>
 #endif
 
-#include <strsafe.h>
 #include <set>
 #include <stdio.h>
+#include <cstdarg>
 
 namespace cz
 {
@@ -30,18 +35,17 @@ struct TCPSocketDefaultLog
 {
 	static void out(bool fatal, const char* type, const char* fmt, ...)
 	{
-		char buf[32];
+		char buf[256];
 		strncpy(buf, type, sizeof(buf));
 		buf[sizeof(buf)-1] = 0;
 		va_list args;
 		va_start(args, fmt);
 		vsnprintf(buf + strlen(buf), sizeof(buf) - strlen(buf) - 1, fmt, args);
 		va_end(args);
-		printf(buf);
-		printf("\n");
+		printf("%s\n",buf);
 		if (fatal)
 		{
-			__debugbreak();
+			CZRPC_DEBUG_BREAK();
 			exit(1);
 		}
 	}
@@ -96,7 +100,7 @@ struct TCPError
 		Success,
 		Cancelled,
 		ConnectionClosed,
-		Timeout,
+		ConnectFailed,
 		Other
 	};
 
@@ -119,11 +123,11 @@ struct TCPError
 			case Code::Success: return "Success";
 			case Code::Cancelled: return "Cancelled";
 			case Code::ConnectionClosed: return "ConnectionClosed";
-			case Code::Timeout: return "Timeout";
+			case Code::ConnectFailed: return "ConnectFailed";
 			default: return "Unknown";
 		}
 	}
-	
+
 	void setMsg(const char* msg)
 	{
 		// Always create a new one, since it might be shared by other instances
@@ -145,6 +149,17 @@ struct TCPError
 class TCPAcceptor;
 class TCPSocket;
 class TCPService;
+
+#if _WIN32
+	using SocketHandle = SOCKET;
+	#define CZRPC_INVALID_SOCKET INVALID_SOCKET
+	#define CZRPC_SOCKET_ERROR SOCKET_ERROR
+#else
+	using SocketHandle = int;
+	#define CZRPC_INVALID_SOCKET -1
+	#define CZRPC_SOCKET_ERROR -1
+#endif
+
 
 namespace details
 {
@@ -194,9 +209,9 @@ namespace details
 		bool isBlockError() const { return err == WSAEWOULDBLOCK; }
 #else
 		ErrorWrapper() { err = errno; }
-		bool isBlockError() const { return err == EAGAIN || err == EWOULDBLOCK || EINPROGRESS; }
+		bool isBlockError() const { return err == EAGAIN || err == EWOULDBLOCK || err == EINPROGRESS; }
 		// #TODO Build custom error depending on the error number
-		std::string msg() const { return "Error " + std::to_string(err); }
+		std::string msg() const { return strerror(err); }
 #endif
 
 		TCPError getError() const { return TCPError(TCPError::Code::Other, msg()); }
@@ -206,17 +221,27 @@ namespace details
 
 	struct utils
 	{
-		static void setBlocking(SOCKET s, bool blocking)
+		// Adapted from http://stackoverflow.com/questions/1543466/how-do-i-change-a-tcp-socket-to-be-non-blocking
+		static void setBlocking(SocketHandle s, bool blocking)
 		{
-			TCPASSERT(s != INVALID_SOCKET);
+			TCPASSERT(s != CZRPC_INVALID_SOCKET);
+#if _WIN32
 			// 0: Blocking. !=0 : Non-blocking
 			u_long mode = blocking ? 0 : 1;
 			int res = ioctlsocket(s, FIONBIO, &mode);
 			if (res != 0)
 				TCPFATAL(ErrorWrapper().msg().c_str());
+#else
+			int flags = fcntl(s, F_GETFL, 0);
+			if (flags <0)
+				TCPFATAL(ErrorWrapper().msg().c_str());
+			flags = blocking ? (flags&~O_NONBLOCK) : (flags|O_NONBLOCK);
+			if (fcntl(s, F_SETFL, flags) != 0)
+				TCPFATAL(ErrorWrapper().msg().c_str());
+#endif
 		}
 
-		static void disableNagle(SOCKET s)
+		static void disableNagle(SocketHandle s)
 		{
 			int flag = 1;
 			int result = setsockopt(
@@ -226,6 +251,14 @@ namespace details
 				(char *)&flag,   /* the cast is historical cruft */
 				sizeof(flag));   /* length of option value */
 			if (result != 0)
+				TCPFATAL(ErrorWrapper().msg().c_str());
+		}
+
+		static void setReuseAddress(SocketHandle s)
+		{
+			int optval = 1;
+			int res = setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (const char*)&optval, sizeof(optval));
+			if (res != 0)
 				TCPFATAL(ErrorWrapper().msg().c_str());
 		}
 
@@ -239,11 +272,11 @@ namespace details
 			return res;
 		}
 
-		static std::pair<std::string, int> getLocalAddr(SOCKET s)
+		static std::pair<std::string, int> getLocalAddr(SocketHandle s)
 		{
 			sockaddr_in addr;
-			int size = sizeof(addr);
-			if (getsockname(s, (SOCKADDR*)&addr, &size) != SOCKET_ERROR && size == sizeof(addr))
+			socklen_t size = sizeof(addr);
+			if (getsockname(s, (sockaddr*)&addr, &size) != CZRPC_SOCKET_ERROR && size == sizeof(addr))
 				return addrToPair(addr);
 			else
 			{
@@ -252,11 +285,11 @@ namespace details
 			}
 		}
 
-		static std::pair<std::string, int> getRemoteAddr(SOCKET s)
+		static std::pair<std::string, int> getRemoteAddr(SocketHandle s)
 		{
 			sockaddr_in addr;
-			int size = sizeof(addr);
-			if (getpeername(s, (SOCKADDR*)&addr, &size) != SOCKET_ERROR)
+			socklen_t size = sizeof(addr);
+			if (getpeername(s, (sockaddr*)&addr, &size) != CZRPC_SOCKET_ERROR)
 				return addrToPair(addr);
 			else
 			{
@@ -266,6 +299,7 @@ namespace details
 		}
 	};
 
+#if _WIN32
 	struct WSAInstance
 	{
 		WSAInstance()
@@ -287,6 +321,7 @@ namespace details
 			WSACleanup();
 		}
 	};
+#endif
 
 	struct TCPServiceData;
 	//////////////////////////////////////////////////////////////////////////
@@ -298,13 +333,18 @@ namespace details
 		TCPBaseSocket() {}
 		virtual ~TCPBaseSocket()
 		{
+#if _WIN32
 			::shutdown(m_s, SD_BOTH);
 			::closesocket(m_s);
+#else
+			::shutdown(m_s, SHUT_RDWR);
+			::close(m_s);
+#endif
 		}
 	protected:
 		friend TCPServiceData;
 		friend TCPService;
-		SOCKET m_s = INVALID_SOCKET;
+		SocketHandle m_s = CZRPC_INVALID_SOCKET;
 	};
 
 	// This is not part of the TCPService class, so we can break the circular dependency
@@ -312,7 +352,10 @@ namespace details
 	struct TCPServiceData
 	{
 		TCPServiceData() : m_stopped(false) { }
+
+#if _WIN32
 		details::WSAInstance m_wsaInstance;
+#endif
 		std::shared_ptr<TCPBaseSocket> m_signalIn;
 		std::shared_ptr<TCPBaseSocket> m_signalOut;
 
@@ -379,7 +422,7 @@ public:
 	}
 
 	//
-	// Asynchronous reading 
+	// Asynchronous reading
 	//
 	template<typename H>
 	void asyncRecv(char* buf, int len, H&& h)
@@ -499,7 +542,7 @@ protected:
 		{
 			RecvOp& op = m_recvs.front();
 			int len = ::recv(m_s, op.buf + op.bytesTransfered, op.bufLen - op.bytesTransfered, 0);
-			if (len == SOCKET_ERROR)
+			if (len == CZRPC_SOCKET_ERROR)
 			{
 				details::ErrorWrapper err;
 				if (err.isBlockError())
@@ -553,7 +596,7 @@ protected:
 		{
 			SendOp& op = m_sends.front();
 			auto res = ::send(m_s, op.buf + op.bytesTransfered, op.bufLen - op.bytesTransfered, 0);
-			if (res == SOCKET_ERROR)
+			if (res == CZRPC_SOCKET_ERROR)
 			{
 				details::ErrorWrapper err;
 				if (err.isBlockError())
@@ -664,9 +707,9 @@ protected:
 		m_accepts.pop();
 
 		sockaddr_in clientAddr;
-		int size = sizeof(clientAddr);
-		SOCKET s = ::accept(m_s, (struct sockaddr*)&clientAddr, &size);
-		if (s == INVALID_SOCKET)
+		socklen_t size = sizeof(clientAddr);
+		SocketHandle s = ::accept(m_s, (struct sockaddr*)&clientAddr, &size);
+		if (s == CZRPC_INVALID_SOCKET)
 		{
 			auto ec = details::ErrorWrapper().getError();
 			TCPERROR(ec.msg());
@@ -781,27 +824,28 @@ public:
 		sock->m_owner = this;
 
 		sock->m_s = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-		if (sock->m_s == INVALID_SOCKET)
+		if (sock->m_s == CZRPC_INVALID_SOCKET)
 		{
 			ec = details::ErrorWrapper().getError();
 			TCPERROR(ec.msg());
 			return nullptr;
 		}
 
-		TCPINFO("Listen socket=%d", (int)sock->m_s);
+		details::utils::setReuseAddress(sock->m_s);
 
-		SOCKADDR_IN addr;
+		TCPINFO("Listen socket=%d", (int)sock->m_s);
+		sockaddr_in addr;
 		addr.sin_family = AF_INET;
 		addr.sin_port = htons(port);
 		addr.sin_addr.s_addr = htonl(INADDR_ANY);
-		if (::bind(sock->m_s, (LPSOCKADDR)&addr, sizeof(addr)) == SOCKET_ERROR)
+		if (::bind(sock->m_s, (const sockaddr*)&addr, sizeof(addr)) == CZRPC_SOCKET_ERROR)
 		{
 			ec = details::ErrorWrapper().getError();
 			TCPERROR(ec.msg());
 			return nullptr;
 		}
 
-		if (::listen(sock->m_s, backlog) == SOCKET_ERROR)
+		if (::listen(sock->m_s, backlog) == CZRPC_SOCKET_ERROR)
 		{
 			ec = details::ErrorWrapper().getError();
 			TCPERROR(ec.msg());
@@ -822,15 +866,15 @@ public:
 	{
 		TCPASSERT(!m_stopped);
 
-		SOCKADDR_IN addr;
-		ZeroMemory(&addr, sizeof(addr));
+		sockaddr_in addr;
+		memset(&addr, 0, sizeof(addr));
 		addr.sin_family = AF_INET;
 		addr.sin_port = htons(port);
 		inet_pton(AF_INET, ip, &(addr.sin_addr));
 
 		auto sock = std::make_shared<TCPSocket>();
 		sock->m_s = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-		if (sock->m_s == INVALID_SOCKET)
+		if (sock->m_s == CZRPC_INVALID_SOCKET)
 		{
 			ec = details::ErrorWrapper().getError();
 			TCPERROR(ec.msg());
@@ -839,7 +883,7 @@ public:
 
 		TCPINFO("Connect socket=%d", (int)sock->m_s);
 
-		if (::connect(sock->m_s, (SOCKADDR*)&addr, sizeof(addr)) == SOCKET_ERROR)
+		if (::connect(sock->m_s, (const sockaddr*)&addr, sizeof(addr)) == CZRPC_SOCKET_ERROR)
 		{
 			ec = details::ErrorWrapper().getError();
 			TCPERROR(ec.msg());
@@ -863,8 +907,8 @@ public:
 	{
 		TCPASSERT(!m_stopped);
 
-		SOCKADDR_IN addr;
-		ZeroMemory(&addr, sizeof(addr));
+		sockaddr_in addr;
+		memset(&addr, 0, sizeof(addr));
 		addr.sin_family = AF_INET;
 		addr.sin_port = htons(port);
 		inet_pton(AF_INET, ip, &(addr.sin_addr));
@@ -872,7 +916,7 @@ public:
 		auto sock = std::make_shared<TCPSocket>();
 		sock->m_s = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 		// If the socket creation fails, send the handler to the service thread to execute with an error
-		if (sock->m_s == INVALID_SOCKET)
+		if (sock->m_s == CZRPC_INVALID_SOCKET)
 		{
 			TCPError ec = details::ErrorWrapper().getError();
 			addCmd([ec = std::move(ec), h = std::move(h)]
@@ -884,7 +928,7 @@ public:
 
 		// Set to non-blocking, so we can do an asynchronous connect
 		details::utils::setBlocking(sock->m_s, false);
-		if (::connect(sock->m_s, (SOCKADDR*)&addr, sizeof(addr)) == SOCKET_ERROR)
+		if (::connect(sock->m_s, (const sockaddr*)&addr, sizeof(addr)) == CZRPC_SOCKET_ERROR)
 		{
 			details::ErrorWrapper err;
 			if (err.isBlockError())
@@ -969,10 +1013,13 @@ public:
 			return false;
 		}
 
+		if (m_connects.size()==0 && m_accepts.size()==0 && m_recvs.size()==0 && m_sends.size()==0)
+			return true;
+
 		fd_set readfds, writefds;
 		FD_ZERO(&readfds);
 		FD_ZERO(&writefds);
-		SOCKET maxfd = 0;
+		SocketHandle maxfd = 0;
 		auto addSockets = [&maxfd](auto&& container, fd_set& fds)
 		{
 			for (auto&& s : container)
@@ -987,7 +1034,7 @@ public:
 		addSockets(m_sends, writefds);
 
 		// For non-blocking connects, select will let us know a connect finished through the write fds
-		TIMEVAL timeout{ 0,0 };
+		timeval timeout{ 0,0 };
 		if (m_connects.size())
 		{
 			auto start = std::chrono::high_resolution_clock::now();
@@ -1010,9 +1057,6 @@ public:
 			}
 		}
 
-		if (readfds.fd_count == 0 && writefds.fd_count == 0)
-			return true;
-
 		auto res = select(
 			(int)maxfd + 1,
 			&readfds,
@@ -1020,77 +1064,90 @@ public:
 			NULL,
 			(m_connects.size()) ? &timeout : NULL);
 
-		// get current time, if we are running 
+		// get current time, if we are running
 		std::chrono::time_point<std::chrono::high_resolution_clock> end;
 		if (m_connects.size())
 			end = std::chrono::high_resolution_clock::now();
 
-		if (res == SOCKET_ERROR)
+		if (res == CZRPC_SOCKET_ERROR)
 			TCPERROR(details::ErrorWrapper().msg().c_str());
 
-		if (readfds.fd_count)
+		for (auto it = m_accepts.begin(); it != m_accepts.end(); )
 		{
-			for (auto it = m_accepts.begin(); it != m_accepts.end(); )
+			if (FD_ISSET((*it)->m_s, &readfds))
 			{
-				if (FD_ISSET((*it)->m_s, &readfds))
-				{
-					if ((*it)->doAccept())
-						++it;
-					else
-						it = m_accepts.erase(it);
-				}
-				else
+				if ((*it)->doAccept())
 					++it;
-			}
-
-			for (auto it = m_recvs.begin(); it != m_recvs.end(); )
-			{
-				if (FD_ISSET((*it)->m_s, &readfds))
-				{
-					if ((*it)->doRecv())
-						++it;
-					else
-						it = m_recvs.erase(it);
-				}
 				else
-					++it;
+					it = m_accepts.erase(it);
 			}
+			else
+				++it;
 		}
 
-		if (writefds.fd_count)
+		for (auto it = m_recvs.begin(); it != m_recvs.end(); )
 		{
-			// Check writes
-			for (auto it = m_sends.begin(); it != m_sends.end(); )
+			if (FD_ISSET((*it)->m_s, &readfds))
 			{
-				if (FD_ISSET((*it)->m_s, &writefds))
-				{
-					if ((*it)->doSend())
-						++it;
-					else
-						it = m_sends.erase(it);
-				}
-				else
+				if ((*it)->doRecv())
 					++it;
+				else
+					it = m_recvs.erase(it);
 			}
+			else
+				++it;
+		}
 
-			// Check the pending connects
-			for (auto it = m_connects.begin(); it != m_connects.end();)
+		// Check writes
+		for (auto it = m_sends.begin(); it != m_sends.end(); )
+		{
+			if (FD_ISSET((*it)->m_s, &writefds))
 			{
-				if (FD_ISSET(it->first->m_s, &writefds))
+				if ((*it)->doSend())
+					++it;
+				else
+					it = m_sends.erase(it);
+			}
+			else
+				++it;
+		}
+
+		// Check the pending connects
+		for (auto it = m_connects.begin(); it != m_connects.end();)
+		{
+			if (FD_ISSET(it->first->m_s, &writefds))
+			{
+				auto sock = it->first;
+				// Check if we are really connected, or something else happened.
+				// Windows seems to just wait for the timeout, but Linux gets here before the timeout.
+				// So, we need to check if connected or if it was an error
+				int result;
+				socklen_t result_len = sizeof(result);
+				if (getsockopt(sock->m_s, SOL_SOCKET, SO_ERROR, (char*)&result, &result_len) == -1)
 				{
-					auto sock = it->first;
+					TCPFATAL(details::ErrorWrapper().msg().c_str());
+				}
+
+				if (result==0)
+				{
 					sock->m_owner = this;
 					// #TODO : Test what happens if the getRemoteAddr fails
 					sock->m_peerAddr = details::utils::getRemoteAddr(sock->m_s);
 					sock->m_localAddr = details::utils::getLocalAddr(sock->m_s);
 					TCPINFO("Socket %d connected to %s:%d", (int)sock->m_s, sock->m_peerAddr.first.c_str(), sock->m_peerAddr.second);
 					it->second.h(TCPError(), sock);
-					it = m_connects.erase(it);
 				}
 				else
-					++it;
-			}
+				{
+					auto ec = details::ErrorWrapper().getError();
+					ec.code = TCPError::Code::ConnectFailed;
+					it->second.h(ec, nullptr);
+				}
 
+				it = m_connects.erase(it);
+			}
+			else
+				++it;
 		}
 
 		// Check for expired connection attempts
@@ -1098,7 +1155,7 @@ public:
 		{
 			if (it->second.timeoutPoint < end)
 			{
-				it->second.h(TCPError::Code::Timeout, nullptr);
+				it->second.h(TCPError::Code::ConnectFailed, nullptr);
 				it = m_connects.erase(it);
 			}
 			else
@@ -1122,7 +1179,7 @@ public:
 
 	//! Used only by the unit tests
 protected:
-	
+
 	void startSignalIn()
 	{
 		TCPSocket::RecvOp op;
