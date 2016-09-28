@@ -3,28 +3,33 @@
 
 
 // Allow "const T&" RPC parameters, for any valid T
-CZRPC_ALLOW_CONST_LVALUE_REFS;
+CZRPC_ALLOW_CONST_LVALUE_REFS
 
 //
 // Make "int*" usable as RPC parameters, for testing
-template<>
-struct cz::rpc::ParamTraits<int*>
+namespace cz
 {
-	using store_type = int*;
-	static constexpr bool valid = true;
+namespace rpc
+{
+	template<>
+	struct ParamTraits<int*>
+	{
+		using store_type = int*;
+		static constexpr bool valid = true;
 
-	template<typename S>
-	static void write(S& s, int* v) {
-		s << (uint64_t)v;
-	}
-	template<typename S>
-	static void read(S&s, store_type& v) {
-		uint64_t tmp;
-		s >> tmp;
-		v = (int*)tmp;
-	}
-};
-
+		template<typename S>
+		static void write(S& s, int* v) {
+			s << (uint64_t)v;
+		}
+		template<typename S>
+		static void read(S&s, store_type& v) {
+			uint64_t tmp;
+			s >> tmp;
+			v = (int*)tmp;
+		}
+	};
+}
+}
 
 struct Bar
 {

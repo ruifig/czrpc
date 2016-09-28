@@ -14,18 +14,22 @@ struct Vec3
 
 //
 // Define how to deal with Vec3 in RPC parameters and return values
-template <>
-struct cz::rpc::ParamTraits<Vec3> : public cz::rpc::DefaultParamTraits<Vec3>
-{
-	template <typename S>
-	static void write(S& s, const Vec3& v) {
-		s << v.x << v.y << v.z;
+namespace cz {
+	namespace rpc {
+		template <>
+		struct ParamTraits<Vec3> : public DefaultParamTraits<Vec3>
+		{
+			template <typename S>
+			static void write(S& s, const Vec3& v) {
+				s << v.x << v.y << v.z;
+			}
+			template <typename S>
+			static void read(S& s, Vec3& v) {
+				s >> v.x >> v.y >> v.z;
+			}
+		};
 	}
-	template <typename S>
-	static void read(S& s, Vec3& v) {
-		s >> v.x >> v.y >> v.z;
-	}
-};
+}
 
 CZRPC_DEFINE_CONST_LVALUE_REF(Vec3)
 

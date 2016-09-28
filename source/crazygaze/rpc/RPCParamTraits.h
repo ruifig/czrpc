@@ -68,21 +68,42 @@ struct ParamTraits {
     }                                                                          \
     }
 
-#define CZRPC_DEFINE_CONST_LVALUE_REF(TYPE) \
-    template <>                             \
-    struct cz::rpc::ParamTraits<const TYPE&> : cz::rpc::ParamTraits<TYPE> {};
+#define CZRPC_DEFINE_CONST_LVALUE_REF(TYPE)             \
+	namespace cz                                        \
+	{                                                   \
+	namespace rpc                                       \
+	{                                                   \
+	template <>                                         \
+	struct ParamTraits<const TYPE&> : ParamTraits<TYPE> \
+	{                                                   \
+	};                                                  \
+	}                                                   \
+	}
 
-#define CZRPC_DEFINE_NON_CONST_LVALUE_REF(TYPE)                        \
-    template <>                                                        \
-    struct cz::rpc::ParamTraits<TYPE&> : cz::rpc::ParamTraits<TYPE> {  \
-        static TYPE& get(typename ParamTraits<TYPE>::store_type&& v) { \
-            return v;                                                  \
-        }                                                              \
-    }
+#define CZRPC_DEFINE_NON_CONST_LVALUE_REF(TYPE)                                    \
+	namespace cz                                                                   \
+	{                                                                              \
+	namespace rpc                                                                  \
+	{                                                                              \
+	template <>                                                                    \
+	struct ParamTraits<TYPE&> : ParamTraits<TYPE>                                  \
+	{                                                                              \
+		static TYPE& get(typename ParamTraits<TYPE>::store_type&& v) { return v; } \
+	};                                                                             \
+	}                                                                              \
+	}
 
-#define CZRPC_DEFINE_RVALUE_REF(TYPE) \
-    template <>                       \
-    struct cz::rpc::ParamTraits<TYPE&&> : cz::rpc::ParamTraits<TYPE> {};
+#define CZRPC_DEFINE_RVALUE_REF(TYPE)              \
+	namespace cz                                   \
+	{                                              \
+	namespace rpc                                  \
+	{                                              \
+	template <>                                    \
+	struct ParamTraits<TYPE&&> : ParamTraits<TYPE> \
+	{                                              \
+	};                                             \
+	}                                              \
+	}
 
 // void type is valid
 template <>

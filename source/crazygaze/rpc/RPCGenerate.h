@@ -10,7 +10,9 @@
 #define RPCTABLE_TOOMANYRPCS_STRINGIFY(arg) #arg
 #define RPCTABLE_TOOMANYRPCS(arg) RPCTABLE_TOOMANYRPCS_STRINGIFY(arg)
 
-template<> class cz::rpc::Table<RPCTABLE_CLASS> : cz::rpc::TableImpl<RPCTABLE_CLASS>
+namespace cz { namespace rpc {
+
+template<> class Table<RPCTABLE_CLASS> : TableImpl<RPCTABLE_CLASS>
 {
 public:
 	using Type = RPCTABLE_CLASS;
@@ -38,6 +40,9 @@ public:
 		return static_cast<Info*>(tbl.m_rpcs[rpcid].get());
 	}
 };
+
+} // namespace rpc
+} // namespace cz
 
 #undef REGISTERRPC
 #undef RPCTABLE_START

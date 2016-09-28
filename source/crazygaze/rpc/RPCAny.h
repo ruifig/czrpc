@@ -448,6 +448,7 @@ static bool toTuple(const std::vector<Any>& v, Tuple& t)
 CZRPC_DEFINE_CONST_LVALUE_REF(std::vector<cz::rpc::Any>)
 CZRPC_DEFINE_CONST_LVALUE_REF(std::string)
 
+
 #if defined(_MSC_VER)
 	#pragma warning(pop)
 #endif
