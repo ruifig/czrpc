@@ -10,6 +10,17 @@
 // Some differences between Windows and Linux:
 // https://www.apriorit.com/dev-blog/221-crossplatform-linux-windows-sockets
 //
+// Windows loopback fast path:
+// https://blogs.technet.microsoft.com/wincat/2012/12/05/fast-tcp-loopback-performance-and-low-latency-with-windows-server-2012-tcp-loopback-fast-path/
+
+/*
+
+TODO:
+	- Refactor things so we can use scoped sockets, instead of std::shared_ptr all over
+		- This will require serious refactoring of how TCPService tracks sockets
+		- Also, the user will have to explicitly pass a shared_ptr to the handlers to keep the sockets alive as required,
+		instead of relying of the current behavior, which automatically does this
+*/
 #pragma once
 
 
@@ -18,6 +29,7 @@
 	#include <WinSock2.h>
 	#include <WS2tcpip.h>
 	#include <strsafe.h>
+	#include <mstcpip.h>
 #elif __linux__
 	#include <sys/socket.h>
 #endif
@@ -207,11 +219,13 @@ namespace details
 		ErrorWrapper() { err = WSAGetLastError(); }
 		std::string msg() const { return getWin32ErrorMsg(err); }
 		bool isBlockError() const { return err == WSAEWOULDBLOCK; }
+		int getCode() const { return err; };
 #else
 		ErrorWrapper() { err = errno; }
 		bool isBlockError() const { return err == EAGAIN || err == EWOULDBLOCK || err == EINPROGRESS; }
 		// #TODO Build custom error depending on the error number
 		std::string msg() const { return strerror(err); }
+		int getCode() const { return err; };
 #endif
 
 		TCPError getError() const { return TCPError(TCPError::Code::Other, msg()); }
@@ -238,6 +252,39 @@ namespace details
 			flags = blocking ? (flags&~O_NONBLOCK) : (flags|O_NONBLOCK);
 			if (fcntl(s, F_SETFL, flags) != 0)
 				TCPFATAL(ErrorWrapper().msg().c_str());
+#endif
+		}
+
+		static void optimizeLoopback(SocketHandle s)
+		{
+#if _WIN32
+			int optval = 1;
+			DWORD NumberOfBytesReturned = 0;
+			int status =
+				WSAIoctl(
+					s,
+					SIO_LOOPBACK_FAST_PATH,
+					&optval,
+					sizeof(optval),
+					NULL,
+					0,
+					&NumberOfBytesReturned,
+					0,
+					0);
+
+			if (status==CZRPC_SOCKET_ERROR)
+			{
+				ErrorWrapper err;
+				if (err.getCode() == WSAEOPNOTSUPP)
+				{
+					// This system is not Windows Windows Server 2012, and the call is not supported.
+					// Do nothing
+				}
+				else 
+				{
+					TCPFATAL(err.msg().c_str());
+				}
+			}
 #endif
 		}
 
@@ -351,13 +398,18 @@ namespace details
 	// between TCPAcceptor/TCPSocket and TCPService
 	struct TCPServiceData
 	{
-		TCPServiceData() : m_stopped(false) { }
+		TCPServiceData()
+			: m_stopped(false)
+			, m_signalFlight(0)
+		{
+		}
 
 #if _WIN32
 		details::WSAInstance m_wsaInstance;
 #endif
 		std::shared_ptr<TCPBaseSocket> m_signalIn;
 		std::shared_ptr<TCPBaseSocket> m_signalOut;
+		std::atomic<int> m_signalFlight;
 
 		std::atomic<bool> m_stopped;
 
@@ -376,12 +428,15 @@ namespace details
 		using CmdQueue = std::queue<std::function<void()>>;
 		Monitor<CmdQueue> m_cmdQueue;
 		CmdQueue m_tmpQueue;
-		char m_signalInBuf[512];
+		char m_signalInBuf[1];
 		void signal()
 		{
 			if (!m_signalOut)
 				return;
+			if (m_signalFlight.load() > 0)
+				return;
 			char buf = 0;
+			++m_signalFlight;
 			if (::send(m_signalOut->m_s, &buf, 1, 0) != 1)
 				TCPFATAL(details::ErrorWrapper().msg().c_str());
 		}
@@ -547,15 +602,14 @@ protected:
 				details::ErrorWrapper err;
 				if (err.isBlockError())
 				{
-					TCPASSERT(op.bytesTransfered);
-					// If this operation doesn't require a full buffer, we call the handler with
-					// whatever data we received, and discard the operation
-
-					if (!op.fill)
+					if (op.bytesTransfered && !op.fill)
 					{
+						// If this operation doesn't require a full buffer, we call the handler with
+						// whatever data we received, and discard the operation
 						op.h(TCPError(), op.bytesTransfered);
 						m_recvs.pop();
 					}
+
 					// Done receiving, since the socket doesn't have more incoming data
 					break;
 				}
@@ -852,6 +906,9 @@ public:
 			return nullptr;
 		}
 
+		// Enable any loopback optimizations (in case this socket is used in loopback)
+		details::utils::optimizeLoopback(sock->m_s);
+
 		sock->m_localAddr = details::utils::getLocalAddr(sock->m_s);
 
 		ec = TCPError();
@@ -882,6 +939,8 @@ public:
 		}
 
 		TCPINFO("Connect socket=%d", (int)sock->m_s);
+		// Enable any loopback optimizations (in case this socket is used in loopback)
+		details::utils::optimizeLoopback(sock->m_s);
 
 		if (::connect(sock->m_s, (const sockaddr*)&addr, sizeof(addr)) == CZRPC_SOCKET_ERROR)
 		{
@@ -903,7 +962,7 @@ public:
 
 	/*! Asynchronously creates a connection
 	*/
-	void connect(const char* ip, int port, ConnectHandler h, int timeoutMs = 200)
+	void asyncConnect(const char* ip, int port, ConnectHandler h, int timeoutMs = 200)
 	{
 		TCPASSERT(!m_stopped);
 
@@ -926,8 +985,11 @@ public:
 		}
 		TCPINFO("Connect socket=%d", (int)sock->m_s);
 
+		// Enable any loopback optimizations (in case this socket is used in loopback)
+		details::utils::optimizeLoopback(sock->m_s);
 		// Set to non-blocking, so we can do an asynchronous connect
 		details::utils::setBlocking(sock->m_s, false);
+
 		if (::connect(sock->m_s, (const sockaddr*)&addr, sizeof(addr)) == CZRPC_SOCKET_ERROR)
 		{
 			details::ErrorWrapper err;
@@ -1190,6 +1252,10 @@ protected:
 		{
 			if (ec)
 				return;
+			TCPASSERT(bytesTransfered == 1);
+			--m_signalFlight;
+			auto i = m_signalFlight.load();
+			assert(m_signalFlight.load() >= 0);
 			startSignalIn();
 		};
 		static_cast<TCPSocket*>(m_signalIn.get())->m_recvs.push(std::move(op));

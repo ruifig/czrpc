@@ -24,7 +24,7 @@ syntax: regexp
 ^asio/
 ^boost/
 ^build/
-^buildcmake/
+^buildlinux/
 ^doc/themes/purehugo/.git
 # Remove this ignore once I start working on the documentation
 ^doc/
