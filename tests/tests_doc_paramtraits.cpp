@@ -1,3 +1,5 @@
+#if _WIN32
+
 #include "testsPCH.h"
 #include "../samples/SamplesCommon/SimpleServer.h"
 
@@ -78,3 +80,6 @@ void RunDocTest_ParamTraits()
     a.join();
     b.join();
 }
+
+#endif
+
