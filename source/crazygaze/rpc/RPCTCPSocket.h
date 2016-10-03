@@ -293,6 +293,17 @@ namespace details
 #endif
 		}
 
+		static void closeSocket(SocketHandle s)
+		{
+#if _WIN32
+			::shutdown(s, SD_BOTH);
+			::closesocket(s);
+#else
+			::shutdown(s, SHUT_RDWR);
+			::close(s);
+#endif
+		}
+
 		static void disableNagle(SocketHandle s)
 		{
 			int flag = 1;
@@ -385,13 +396,7 @@ namespace details
 		TCPBaseSocket() {}
 		virtual ~TCPBaseSocket()
 		{
-#if _WIN32
-			::shutdown(m_s, SD_BOTH);
-			::closesocket(m_s);
-#else
-			::shutdown(m_s, SHUT_RDWR);
-			::close(m_s);
-#endif
+			details::utils::closeSocket(m_s);
 		}
 	protected:
 		friend TCPServiceData;
@@ -412,13 +417,15 @@ namespace details
 #if _WIN32
 		details::WSAInstance m_wsaInstance;
 #endif
+		// Change these to unique_ptr once the refactoring is done
 		std::shared_ptr<TCPBaseSocket> m_signalIn;
 		std::shared_ptr<TCPBaseSocket> m_signalOut;
+
 		std::atomic<int> m_signalFlight;
 
 		std::atomic<bool> m_stopped;
 
-		using ConnectHandler = std::function<void(const TCPError&, std::shared_ptr<TCPSocket>)>;
+		using ConnectHandler = std::function<void(const TCPError&)>;
 		struct ConnectOp
 		{
 			std::chrono::time_point<std::chrono::high_resolution_clock> timeoutPoint;
@@ -486,6 +493,12 @@ public:
 		TCPASSERT(m_sends.size() == 0);
 	}
 
+	// #TODO : This should probably be checking some kind of state, instead of the socket handle
+	bool isOpen() const
+	{
+		return m_s != CZRPC_INVALID_SOCKET;
+	}
+
 	TCPError connect(const char* ip, int port)
 	{
 		TCPASSERT(m_s == CZRPC_INVALID_SOCKET);
@@ -510,6 +523,8 @@ public:
 		inet_pton(AF_INET, ip, &(addr.sin_addr));
 		if (::connect(m_s, (const sockaddr*)&addr, sizeof(addr)) == CZRPC_SOCKET_ERROR)
 		{
+			details::utils::closeSocket(m_s);
+			m_s = CZRPC_INVALID_SOCKET;
 			auto ec = details::ErrorWrapper().getError();
 			TCPERROR(ec.msg());
 			return ec;
@@ -537,7 +552,7 @@ public:
 			TCPError ec = details::ErrorWrapper().getError();
 			m_owner.addCmd([ec = std::move(ec), h = std::move(h)]
 			{
-				h(ec, nullptr);
+				h(ec);
 			});
 			return;
 		}
@@ -571,9 +586,11 @@ public:
 			else
 			{
 				// Anything else than a blocking error is a real error
-				m_owner.addCmd([ec = err.getError(), h = std::move(h)]
+				m_owner.addCmd([this_=shared_from_this(), ec = err.getError(), h = std::move(h)]
 				{
-					h(ec, nullptr);
+					details::utils::closeSocket(this_->m_s);
+					this_->m_s = CZRPC_INVALID_SOCKET;
+					h(ec);
 				});
 			}
 		}
@@ -582,7 +599,7 @@ public:
 			// It may happen that the connect succeeds right away.
 			m_owner.addCmd([this_ = shared_from_this(), h = std::move(h)]
 			{
-				h(TCPError(), std::move(this_));
+				h(TCPError());
 			});
 		}
 	}
@@ -832,14 +849,14 @@ public:
 	{
 		TCPASSERT(m_accepts.size() == 0);
 	}
-	using AcceptHandler = std::function<void(const TCPError& ec, std::shared_ptr<TCPSocket> sock)>;
+	using AcceptHandler = std::function<void(const TCPError& ec)>;
 
 	//! Starts an asynchronous accept
-	void asyncAccept(AcceptHandler h)
+	void asyncAccept(TCPSocket& sock, AcceptHandler h)
 	{
-		m_owner.addCmd([this_ = shared_from_this(), h(std::move(h))]
+		m_owner.addCmd([this_ = shared_from_this(), sock=&sock, h(std::move(h))]
 		{
-			this_->m_accepts.push(std::move(h));
+			this_->m_accepts.push({*sock, std::move(h)});
 			this_->m_owner.m_accepts.insert(this_);
 		});
 	}
@@ -867,35 +884,39 @@ public:
 protected:
 	friend class TCPService;
 
+	struct AcceptOp
+	{
+		TCPSocket& sock;
+		AcceptHandler h;
+	};
+
 	// Called from TCPSocketSet
 	// Returns true if we still have pending accepts, false otherwise
 	bool doAccept()
 	{
 		TCPASSERT(m_accepts.size());
 
-		auto h = std::move(m_accepts.front());
+		AcceptOp op = std::move(m_accepts.front());
 		m_accepts.pop();
 
+		TCPASSERT(op.sock.m_s == CZRPC_INVALID_SOCKET);
 		sockaddr_in clientAddr;
 		socklen_t size = sizeof(clientAddr);
-		SocketHandle s = ::accept(m_s, (struct sockaddr*)&clientAddr, &size);
-		if (s == CZRPC_INVALID_SOCKET)
+		op.sock.m_s = ::accept(m_s, (struct sockaddr*)&clientAddr, &size);
+		if (op.sock.m_s == CZRPC_INVALID_SOCKET)
 		{
 			auto ec = details::ErrorWrapper().getError();
 			TCPERROR(ec.msg());
-			h(ec, nullptr);
+			op.h(ec);
 			return m_accepts.size() > 0;
 		}
-
-		auto sock = std::make_shared<TCPSocket>(m_owner);
-		sock->m_s = s;
-		sock->m_localAddr = details::utils::getLocalAddr(s);
-		sock->m_peerAddr = details::utils::getRemoteAddr(s);
-		details::utils::setBlocking(sock->m_s, false);
+		op.sock.m_localAddr = details::utils::getLocalAddr(op.sock.m_s);
+		op.sock.m_peerAddr = details::utils::getRemoteAddr(op.sock.m_s);
+		details::utils::setBlocking(op.sock.m_s, false);
 		TCPINFO("Server side socket %d connected to %s:%d, socket %d",
-			(int)s, sock->m_peerAddr.first.c_str(), sock->m_peerAddr.second,
+			(int)s, op.sock.m_peerAddr.first.c_str(), op.sock.m_peerAddr.second,
 			(int)m_s);
-		h(TCPError(), sock);
+		op.h(TCPError());
 
 		return m_accepts.size() > 0;
 	}
@@ -904,13 +925,13 @@ protected:
 	{
 		while (m_accepts.size())
 		{
-			m_accepts.front()(TCPError::Code::Cancelled, nullptr);
+			m_accepts.front().h(TCPError::Code::Cancelled);
 			m_accepts.pop();
 		}
 	}
 
 	details::TCPServiceData& m_owner;
-	std::queue<AcceptHandler> m_accepts;
+	std::queue<AcceptOp> m_accepts;
 	std::pair<std::string, int> m_localAddr;
 };
 
@@ -933,23 +954,26 @@ public:
 		TCPError ec;
 		auto dummyListen = listen(0, 1, ec);
 		TCPASSERT(!ec);
-		dummyListen->asyncAccept([this](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
+		m_signalIn = std::make_shared<TCPSocket>(*this);
+		bool signalInConnected=false;
+		dummyListen->asyncAccept(*reinterpret_cast<TCPSocket*>(m_signalIn.get()), [this, &signalInConnected](const TCPError& ec)
 		{
 			TCPASSERT(!ec);
-			m_signalIn = sock;
+			signalInConnected = true;
 			TCPINFO("m_signalIn socket=%d", (int)(m_signalIn->m_s));
 		});
 
 		// Do this temporary ticking in a different thread, since our signal socket
 		// is connected here synchronously
 		TCPINFO("Dummy listen socket=%d", (int)(dummyListen->m_s));
-		auto tmptick = std::async(std::launch::async, [this]
+		auto tmptick = std::async(std::launch::async, [this, &signalInConnected]
 		{
-			while (!m_signalIn)
+			while (!signalInConnected)
 				tick();
 		});
 
-		m_signalOut = connect("127.0.0.1", dummyListen->m_localAddr.second, ec);
+		m_signalOut = std::make_shared<TCPSocket>(*this);
+		ec = reinterpret_cast<TCPSocket*>(m_signalOut.get())->connect("127.0.0.1", dummyListen->m_localAddr.second);
 		TCPASSERT(!ec);
 		TCPINFO("m_signalOut socket=%d", (int)(m_signalOut->m_s));
 		tmptick.get();
@@ -1033,6 +1057,7 @@ public:
 	/*
 	This operation is synchronous.
 	*/
+#if 0
 	std::shared_ptr<TCPSocket> connect(const char* ip, int port, TCPError& ec)
 	{
 		TCPASSERT(!m_stopped);
@@ -1136,6 +1161,7 @@ public:
 			});
 		}
 	}
+#endif
 
 	//! Processes whatever it needs
 	// \return
@@ -1173,7 +1199,7 @@ public:
 			// Cancel all handlers in all the sockets we have at the moment
 			//
 			for (auto&& s : m_connects)
-				s.second.h(TCPError(TCPError::Code::Cancelled), nullptr);
+				s.second.h(TCPError(TCPError::Code::Cancelled));
 			m_connects.clear();
 
 			auto cancel = [](auto&& container)
@@ -1310,13 +1336,13 @@ public:
 					sock->m_peerAddr = details::utils::getRemoteAddr(sock->m_s);
 					sock->m_localAddr = details::utils::getLocalAddr(sock->m_s);
 					TCPINFO("Socket %d connected to %s:%d", (int)sock->m_s, sock->m_peerAddr.first.c_str(), sock->m_peerAddr.second);
-					it->second.h(TCPError(), sock);
+					it->second.h(TCPError());
 				}
 				else
 				{
 					auto ec = details::ErrorWrapper().getError();
 					ec.code = TCPError::Code::ConnectFailed;
-					it->second.h(ec, nullptr);
+					it->second.h(ec);
 				}
 
 				it = m_connects.erase(it);
@@ -1330,7 +1356,7 @@ public:
 		{
 			if (it->second.timeoutPoint < end)
 			{
-				it->second.h(TCPError::Code::ConnectFailed, nullptr);
+				it->second.h(TCPError::Code::ConnectFailed);
 				it = m_connects.erase(it);
 			}
 			else

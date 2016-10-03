@@ -93,29 +93,33 @@ TEST(TCPService_Accept_And_Connect_Success)
 
 	// Setup 2 accepts
 	Semaphore sem;
-	acceptor->asyncAccept([&sem](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
+	auto sock = std::make_shared<TCPSocket>(io);
+	acceptor->asyncAccept(*sock, [&sem, sock](const TCPError& ec)
 	{
-		CHECK(!ec && sock);
+		CHECK(!ec && sock->isOpen());
 		sem.notify();
 	});
-	acceptor->asyncAccept([&sem](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
+	sock = std::make_shared<TCPSocket>(io);
+	acceptor->asyncAccept(*sock, [&sem, sock](const TCPError& ec)
 	{
-		CHECK(!ec && sock);
+		CHECK(!ec && sock->isOpen());
 		sem.notify();
 	});
 
 	// Test synchronous connect
 	{
-		auto sock = io.connect("127.0.0.1", SERVER_PORT, ec);
-		CHECK(!ec && sock);
+		auto sock = std::make_shared<TCPSocket>(io);
+		ec = sock->connect("127.0.0.1", SERVER_PORT);
+		CHECK(!ec && sock->isOpen());
 		sem.wait(); // wait for the accept
 	}
 
 	// Test asynchronous connect
 	{
-		io.asyncConnect("127.0.0.1", SERVER_PORT, [&sem](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
+		auto sock = std::make_shared<TCPSocket>(io);
+		sock->asyncConnect("127.0.0.1", SERVER_PORT, [&sem, sock](const TCPError& ec)
 		{
-			CHECK(!ec && sock);
+			CHECK(!ec && sock->isOpen());
 			sem.notify();
 		});
 		sem.wait(); // wait for the accept
@@ -146,9 +150,10 @@ TEST(TCPService_Accept_Failure)
 		Semaphore sem;
 		for (int i = 0; i < 10; i++)
 		{
-			acceptor->asyncAccept([&sem](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
+			auto sock = std::make_shared<TCPSocket>(io);
+			acceptor->asyncAccept(*sock, [&sem, sock](const TCPError& ec)
 			{
-				CHECK(ec.code == TCPError::Code::Cancelled && !sock);
+				CHECK(ec.code == TCPError::Code::Cancelled && !sock->isOpen());
 				sem.notify();
 			});
 		}
@@ -166,9 +171,10 @@ TEST(TCPService_Accept_Failure)
 		Semaphore sem;
 		for (int i = 0; i < 10; i++)
 		{
-			acceptor->asyncAccept([&sem](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
+			auto sock = std::make_shared<TCPSocket>(io);
+			acceptor->asyncAccept(*sock, [&sem, sock](const TCPError& ec)
 			{
-				CHECK(ec.code == TCPError::Code::Cancelled && !sock);
+				CHECK(ec.code == TCPError::Code::Cancelled && !sock->isOpen());
 				sem.notify();
 			});
 		}
@@ -193,9 +199,9 @@ TEST(TCPService_Connect_Failure)
 	//
 	// Test synchronous connect failure
 	//
-	TCPError ec;
-	auto sock = io.connect("127.0.0.1", SERVER_PORT, ec);
-	CHECK(ec.code==TCPError::Code::Other && !sock);
+	auto sock = std::make_shared<TCPSocket>(io);
+	TCPError ec = sock->connect("127.0.0.1", SERVER_PORT);
+	CHECK(ec.code==TCPError::Code::Other && !sock->isOpen());
 
 	Semaphore sem;
 	//
@@ -211,16 +217,17 @@ TEST(TCPService_Connect_Failure)
 		expectedTimes[i] = i * 100;
 		times[i] = timer.GetTimeInMs();
 		// Initially I was using "127.0.0.1" to test the asynchronous connect timeout, but it seems that on linux
-		// it fails right away. Probably the kernal treats connections to the localhost in a different way, detecting
+		// it fails right away. Probably the kernel treats connections to the localhost in a different way, detecting
 		// right away that if a connect is not possible, without taking into consideration the timeout specified in
 		// the "select" function.
 		// On Windows, connect attempts to localhost still take into consideration the timeout.
 		// The solution is to try an connect to some external ip, like "254.254.254.254". This causes Linux to
 		// to actually wait for the connect attempt.
-		io.asyncConnect("254.254.254.254", SERVER_PORT, [&sem, i, &times, &timer](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
+		auto sock = std::make_shared<TCPSocket>(io);
+		sock->asyncConnect("254.254.254.254", SERVER_PORT, [&sem, i, &times, &timer, sock](const TCPError& ec)
 		{
 			times[i] = timer.GetTimeInMs() - times[i];
-			CHECK(ec.code == TCPError::Code::ConnectFailed && !sock);
+			CHECK(ec.code == TCPError::Code::ConnectFailed && !sock->isOpen());
 			sem.notify();
 		}, (int)expectedTimes[i]);
 	}
@@ -248,15 +255,16 @@ TEST(TCPSocket_recv_Success)
 	CHECK(!ec && acceptor);
 
 	Semaphore sem;
-	std::shared_ptr<TCPSocket> serverSock;
-	acceptor->asyncAccept([&sem, &serverSock](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
+	auto serverSock = std::make_shared<TCPSocket>(io);
+	acceptor->asyncAccept(*serverSock, [&sem, serverSock](const TCPError& ec)
 	{
-		serverSock = sock;
+		CHECK(!ec);
 		sem.notify();
 	});
 
-	auto sock = io.connect("127.0.0.1", SERVER_PORT, ec);
-	CHECK(!ec && sock);
+	auto sock = std::make_shared<TCPSocket>(io);
+	ec = sock->connect("127.0.0.1", SERVER_PORT);
+	CHECK(!ec && sock->isOpen());
 	sem.wait();
 
 	// Test sending multiple chunks, but having it received in 1
@@ -320,24 +328,24 @@ TEST(TCPSocket_recv_Failure)
 	CHECK(!ec && acceptor);
 
 	Semaphore sem;
-	std::shared_ptr<TCPSocket> serverSock;
-	acceptor->asyncAccept([&sem, &serverSock](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
+	auto serverSock1 = std::make_shared<TCPSocket>(io);
+	acceptor->asyncAccept(*serverSock1, [&sem, serverSock1](const TCPError& ec)
 	{
-		CHECK(!ec && sock);
-		serverSock = sock;
+		CHECK(!ec);
 		sem.notify();
 	});
 	// Setup another accept for the same server side socket, so we can test disconnect,
-	// then connect again to test canceling recv through the TCPService
-	acceptor->asyncAccept([&sem, &serverSock](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
+	// then connect again
+	auto serverSock2 = std::make_shared<TCPSocket>(io);
+	acceptor->asyncAccept(*serverSock2, [&sem, serverSock2](const TCPError& ec)
 	{
-		CHECK(!ec && sock);
-		serverSock = sock;
+		CHECK(!ec);
 		sem.notify();
 	});
 
-	auto sock = io.connect("127.0.0.1", SERVER_PORT, ec);
-	CHECK(!ec && sock);
+	auto sock = std::make_shared<TCPSocket>(io);
+	ec = sock->connect("127.0.0.1", SERVER_PORT);
+	CHECK(!ec && sock->isOpen());
 	sem.wait(); // wait for the first accept
 
 	//
@@ -368,16 +376,17 @@ TEST(TCPSocket_recv_Failure)
 		sem.notify();
 	});
 	// Closing the server side socket, will cause our client to detect it
-	serverSock = nullptr;
+	serverSock1 = nullptr;
 	sem.wait();
 
 	//
 	// Test canceling recv through the TCPService
 	//
-	sock = io.connect("127.0.0.1", SERVER_PORT, ec);
-	CHECK(!ec && sock);
+	sock = std::make_shared<TCPSocket>(io);
+	ec = sock->connect("127.0.0.1", SERVER_PORT);
+	CHECK(!ec && sock->isOpen());
 	sem.wait(); // wait for the second accept
-	CHECK(serverSock);
+	CHECK(serverSock2);
 	for (int i = 0; i < 10; i++)
 	{
 		TCPBuffer buf(10);
@@ -409,8 +418,9 @@ TEST(TCPSocket_cancel_lifetime)
 	auto acceptor = io.listen(SERVER_PORT, 1, ec);
 	CHECK(!ec && acceptor);
 
-	auto sock = io.connect("127.0.0.1", SERVER_PORT, ec);
-	CHECK(!ec && sock);
+	auto sock = std::make_shared<TCPSocket>(io);
+	ec = sock->connect("127.0.0.1", SERVER_PORT);
+	CHECK(!ec && sock->isOpen());
 	// This should not do anything, since there aren't any pending asynchronous operations yet
 	sock->asyncCancel();
 
@@ -463,24 +473,28 @@ TEST(TCPAcceptor_backlog)
 	// Add only 1 accept operation, so the server only accepts 1 incoming connection.
 	// Extra connection attempts by clients can still succeed to connect due to the backlog, but doesn't mean
 	// the server will accept the connection
-	acceptor->asyncAccept([&sem](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
+	auto serverSock = std::make_shared<TCPSocket>(io);
+	acceptor->asyncAccept(*serverSock, [&sem](const TCPError& ec)
 	{
-		CHECK(!ec && sock);
+		CHECK(!ec);
 		sem.notify();
 	});
 
-	auto sock1 = io.connect("127.0.0.1", SERVER_PORT, ec);
+	auto sock1 = std::make_shared<TCPSocket>(io);
+	ec = sock1->connect("127.0.0.1", SERVER_PORT);
 	CHECK(!ec); CHECK(sock1); // First connect should work, since the server accepts it
-	auto sock2 = io.connect("127.0.0.1", SERVER_PORT, ec);
+	auto sock2 = std::make_shared<TCPSocket>(io);
+	ec = sock2->connect("127.0.0.1", SERVER_PORT);
 	CHECK(!ec); CHECK(sock2); // Second should work, because of the backlog
-	auto sock3 = io.connect("127.0.0.1", SERVER_PORT, ec);
+	auto sock3 = std::make_shared<TCPSocket>(io);
+	ec = sock3->connect("127.0.0.1", SERVER_PORT);
 	// Third should fail because the backlog is not big enough.
 	// This might not work properly on all Operating Systems, since the backlog setting
 	// is just an hint to the OS.
 	// It seems to work as I expect in Windows, but not Linux:
 	// See: http://veithen.github.io/2014/01/01/how-tcp-backlog-works-in-linux.html
 #if _WIN32
-	CHECK(ec); CHECK(!sock3);
+	CHECK(ec); CHECK(!sock3->isOpen());
 #endif
 
 	sem.wait(); // Wait for the server accept
@@ -536,13 +550,15 @@ TEST(Latency)
 	auto acceptor = io.listen(SERVER_PORT, 1, ec);
 	CHECK(!ec && acceptor);
 
-	acceptor->asyncAccept([](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
+	auto serverSock = std::make_shared<TCPSocket>(io);
+	acceptor->asyncAccept(*serverSock, [serverSock](const TCPError& ec)
 	{
-		testLatency_serverRecv(sock);
+		testLatency_serverRecv(serverSock);
 	});
 
-	auto client = io.connect("127.0.0.1", SERVER_PORT, ec);
-	CHECK(!ec && client);
+	auto client = std::make_shared<TCPSocket>(io);
+	ec = client->connect("127.0.0.1", SERVER_PORT);
+	CHECK(!ec && client->isOpen());
 
 	Semaphore sem;
 	for(int i=0; i<num; i++)
@@ -661,14 +677,16 @@ TEST(Throughput)
 	ThroughputData snd, rcv;
 
 	std::promise<std::shared_ptr<TCPSocket>> rcvPr;
-	acceptor->asyncAccept([&rcvPr](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
+	auto serverSock = std::make_shared<TCPSocket>(ioRcv);
+	acceptor->asyncAccept(*serverSock, [&rcvPr, serverSock](const TCPError& ec)
 	{
-		CHECK(sock);
-		rcvPr.set_value(sock);
+		CHECK(!ec);
+		rcvPr.set_value(serverSock);
 	});
 
-	snd.sock = ioSnd.connect("127.0.0.1", SERVER_PORT, ec);
-	CHECK(!ec && snd.sock);
+	snd.sock = std::make_shared<TCPSocket>(ioSnd);
+	ec = snd.sock->connect("127.0.0.1", SERVER_PORT);
+	CHECK(!ec && snd.sock->isOpen());
 
 	rcv.sock = rcvPr.get_future().get();
 
