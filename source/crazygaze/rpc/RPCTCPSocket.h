@@ -18,6 +18,7 @@
 TODO:
 	- Revise TCPSocket to match asio's tcp::socket more closely
 		- put the connect and asyncConnect in the TCPSocket itself
+		- remove connect and asyncConnect from TCPService
 	- Revise TCPService to match asio's io_service more closely
 		- put a "post" method, so the user can add custom commands to execute by the service, similar to what asio does. ??
 	- Refactor things so we can use scoped sockets, instead of std::shared_ptr all over
@@ -474,10 +475,116 @@ class TCPSocket : public details::TCPBaseSocket
 public:
 	using Handler = std::function<void(const TCPError& ec, int bytesTransfered)>;
 
+	TCPSocket(details::TCPServiceData& serviceData)
+		: m_owner(serviceData)
+	{
+	}
+
 	virtual ~TCPSocket()
 	{
 		TCPASSERT(m_recvs.size() == 0);
 		TCPASSERT(m_sends.size() == 0);
+	}
+
+	TCPError connect(const char* ip, int port)
+	{
+		TCPASSERT(m_s == CZRPC_INVALID_SOCKET);
+		TCPASSERT(!m_owner.m_stopped);
+
+		m_s = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+		if (m_s == CZRPC_INVALID_SOCKET)
+		{
+			auto ec = details::ErrorWrapper().getError();
+			TCPERROR(ec.msg());
+			return ec;
+		}
+
+		TCPINFO("Connect socket=%d", (int)sock->m_s);
+		// Enable any loopback optimizations (in case this socket is used in loopback)
+		details::utils::optimizeLoopback(m_s);
+
+		sockaddr_in addr;
+		memset(&addr, 0, sizeof(addr));
+		addr.sin_family = AF_INET;
+		addr.sin_port = htons(port);
+		inet_pton(AF_INET, ip, &(addr.sin_addr));
+		if (::connect(m_s, (const sockaddr*)&addr, sizeof(addr)) == CZRPC_SOCKET_ERROR)
+		{
+			auto ec = details::ErrorWrapper().getError();
+			TCPERROR(ec.msg());
+			return ec;
+		}
+
+		details::utils::setBlocking(m_s, false);
+
+		m_localAddr = details::utils::getLocalAddr(m_s);
+		m_peerAddr = details::utils::getRemoteAddr(m_s);
+		TCPINFO("Socket %d connected to %s:%d", (int)m_s, m_peerAddr.first.c_str(), m_peerAddr.second);
+
+		return TCPError();
+	}
+
+	//# TODO : Move the ConnectHandler typedef to TCPSocket itself?
+	void asyncConnect(const char* ip, int port, details::TCPServiceData::ConnectHandler h, int timeoutMs = 200)
+	{
+		TCPASSERT(m_s == CZRPC_INVALID_SOCKET);
+		TCPASSERT(!m_owner.m_stopped);
+
+		m_s = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+		// If the socket creation fails, send the handler to the service thread to execute with an error
+		if (m_s == CZRPC_INVALID_SOCKET)
+		{
+			TCPError ec = details::ErrorWrapper().getError();
+			m_owner.addCmd([ec = std::move(ec), h = std::move(h)]
+			{
+				h(ec, nullptr);
+			});
+			return;
+		}
+		TCPINFO("Connect socket=%d", (int)sock->m_s);
+
+		// Enable any loopback optimizations (in case this socket is used in loopback)
+		details::utils::optimizeLoopback(m_s);
+		// Set to non-blocking, so we can do an asynchronous connect
+		details::utils::setBlocking(m_s, false);
+
+		sockaddr_in addr;
+		memset(&addr, 0, sizeof(addr));
+		addr.sin_family = AF_INET;
+		addr.sin_port = htons(port);
+		inet_pton(AF_INET, ip, &(addr.sin_addr));
+
+		if (::connect(m_s, (const sockaddr*)&addr, sizeof(addr)) == CZRPC_SOCKET_ERROR)
+		{
+			details::ErrorWrapper err;
+			if (err.isBlockError())
+			{
+				// Normal behavior, so setup the connect detection with select
+				m_owner.addCmd([this_=shared_from_this(), h = std::move(h), timeoutMs]
+				{
+					details::TCPServiceData::ConnectOp op;
+					op.timeoutPoint = std::chrono::high_resolution_clock::now() + std::chrono::milliseconds(timeoutMs);
+					op.h = std::move(h);
+					this_->m_owner.m_connects[this_] = std::move(op);
+				});
+			}
+			else
+			{
+				// Anything else than a blocking error is a real error
+				m_owner.addCmd([ec = err.getError(), h = std::move(h)]
+				{
+					h(ec, nullptr);
+				});
+			}
+		}
+		else
+		{
+			// It may happen that the connect succeeds right away.
+			m_owner.addCmd([this_ = shared_from_this(), h = std::move(h)]
+			{
+				h(TCPError(), std::move(this_));
+			});
+		}
 	}
 
 	//
@@ -513,10 +620,10 @@ public:
 		op.buf = buf;
 		op.bufLen = len;
 		op.h = std::move(h);
-		m_owner->addCmd([this_ = shared_from_this(), op = std::move(op)]
+		m_owner.addCmd([this_ = shared_from_this(), op = std::move(op)]
 		{
 			this_->m_sends.push(std::move(op));
-			this_->m_owner->m_sends.insert(this_);
+			this_->m_owner.m_sends.insert(this_);
 		});
 	}
 	template<typename H>
@@ -528,11 +635,11 @@ public:
 	//! Cancels all outstanding asynchronous operations
 	void asyncCancel()
 	{
-		m_owner->addCmd([this_ = shared_from_this()]
+		m_owner.addCmd([this_ = shared_from_this()]
 		{
 			this_->doCancel();
-			this_->m_owner->m_recvs.erase(this_);
-			this_->m_owner->m_sends.erase(this_);
+			this_->m_owner.m_recvs.erase(this_);
+			this_->m_owner.m_sends.erase(this_);
 		});
 	}
 
@@ -559,10 +666,10 @@ protected:
 		op.bufLen = len;
 		op.fill = fill;
 		op.h = std::move(h);
-		m_owner->addCmd([this_ = shared_from_this(), op = std::move(op)]
+		m_owner.addCmd([this_ = shared_from_this(), op = std::move(op)]
 		{
 			this_->m_recvs.push(std::move(op));
-			this_->m_owner->m_recvs.insert(this_);
+			this_->m_owner.m_recvs.insert(this_);
 		});
 	}
 
@@ -588,7 +695,7 @@ protected:
 
 	friend TCPService;
 	friend TCPAcceptor;
-	details::TCPServiceData* m_owner = nullptr;
+	details::TCPServiceData& m_owner;
 	std::pair<std::string, int> m_localAddr;
 	std::pair<std::string, int> m_peerAddr;
 
@@ -715,6 +822,12 @@ Thread Safety:
 class TCPAcceptor : public details::TCPBaseSocket
 {
 public:
+
+	TCPAcceptor(details::TCPServiceData& serviceData)
+		: m_owner(serviceData)
+	{
+	}
+
 	virtual ~TCPAcceptor()
 	{
 		TCPASSERT(m_accepts.size() == 0);
@@ -724,20 +837,20 @@ public:
 	//! Starts an asynchronous accept
 	void asyncAccept(AcceptHandler h)
 	{
-		m_owner->addCmd([this_ = shared_from_this(), h(std::move(h))]
+		m_owner.addCmd([this_ = shared_from_this(), h(std::move(h))]
 		{
 			this_->m_accepts.push(std::move(h));
-			this_->m_owner->m_accepts.insert(this_);
+			this_->m_owner.m_accepts.insert(this_);
 		});
 	}
 
 	//! Cancels all outstanding asynchronous operations
 	void asyncCancel()
 	{
-		m_owner->addCmd([this_ = shared_from_this()]
+		m_owner.addCmd([this_ = shared_from_this()]
 		{
 			this_->doCancel();
-			this_->m_owner->m_accepts.erase(this_);
+			this_->m_owner.m_accepts.erase(this_);
 		});
 	}
 
@@ -774,11 +887,10 @@ protected:
 			return m_accepts.size() > 0;
 		}
 
-		auto sock = std::make_shared<TCPSocket>();
+		auto sock = std::make_shared<TCPSocket>(m_owner);
 		sock->m_s = s;
 		sock->m_localAddr = details::utils::getLocalAddr(s);
 		sock->m_peerAddr = details::utils::getRemoteAddr(s);
-		sock->m_owner = m_owner;
 		details::utils::setBlocking(sock->m_s, false);
 		TCPINFO("Server side socket %d connected to %s:%d, socket %d",
 			(int)s, sock->m_peerAddr.first.c_str(), sock->m_peerAddr.second,
@@ -797,7 +909,7 @@ protected:
 		}
 	}
 
-	details::TCPServiceData* m_owner = nullptr;
+	details::TCPServiceData& m_owner;
 	std::queue<AcceptHandler> m_accepts;
 	std::pair<std::string, int> m_localAddr;
 };
@@ -877,8 +989,7 @@ public:
 	*/
 	std::shared_ptr<TCPAcceptor> listen(int port, int backlog, TCPError& ec)
 	{
-		auto sock = std::make_shared<TCPAcceptor>();
-		sock->m_owner = this;
+		auto sock = std::make_shared<TCPAcceptor>(*this);
 
 		sock->m_s = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 		if (sock->m_s == CZRPC_INVALID_SOCKET)
@@ -932,7 +1043,7 @@ public:
 		addr.sin_port = htons(port);
 		inet_pton(AF_INET, ip, &(addr.sin_addr));
 
-		auto sock = std::make_shared<TCPSocket>();
+		auto sock = std::make_shared<TCPSocket>(*this);
 		sock->m_s = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 		if (sock->m_s == CZRPC_INVALID_SOCKET)
 		{
@@ -954,7 +1065,6 @@ public:
 
 		details::utils::setBlocking(sock->m_s, false);
 
-		sock->m_owner = this;
 		sock->m_localAddr = details::utils::getLocalAddr(sock->m_s);
 		sock->m_peerAddr = details::utils::getRemoteAddr(sock->m_s);
 		TCPINFO("Socket %d connected to %s:%d", (int)sock->m_s, sock->m_peerAddr.first.c_str(), sock->m_peerAddr.second);
@@ -975,7 +1085,7 @@ public:
 		addr.sin_port = htons(port);
 		inet_pton(AF_INET, ip, &(addr.sin_addr));
 
-		auto sock = std::make_shared<TCPSocket>();
+		auto sock = std::make_shared<TCPSocket>(*this);
 		sock->m_s = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 		// If the socket creation fails, send the handler to the service thread to execute with an error
 		if (sock->m_s == CZRPC_INVALID_SOCKET)
@@ -985,6 +1095,7 @@ public:
 			{
 				h(ec, nullptr);
 			});
+			return;
 		}
 		TCPINFO("Connect socket=%d", (int)sock->m_s);
 
@@ -1195,7 +1306,6 @@ public:
 
 				if (result==0)
 				{
-					sock->m_owner = this;
 					// #TODO : Test what happens if the getRemoteAddr fails
 					sock->m_peerAddr = details::utils::getRemoteAddr(sock->m_s);
 					sock->m_localAddr = details::utils::getLocalAddr(sock->m_s);
