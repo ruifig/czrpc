@@ -93,12 +93,12 @@ TEST(TCPService_Accept_And_Connect_Success)
 
 	// Setup 2 accepts
 	Semaphore sem;
-	acceptor->accept([&sem](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
+	acceptor->asyncAccept([&sem](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
 	{
 		CHECK(!ec && sock);
 		sem.notify();
 	});
-	acceptor->accept([&sem](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
+	acceptor->asyncAccept([&sem](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
 	{
 		CHECK(!ec && sock);
 		sem.notify();
@@ -146,13 +146,13 @@ TEST(TCPService_Accept_Failure)
 		Semaphore sem;
 		for (int i = 0; i < 10; i++)
 		{
-			acceptor->accept([&sem](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
+			acceptor->asyncAccept([&sem](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
 			{
 				CHECK(ec.code == TCPError::Code::Cancelled && !sock);
 				sem.notify();
 			});
 		}
-		acceptor->cancel();
+		acceptor->asyncCancel();
 		for (int i = 0; i < 10; i++)
 		{
 			sem.wait();
@@ -166,7 +166,7 @@ TEST(TCPService_Accept_Failure)
 		Semaphore sem;
 		for (int i = 0; i < 10; i++)
 		{
-			acceptor->accept([&sem](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
+			acceptor->asyncAccept([&sem](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
 			{
 				CHECK(ec.code == TCPError::Code::Cancelled && !sock);
 				sem.notify();
@@ -249,7 +249,7 @@ TEST(TCPSocket_recv_Success)
 
 	Semaphore sem;
 	std::shared_ptr<TCPSocket> serverSock;
-	acceptor->accept([&sem, &serverSock](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
+	acceptor->asyncAccept([&sem, &serverSock](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
 	{
 		serverSock = sock;
 		sem.notify();
@@ -260,11 +260,11 @@ TEST(TCPSocket_recv_Success)
 	sem.wait();
 
 	// Test sending multiple chunks, but having it received in 1
-	serverSock->asyncSend("AB", 2, [&sem](const TCPError& ec, int bytesTransfered) { sem.notify(); });
-	serverSock->asyncSend("CD", 3, [&sem](const TCPError& ec, int bytesTransfered) { sem.notify(); });
+	serverSock->asyncWrite("AB", 2, [&sem](const TCPError& ec, int bytesTransfered) { sem.notify(); });
+	serverSock->asyncWrite("CD", 3, [&sem](const TCPError& ec, int bytesTransfered) { sem.notify(); });
 	TCPBuffer buf(10);
 	sem.wait(); sem.wait(); // Wait for both sends to finish, so we can test receiving in one chunk
-	sock->asyncRecv(buf, [buf, &sem](const TCPError& ec, int bytesTransfered)
+	sock->asyncReadSome(buf, [buf, &sem](const TCPError& ec, int bytesTransfered)
 	{
 		CHECK(bytesTransfered == 5);
 		CHECK_EQUAL("ABCD", buf.ptr());
@@ -273,10 +273,10 @@ TEST(TCPSocket_recv_Success)
 	sem.wait(); // wait for the recv to process
 
 	// Test sending multiple chunks with some delay, and have the receiver receive in different chunks
-	serverSock->asyncSend("AB", 2, [&serverSock, &sem](const TCPError& ec, int bytesTransfered)
+	serverSock->asyncWrite("AB", 2, [&serverSock, &sem](const TCPError& ec, int bytesTransfered)
 	{
 		CHECK(bytesTransfered == 2);
-		serverSock->asyncSend("CD", 3, [&sem](const TCPError& ec, int bytesTransfered)
+		serverSock->asyncWrite("CD", 3, [&sem](const TCPError& ec, int bytesTransfered)
 		{
 			sem.notify();
 		});
@@ -284,7 +284,7 @@ TEST(TCPSocket_recv_Success)
 	sem.wait(); // wait for the two chunks to be sent
 
 	TCPBuffer buf1(1);
-	sock->asyncRecv(buf1, [buf1, &sem, sock](const TCPError& ec, int bytesTransfered)
+	sock->asyncReadSome(buf1, [buf1, &sem, sock](const TCPError& ec, int bytesTransfered)
 	{
 		CHECK(bytesTransfered == 1);
 		CHECK(buf1.ptr()[0] == 'A');
@@ -293,7 +293,7 @@ TEST(TCPSocket_recv_Success)
 		// Read the rest
 		TCPBuffer buf2(10);
 		buf2.zero();
-		sock->asyncRecv(buf2, [buf2, &sem](const TCPError& ec, int bytesTransfered)
+		sock->asyncReadSome(buf2, [buf2, &sem](const TCPError& ec, int bytesTransfered)
 		{
 			CHECK_EQUAL(4, bytesTransfered);
 			CHECK_EQUAL("BCD", buf2.ptr());
@@ -321,7 +321,7 @@ TEST(TCPSocket_recv_Failure)
 
 	Semaphore sem;
 	std::shared_ptr<TCPSocket> serverSock;
-	acceptor->accept([&sem, &serverSock](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
+	acceptor->asyncAccept([&sem, &serverSock](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
 	{
 		CHECK(!ec && sock);
 		serverSock = sock;
@@ -329,7 +329,7 @@ TEST(TCPSocket_recv_Failure)
 	});
 	// Setup another accept for the same server side socket, so we can test disconnect,
 	// then connect again to test canceling recv through the TCPService
-	acceptor->accept([&sem, &serverSock](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
+	acceptor->asyncAccept([&sem, &serverSock](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
 	{
 		CHECK(!ec && sock);
 		serverSock = sock;
@@ -346,13 +346,13 @@ TEST(TCPSocket_recv_Failure)
 	for (int i = 0; i < 10; i++)
 	{
 		TCPBuffer buf(10);
-		sock->asyncRecv(buf, [buf, &sem](const TCPError& ec, int bytesTransfered)
+		sock->asyncReadSome(buf, [buf, &sem](const TCPError& ec, int bytesTransfered)
 		{
 			CHECK(ec.code == TCPError::Code::Cancelled && bytesTransfered == 0);
 			sem.notify();
 		});
 	}
-	sock->cancel();
+	sock->asyncCancel();
 	for (int i = 0; i < 10; i++)
 	{
 		sem.wait();
@@ -362,7 +362,7 @@ TEST(TCPSocket_recv_Failure)
 	// Test connection closed
 	//
 	TCPBuffer buf(10);
-	sock->asyncRecv(buf, [buf, &sem](const TCPError& ec, int bytesTransfered)
+	sock->asyncReadSome(buf, [buf, &sem](const TCPError& ec, int bytesTransfered)
 	{
 		CHECK(ec.code == TCPError::Code::ConnectionClosed && bytesTransfered == 0);
 		sem.notify();
@@ -381,7 +381,7 @@ TEST(TCPSocket_recv_Failure)
 	for (int i = 0; i < 10; i++)
 	{
 		TCPBuffer buf(10);
-		sock->asyncRecv(buf, [buf, &sem](const TCPError& ec, int bytesTransfered)
+		sock->asyncReadSome(buf, [buf, &sem](const TCPError& ec, int bytesTransfered)
 		{
 			CHECK(ec.code == TCPError::Code::Cancelled && bytesTransfered == 0);
 			sem.notify();
@@ -412,13 +412,13 @@ TEST(TCPSocket_cancel_lifetime)
 	auto sock = io.connect("127.0.0.1", SERVER_PORT, ec);
 	CHECK(!ec && sock);
 	// This should not do anything, since there aren't any pending asynchronous operations yet
-	sock->cancel();
+	sock->asyncCancel();
 
 	Semaphore sem;
 	for(int i=0; i<10; i++)
 	{
 		TCPBuffer buf(10);
-		sock->asyncRecv(buf, [&sem](const TCPError& ec, int bytesTransfered)
+		sock->asyncReadSome(buf, [&sem](const TCPError& ec, int bytesTransfered)
 		{
 			CHECK(ec.code == TCPError::Code::Cancelled && bytesTransfered == 0);
 			sem.notify();
@@ -426,7 +426,7 @@ TEST(TCPSocket_cancel_lifetime)
 	}
 
 	// Cancel all outstanding asynchronous operations
-	sock->cancel();
+	sock->asyncCancel();
 	// Now, release our strong reference (and keep a weak reference).
 	// The above cancel should cause the socket to be destroyed since all the strong references kept
 	// by the TCPIOService should be removed
@@ -463,7 +463,7 @@ TEST(TCPAcceptor_backlog)
 	// Add only 1 accept operation, so the server only accepts 1 incoming connection.
 	// Extra connection attempts by clients can still succeed to connect due to the backlog, but doesn't mean
 	// the server will accept the connection
-	acceptor->accept([&sem](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
+	acceptor->asyncAccept([&sem](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
 	{
 		CHECK(!ec && sock);
 		sem.notify();
@@ -491,7 +491,7 @@ TEST(TCPAcceptor_backlog)
 
 	// This send should fail because although we connected, the Acceptor never accepted the connection
 	// and it should be closed once the Acceptor is destroyed
-	sock2->asyncSend("ABC", 4, [&sem](const TCPError& ec, int bytesTransfered)
+	sock2->asyncWrite("ABC", 4, [&sem](const TCPError& ec, int bytesTransfered)
 	{
 		CHECK(ec && bytesTransfered == 0);
 		sem.notify();
@@ -507,12 +507,12 @@ TEST(TCPAcceptor_backlog)
 void testLatency_serverRecv(const std::shared_ptr<TCPSocket>& sock)
 {
 	TCPBuffer buf(1);
-	sock->asyncRecv(buf, [buf, sock](TCPError ec, int bytesTransfered)
+	sock->asyncReadSome(buf, [buf, sock](TCPError ec, int bytesTransfered)
 	{
 		if (ec)
 			return;
 		CHECK_EQUAL(1, bytesTransfered);
-		sock->asyncSend(buf, [buf](const TCPError& ec, int bytesTransfered) {});
+		sock->asyncWrite(buf, [buf](const TCPError& ec, int bytesTransfered) {});
 		testLatency_serverRecv(sock);
 	});
 }
@@ -536,7 +536,7 @@ TEST(Latency)
 	auto acceptor = io.listen(SERVER_PORT, 1, ec);
 	CHECK(!ec && acceptor);
 
-	acceptor->accept([](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
+	acceptor->asyncAccept([](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
 	{
 		testLatency_serverRecv(sock);
 	});
@@ -552,7 +552,7 @@ TEST(Latency)
 		// sent data to take a bit more to arrive.
 		{
 			TCPBuffer rcvBuf(1);
-			client->asyncRecv(rcvBuf, [&sem, num, rcvBuf, i, &times, &timer](const TCPError& ec, int bytesTransfered)
+			client->asyncReadSome(rcvBuf, [&sem, num, rcvBuf, i, &times, &timer](const TCPError& ec, int bytesTransfered)
 			{
 				CHECK_EQUAL(1, bytesTransfered);
 				CHECK_EQUAL((char)i, *rcvBuf.ptr());
@@ -568,7 +568,7 @@ TEST(Latency)
 			TCPBuffer sndBuf(1);
 			*sndBuf.ptr() = (char)i;
 			times[i].first = timer.GetTimeInMs();
-			client->asyncSend(sndBuf, [sndBuf](const TCPError& ec, int bytesTransfered)
+			client->asyncWrite(sndBuf, [sndBuf](const TCPError& ec, int bytesTransfered)
 			{
 			});
 		}
@@ -615,7 +615,7 @@ struct ThroughputData
 			return;
 		}
 
-		s->asyncSend(buf, [this, s](const TCPError& ec, int bytesTransfered)
+		s->asyncWrite(buf, [this, s](const TCPError& ec, int bytesTransfered)
 		{
 			CHECK(!ec);
 
@@ -626,7 +626,7 @@ struct ThroughputData
 
 	void setupReceive(std::shared_ptr<TCPSocket> s)
 	{
-		s->asyncRecv(buf, [this, s](const TCPError& ec, int bytesTransfered)
+		s->asyncReadSome(buf, [this, s](const TCPError& ec, int bytesTransfered)
 		{
 			if (ec)
 			{
@@ -661,7 +661,7 @@ TEST(Throughput)
 	ThroughputData snd, rcv;
 
 	std::promise<std::shared_ptr<TCPSocket>> rcvPr;
-	acceptor->accept([&rcvPr](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
+	acceptor->asyncAccept([&rcvPr](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
 	{
 		CHECK(sock);
 		rcvPr.set_value(sock);
