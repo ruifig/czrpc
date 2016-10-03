@@ -16,6 +16,10 @@
 /*
 
 TODO:
+	- Revise TCPSocket to match asio's tcp::socket more closely
+		- put the connect and asyncConnect in the TCPSocket itself
+	- Revise TCPService to match asio's io_service more closely
+		- put a "post" method, so the user can add custom commands to execute by the service, similar to what asio does. ??
 	- Refactor things so we can use scoped sockets, instead of std::shared_ptr all over
 		- This will require serious refactoring of how TCPService tracks sockets
 		- Also, the user will have to explicitly pass a shared_ptr to the handlers to keep the sockets alive as required,
@@ -480,30 +484,30 @@ public:
 	// Asynchronous reading
 	//
 	template<typename H>
-	void asyncRecv(char* buf, int len, H&& h)
+	void asyncReadSome(char* buf, int len, H&& h)
 	{
-		asyncRecvImpl(buf, len, std::forward<H>(h), false);
+		asyncReadImpl(buf, len, std::forward<H>(h), false);
 	}
 	template<typename H>
-	void asyncRecv(TCPBuffer& buf, H&& h)
+	void asyncReadSome(TCPBuffer& buf, H&& h)
 	{
-		asyncRecvImpl(buf.buf.get(), buf.size, std::forward<H>(h), false);
+		asyncReadImpl(buf.buf.get(), buf.size, std::forward<H>(h), false);
 	}
 	template<typename H>
-	void asyncRecvFull(char* buf, int len, H&& h)
+	void asyncRead(char* buf, int len, H&& h)
 	{
-		asyncRecvImpl(buf, len, std::forward<H>(h), true);
+		asyncReadImpl(buf, len, std::forward<H>(h), true);
 	}
 	template<typename H>
-	void asyncRecvFull(TCPBuffer& buf, H&& h)
+	void asyncRead(TCPBuffer& buf, H&& h)
 	{
-		asyncRecvImpl(buf.buf.get(), buf.size, std::forward<H>(h), true);
+		asyncReadImpl(buf.buf.get(), buf.size, std::forward<H>(h), true);
 	}
 
 	//
 	// Asynchronous sending
 	//
-	void asyncSend(const char* buf, int len, Handler h)
+	void asyncWrite(const char* buf, int len, Handler h)
 	{
 		SendOp op;
 		op.buf = buf;
@@ -515,15 +519,14 @@ public:
 			this_->m_owner->m_sends.insert(this_);
 		});
 	}
-
 	template<typename H>
-	void asyncSend(const TCPBuffer& buf, H&& h)
+	void asyncWrite(const TCPBuffer& buf, H&& h)
 	{
-		asyncSend(buf.buf.get(), buf.size, std::forward<H>(h));
+		asyncWrite(buf.buf.get(), buf.size, std::forward<H>(h));
 	}
 
 	//! Cancels all outstanding asynchronous operations
-	void cancel()
+	void asyncCancel()
 	{
 		m_owner->addCmd([this_ = shared_from_this()]
 		{
@@ -549,7 +552,7 @@ public:
 	}
 
 protected:
-	void asyncRecvImpl(char* buf, int len, Handler h, bool fill)
+	void asyncReadImpl(char* buf, int len, Handler h, bool fill)
 	{
 		RecvOp op;
 		op.buf = buf;
@@ -719,7 +722,7 @@ public:
 	using AcceptHandler = std::function<void(const TCPError& ec, std::shared_ptr<TCPSocket> sock)>;
 
 	//! Starts an asynchronous accept
-	void accept(AcceptHandler h)
+	void asyncAccept(AcceptHandler h)
 	{
 		m_owner->addCmd([this_ = shared_from_this(), h(std::move(h))]
 		{
@@ -729,7 +732,7 @@ public:
 	}
 
 	//! Cancels all outstanding asynchronous operations
-	void cancel()
+	void asyncCancel()
 	{
 		m_owner->addCmd([this_ = shared_from_this()]
 		{
@@ -818,7 +821,7 @@ public:
 		TCPError ec;
 		auto dummyListen = listen(0, 1, ec);
 		TCPASSERT(!ec);
-		dummyListen->accept([this](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
+		dummyListen->asyncAccept([this](const TCPError& ec, std::shared_ptr<TCPSocket> sock)
 		{
 			TCPASSERT(!ec);
 			m_signalIn = sock;
