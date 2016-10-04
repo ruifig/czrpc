@@ -166,6 +166,8 @@ struct TCPError
 class TCPAcceptor;
 class TCPSocket;
 class TCPService;
+using ConnectHandler = std::function<void(const TCPError&)>;
+using TransferHandler = std::function<void(const TCPError& ec, int bytesTransfered)>;
 
 #if _WIN32
 	using SocketHandle = SOCKET;
@@ -422,10 +424,8 @@ namespace details
 		std::shared_ptr<TCPBaseSocket> m_signalOut;
 
 		std::atomic<int> m_signalFlight;
-
 		std::atomic<bool> m_stopped;
 
-		using ConnectHandler = std::function<void(const TCPError&)>;
 		struct ConnectOp
 		{
 			std::chrono::time_point<std::chrono::high_resolution_clock> timeoutPoint;
@@ -480,7 +480,6 @@ Thread Safety:
 class TCPSocket : public details::TCPBaseSocket
 {
 public:
-	using Handler = std::function<void(const TCPError& ec, int bytesTransfered)>;
 
 	TCPSocket(details::TCPServiceData& serviceData)
 		: m_owner(serviceData)
@@ -493,7 +492,6 @@ public:
 		TCPASSERT(m_sends.size() == 0);
 	}
 
-	// #TODO : This should probably be checking some kind of state, instead of the socket handle
 	bool isValid() const
 	{
 		return m_s != CZRPC_INVALID_SOCKET;
@@ -539,8 +537,7 @@ public:
 		return TCPError();
 	}
 
-	//# TODO : Move the ConnectHandler typedef to TCPSocket itself?
-	void asyncConnect(const char* ip, int port, details::TCPServiceData::ConnectHandler h, int timeoutMs = 200)
+	void asyncConnect(const char* ip, int port, ConnectHandler h, int timeoutMs = 200)
 	{
 		TCPASSERT(m_s == CZRPC_INVALID_SOCKET);
 		TCPASSERT(!m_owner.m_stopped);
@@ -631,7 +628,7 @@ public:
 	//
 	// Asynchronous sending
 	//
-	void asyncWrite(const char* buf, int len, Handler h)
+	void asyncWrite(const char* buf, int len, TransferHandler h)
 	{
 		SendOp op;
 		op.buf = buf;
@@ -676,7 +673,7 @@ public:
 	}
 
 protected:
-	void asyncReadImpl(char* buf, int len, Handler h, bool fill)
+	void asyncReadImpl(char* buf, int len, TransferHandler h, bool fill)
 	{
 		RecvOp op;
 		op.buf = buf;
@@ -700,14 +697,14 @@ protected:
 		// buffer size, and the operation discarded;
 		bool fill = false;
 		int bytesTransfered = 0;
-		Handler h;
+		TransferHandler h;
 	};
 	struct SendOp
 	{
 		const char* buf = nullptr;
 		int bufLen = 0;
 		int bytesTransfered = 0;
-		Handler h;
+		TransferHandler h;
 	};
 
 	friend TCPService;
@@ -862,12 +859,14 @@ public:
 	}
 
 	//! Cancels all outstanding asynchronous operations
-	void asyncCancel()
+	void asyncCancel(std::function<void()> h)
 	{
-		m_owner.addCmd([this_ = shared_from_this()]
+		m_owner.addCmd([this_ = shared_from_this(), h=std::move(h)]
 		{
 			this_->doCancel();
 			this_->m_owner.m_accepts.erase(this_);
+			if (h)
+				h();
 		});
 	}
 

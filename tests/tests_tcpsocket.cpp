@@ -157,7 +157,7 @@ TEST(TCPService_Accept_Failure)
 				sem.notify();
 			});
 		}
-		acceptor->asyncCancel();
+		acceptor->asyncCancel(nullptr);
 		for (int i = 0; i < 10; i++)
 		{
 			sem.wait();
