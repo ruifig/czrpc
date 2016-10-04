@@ -494,7 +494,7 @@ public:
 	}
 
 	// #TODO : This should probably be checking some kind of state, instead of the socket handle
-	bool isOpen() const
+	bool isValid() const
 	{
 		return m_s != CZRPC_INVALID_SOCKET;
 	}
@@ -1340,6 +1340,8 @@ public:
 				}
 				else
 				{
+					details::utils::closeSocket(it->first->m_s);
+					it->first->m_s = CZRPC_INVALID_SOCKET;
 					auto ec = details::ErrorWrapper().getError();
 					ec.code = TCPError::Code::ConnectFailed;
 					it->second.h(ec);
@@ -1356,6 +1358,8 @@ public:
 		{
 			if (it->second.timeoutPoint < end)
 			{
+				details::utils::closeSocket(it->first->m_s);
+				it->first->m_s = CZRPC_INVALID_SOCKET;
 				it->second.h(TCPError::Code::ConnectFailed);
 				it = m_connects.erase(it);
 			}
