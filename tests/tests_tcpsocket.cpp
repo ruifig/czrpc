@@ -1,37 +1,10 @@
 #include "testsPCH.h"
 
-#if 0 
+#if 1
 #pragma warning(disable:4996)
 #pragma warning(disable:4390)
 
 // #TODO : Change CHECK to CHECK_EQUAL where appropriate
-namespace cz {
-	namespace rpc {
-
-		struct MyTCPLog
-		{
-			static void out(bool fatal, const char* type, const char* fmt, ...)
-			{
-				char buf[256];
-				strcpy(buf, type);
-				va_list args;
-				va_start(args, fmt);
-				vsnprintf(buf + strlen(buf), sizeof(buf) - strlen(buf) - 1, fmt, args);
-				va_end(args);
-				printf("%s\n",buf);
-				if (fatal)
-				{
-					CZRPC_DEBUG_BREAK();
-					exit(1);
-				}
-			}
-		};
-
-//#define TCPINFO(fmt, ...) MyTCPLog::out(false, "Info: ", fmt, ##__VA_ARGS__)
-#define TCPINFO(...) ((void)0)
-#define TCPERROR(...) ((void)0)
-}
-}
 
 #include "crazygaze/rpc/RPCTCPSocket.h"
 
@@ -65,6 +38,7 @@ TEST(TCPService_Listen_Success)
 
 TEST(TCPService_Listen_Failure)
 {
+	MyTCPLog::DisableLogging dummy;
 	TCPService io;
 	auto th = std::thread([&io]
 	{
@@ -164,7 +138,7 @@ TEST(TCPService_Accept_Failure)
 				sem.notify();
 			});
 		}
-		acceptor.asyncCancel(nullptr);
+		acceptor.asyncCancel([] {});
 		for (int i = 0; i < count; i++)
 		{
 			sem.wait();
@@ -198,6 +172,7 @@ TEST(TCPService_Accept_Failure)
 
 TEST(TCPService_Connect_Failure)
 {
+	MyTCPLog::DisableLogging dummy;
 	TCPService io;
 	auto th = std::thread([&io]
 	{
@@ -373,7 +348,7 @@ TEST(TCPSocket_recv_Failure)
 			sem.notify();
 		});
 	}
-	sock->asyncCancel(nullptr);
+	sock->asyncCancel([] {});
 	for (int i = 0; i < 10; i++)
 	{
 		sem.wait();
@@ -390,7 +365,7 @@ TEST(TCPSocket_recv_Failure)
 		sem.notify();
 	});
 	// Closing the server side socket will cause our client to detect it and cancel the pending operations
-	serverSock1.asyncClose(nullptr);
+	serverSock1.asyncClose([] {});
 	sem.wait();
 
 	//
@@ -438,7 +413,7 @@ TEST(TCPSocket_cancel_lifetime)
 	ec = sock->connect("127.0.0.1", SERVER_PORT);
 	CHECK(!ec && sock->isValid());
 	// This should not do anything, since there aren't any pending asynchronous operations yet
-	sock->asyncCancel(nullptr);
+	sock->asyncCancel([] {});
 
 	Semaphore sem;
 	const int count = 10;
@@ -478,6 +453,7 @@ TEST(TCPSocket_cancel_lifetime)
 
 TEST(TCPAcceptor_backlog)
 {
+	MyTCPLog::DisableLogging dummy;
 	TCPService io;
 	auto th = std::thread([&io]
 	{
@@ -653,7 +629,7 @@ struct ThroughputData
 			done += bytesTransfered;
 			if (ec)
 			{
-				sock.asyncClose(nullptr);
+				sock.asyncClose([] {});
 				finished.notify();
 			}
 			else
@@ -717,7 +693,7 @@ TEST(Throughput)
 	rcv.setupReceive();
 	snd.setupSend();
 	UnitTest::TimeHelpers::SleepMs(4000);
-	snd.sock.asyncClose(nullptr);
+	snd.sock.asyncClose([] {});
 	rcv.finished.wait();
 	auto end = timer.GetTimeInMs();
 	ioRcv.stop();
