@@ -96,6 +96,7 @@ TEST(1)
 	std::shared_ptr<Connection<CalcTest, void>> serverCon;
 	acceptor.start(TEST_PORT, [&serverCon](std::shared_ptr<Connection<CalcTest, void>> con)
 	{
+		//con->close();
 		printf("Accepted\n");
 		serverCon = con;
 	});
@@ -127,7 +128,9 @@ TEST(1)
 	sem.wait();
 	printf("\n");
 
-	//con->close();
+	serverCon->close();
+	con->close();
+	//Sleep(10); // #TODO: Removing this, it asserting
 	io.stop();
 	th.join();
 	}

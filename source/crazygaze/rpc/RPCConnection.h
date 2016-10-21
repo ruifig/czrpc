@@ -28,6 +28,7 @@ public:
 	virtual void process(Direction what=Direction::Both) = 0;
 	virtual void close() = 0;
 	virtual const std::shared_ptr<Transport>& getTransport() = 0;
+	virtual bool isRunningInThread() = 0;
 
 protected:
 };
@@ -144,6 +145,11 @@ public:
 	{
 		auto it = Callstack<ThisType>::begin();
 		return (*it)==nullptr ? nullptr : (*it)->getKey();
+	}
+
+	virtual bool isRunningInThread() override
+	{
+		return getCurrent() == this;
 	}
 
 	virtual void process(Direction what) override
