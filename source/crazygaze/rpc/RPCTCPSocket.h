@@ -675,17 +675,16 @@ public:
 	}
 
 	//! Cancels all outstanding asynchronous operations
-	//template<typename H>
-	//void asyncCancel(H&& h)
-	void asyncCancel(std::function<void()> h)
+	template<typename H>
+	void asyncCancel(H&& h)
+	//void asyncCancel(std::function<void()> h)
 	{
 		m_owner.addCmd([this, h=std::move(h)]
 		{
 			doCancel();
 			m_owner.m_recvs.erase(this);
 			m_owner.m_sends.erase(this);
-			if (h)
-				h();
+			h();
 		});
 	}
 
