@@ -162,6 +162,16 @@ public:
 
 	virtual void close() override
 	{
+		TCPService::getFrom(m_sock).dispatch([this, con=m_rpcCon.lock()]
+		{
+			doClose();
+		});
+	}
+
+protected:
+
+	void doClose()
+	{
 		SINGLETHREAD_ENFORCE();
 
 		if (m_closing)
@@ -171,13 +181,12 @@ public:
 		}
 		TRPLOG("%p : Close: closing...", this);
 		m_closing = true;
-		m_sock.asyncClose([con=m_rpcCon.lock()]()
+		m_sock.asyncClose([con = m_rpcCon.lock()]()
 		{
 			con->process();
 		});
 	}
 
-protected:
 
 	DECLARE_THREADENFORCER_AFFINITY;
 

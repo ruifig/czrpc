@@ -381,6 +381,50 @@ namespace details
 	};
 #endif
 
+	template<typename T>
+	class Callstack
+	{
+	public:
+		class Context
+		{
+		public:
+			Context(T* val)
+				: m_val(val)
+				, m_next(Callstack<T>::ms_top)
+			{
+				Callstack<T>::ms_top = this;
+			}
+			~Context()
+			{
+				Callstack<T>::ms_top = m_next;
+			}
+			T* getValue()
+			{
+				return m_val;
+			}
+		private:
+			friend Callstack;
+			T* m_val;
+			Context* m_next;
+		};
+
+		static bool contains(T* val)
+		{
+			auto p = ms_top;
+			while (p)
+			{
+				if (p->getValue() == val)
+					return true;
+				p = p->m_next;
+			}
+			return false;
+		}
+	private:
+		static thread_local Context* ms_top;
+	};
+	template <typename T>
+	thread_local typename Callstack<T>::Context* Callstack<T>::ms_top = nullptr;
+
 	class TCPServiceData;
 	//////////////////////////////////////////////////////////////////////////
 	// TCPBaseSocket
@@ -428,6 +472,11 @@ namespace details
 		{
 		}
 
+		bool tickingInThisThread()
+		{
+			return Callstack<TCPServiceData>::contains(this);
+		}
+
 	protected:
 
 		friend TCPSocket;
@@ -469,7 +518,10 @@ namespace details
 				TCPFATAL(details::ErrorWrapper().msg().c_str());
 		}
 
-		template<typename F>
+		template<
+			typename F,
+			typename = std::enable_if_t< std::is_assignable<std::function<void()>, F>::value >
+		>
 		void addCmd(F&& f)
 		{
 			m_cmdQueue([&](CmdQueue& q)
@@ -627,22 +679,34 @@ public:
 	//
 	// Asynchronous reading
 	//
-	template<typename H>
+	template<
+		typename H,
+		typename = std::enable_if_t<std::is_assignable<TransferHandler, H>::value>
+	>
 	void asyncReadSome(char* buf, int len, H&& h)
 	{
 		asyncReadImpl(buf, len, std::forward<H>(h), false);
 	}
-	template<typename H>
+	template<
+		typename H,
+		typename = std::enable_if_t<std::is_assignable<TransferHandler, H>::value>
+	>
 	void asyncReadSome(TCPBuffer& buf, H&& h)
 	{
 		asyncReadImpl(buf.buf.get(), buf.size, std::forward<H>(h), false);
 	}
-	template<typename H>
+	template<
+		typename H,
+		typename = std::enable_if_t<std::is_assignable<TransferHandler, H>::value>
+	>
 	void asyncRead(char* buf, int len, H&& h)
 	{
 		asyncReadImpl(buf, len, std::forward<H>(h), true);
 	}
-	template<typename H>
+	template<
+		typename H,
+		typename = std::enable_if_t<std::is_assignable<TransferHandler, H>::value>
+	>
 	void asyncRead(TCPBuffer& buf, H&& h)
 	{
 		asyncReadImpl(buf.buf.get(), buf.size, std::forward<H>(h), true);
@@ -651,7 +715,11 @@ public:
 	//
 	// Asynchronous sending
 	//
-	void asyncWrite(const char* buf, int len, TransferHandler h)
+	template<
+		typename H,
+		typename = std::enable_if_t<std::is_assignable<TransferHandler, H>::value>
+	>
+	void asyncWrite(const char* buf, int len, H&& h)
 	{
 		SendOp op;
 		op.buf = buf;
@@ -668,16 +736,22 @@ public:
 			m_owner.m_sends.insert(this);
 		});
 	}
-	template<typename H>
+
+	template<
+		typename H,
+		typename = std::enable_if_t<std::is_assignable<TransferHandler, H>::value>
+	>
 	void asyncWrite(const TCPBuffer& buf, H&& h)
 	{
 		asyncWrite(buf.buf.get(), buf.size, std::forward<H>(h));
 	}
 
 	//! Cancels all outstanding asynchronous operations
-	template<typename H>
+	template<
+		typename H,
+		typename = std::enable_if_t< std::is_assignable<std::function<void()>, H>::value >
+	>
 	void asyncCancel(H&& h)
-	//void asyncCancel(std::function<void()> h)
 	{
 		m_owner.addCmd([this, h=std::move(h)]
 		{
@@ -688,13 +762,16 @@ public:
 		});
 	}
 
-	void asyncClose(std::function<void()> h)
+	template<
+		typename H,
+		typename = std::enable_if_t< std::is_assignable<std::function<void()>, H>::value >
+	>
+	void asyncClose(H&& h)
 	{
 		asyncCancel([this, h=std::move(h)]()
 		{
 			releaseHandle();
-			if (h)
-				h();
+			h();
 		});
 	}
 
@@ -709,7 +786,12 @@ public:
 	}
 
 protected:
-	void asyncReadImpl(char* buf, int len, TransferHandler h, bool fill)
+
+	template<
+		typename H,
+		typename = std::enable_if_t<std::is_assignable<TransferHandler, H>::value>
+	>
+	void asyncReadImpl(char* buf, int len, H&& h, bool fill)
 	{
 		RecvOp op;
 		op.buf = buf;
@@ -989,6 +1071,7 @@ public:
 		});
 	}
 
+	//! Disconnects the socket
 	void asyncClose(std::function<void()> h)
 	{
 		asyncCancel([this, h=std::move(h)]()
@@ -1072,6 +1155,11 @@ Thread Safety:
 */
 class TCPService : public details::TCPServiceData
 {
+private:
+	struct Callstack
+	{
+	};
+
 public:
 	TCPService()
 	{
@@ -1079,7 +1167,7 @@ public:
 		TCPError ec = dummyListen.listen(0, 1);
 		TCPASSERT(!ec);
 		m_signalIn = std::make_unique<TCPSocket>(*this);
-		bool signalInConnected=false;
+		bool signalInConnected = false;
 		dummyListen.asyncAccept(*reinterpret_cast<TCPSocket*>(m_signalIn.get()), [this, &signalInConnected](const TCPError& ec)
 		{
 			TCPASSERT(!ec);
@@ -1141,6 +1229,9 @@ public:
 	//		true  : We should call tick again
 	bool tick()
 	{
+		// put a marker on the callstack, so other code can detect when inside the tick function
+		typename details::Callstack<details::TCPServiceData>::Context ctx(this);
+
 		//
 		// Execute any pending commands
 		m_cmdQueue([&](CmdQueue& q)
@@ -1183,7 +1274,7 @@ public:
 			return false;
 		}
 
-		if (m_connects.size()==0 && m_accepts.size()==0 && m_recvs.size()==0 && m_sends.size()==0)
+		if (m_connects.size() == 0 && m_accepts.size() == 0 && m_recvs.size() == 0 && m_sends.size() == 0)
 			return true;
 
 		fd_set readfds, writefds;
@@ -1299,7 +1390,7 @@ public:
 					TCPFATAL(details::ErrorWrapper().msg().c_str());
 				}
 
-				if (result==0)
+				if (result == 0)
 				{
 					// #TODO : Test what happens if the getRemoteAddr fails
 					sock->m_peerAddr = details::utils::getRemoteAddr(sock->m_s);
@@ -1349,10 +1440,25 @@ public:
 		addCmd(nullptr);
 	}
 
-	template<typename H>
+	template<
+		typename H,
+		typename = std::enable_if_t< std::is_assignable<std::function<void()>, H>::value>
+	>
 	void post(H&& handler)
 	{
 		addCmd(std::forward<H>(handler));
+	}
+
+	template<
+		typename H,
+		typename = std::enable_if_t< std::is_assignable<std::function<void()>, H>::value>
+	>
+	void dispatch(H&& handler)
+	{
+		if (tickingInThisThread())
+			handler();
+		else
+			post(std::forward<H>(handler));
 	}
 
 protected:
