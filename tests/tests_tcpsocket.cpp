@@ -54,9 +54,9 @@ TEST(TCPService_Listen_Success)
 		while (io.tick()) {}
 	});
 
-	TCPError ec;
-	auto acceptor = io.listen(SERVER_PORT, 1, ec);
-	CHECK(!ec && acceptor);
+	TCPAcceptor acceptor(io);
+	TCPError ec = acceptor.listen(SERVER_PORT, 1);
+	CHECK(!ec && acceptor.isValid());
 
 	io.stop();
 	th.join();
@@ -70,9 +70,9 @@ TEST(TCPService_Listen_Failure)
 		while (io.tick()) {}
 	});
 
-	TCPError ec;
-	auto acceptor = io.listen(SERVER_UNUSABLE_PORT, 1, ec);
-	CHECK(ec && !acceptor);
+	TCPAcceptor acceptor(io);
+	TCPError ec = acceptor.listen(SERVER_UNUSABLE_PORT, 1);
+	CHECK(ec && !acceptor.isValid());
 
 	io.stop();
 	th.join();
@@ -87,39 +87,43 @@ TEST(TCPService_Accept_And_Connect_Success)
 	});
 
 	// First create an acceptor, so we can connect
-	TCPError ec;
-	auto acceptor = io.listen(SERVER_PORT, 1, ec);
-	CHECK(!ec && acceptor);
+	TCPAcceptor acceptor(io);
+	TCPError ec = acceptor.listen(SERVER_PORT, 1);
+	CHECK(!ec && acceptor.isValid());
 
 	// Setup 2 accepts
 	Semaphore sem;
-	auto sock = std::make_shared<TCPSocket>(io);
-	acceptor->asyncAccept(*sock, [&sem, sock](const TCPError& ec)
+	TCPSocket sock1(io);
+	acceptor.asyncAccept(sock1, [&sem, &sock1](const TCPError& ec)
 	{
-		CHECK(!ec && sock->isValid());
+		CHECK(!ec);
+		CHECK(sock1.isValid());
 		sem.notify();
 	});
-	sock = std::make_shared<TCPSocket>(io);
-	acceptor->asyncAccept(*sock, [&sem, sock](const TCPError& ec)
+	TCPSocket sock2(io);
+	acceptor.asyncAccept(sock2, [&sem, &sock2](const TCPError& ec)
 	{
-		CHECK(!ec && sock->isValid());
+		CHECK(!ec);
+		CHECK(sock2.isValid());
 		sem.notify();
 	});
 
 	// Test synchronous connect
 	{
-		auto sock = std::make_shared<TCPSocket>(io);
-		ec = sock->connect("127.0.0.1", SERVER_PORT);
-		CHECK(!ec && sock->isValid());
+		TCPSocket sock(io);
+		ec = sock.connect("127.0.0.1", SERVER_PORT);
+		CHECK(!ec);
+		CHECK(sock.isValid());
 		sem.wait(); // wait for the accept
 	}
 
 	// Test asynchronous connect
 	{
-		auto sock = std::make_shared<TCPSocket>(io);
-		sock->asyncConnect("127.0.0.1", SERVER_PORT, [&sem, sock](const TCPError& ec)
+		TCPSocket sock(io);
+		sock.asyncConnect("127.0.0.1", SERVER_PORT, [&sem, &sock](const TCPError& ec)
 		{
-			CHECK(!ec && sock->isValid());
+			CHECK(!ec);
+			CHECK(sock.isValid());
 			sem.notify();
 		});
 		sem.wait(); // wait for the accept
@@ -139,26 +143,28 @@ TEST(TCPService_Accept_Failure)
 	});
 
 	// First create an acceptor, so we can connect
-	TCPError ec;
-	auto acceptor = io.listen(SERVER_PORT, 1, ec);
-	CHECK(!ec && acceptor);
+	TCPAcceptor acceptor(io);
+	TCPError ec = acceptor.listen(SERVER_PORT, 1);
+	CHECK(!ec && acceptor.isValid());
 
 	//
 	// Test canceling 10 accepts directly with the acceptor
 	//
 	{
 		Semaphore sem;
-		for (int i = 0; i < 10; i++)
+		int count = 10;
+		for (int i = 0; i < count; i++)
 		{
 			auto sock = std::make_shared<TCPSocket>(io);
-			acceptor->asyncAccept(*sock, [&sem, sock](const TCPError& ec)
+			acceptor.asyncAccept(*sock, [&sem, sock](const TCPError& ec)
 			{
-				CHECK(ec.code == TCPError::Code::Cancelled && !sock->isValid());
+				CHECK_EQUAL((int)TCPError::Code::Cancelled, (int)ec.code);
+				CHECK(!sock->isValid());
 				sem.notify();
 			});
 		}
-		acceptor->asyncCancel(nullptr);
-		for (int i = 0; i < 10; i++)
+		acceptor.asyncCancel(nullptr);
+		for (int i = 0; i < count; i++)
 		{
 			sem.wait();
 		}
@@ -172,9 +178,10 @@ TEST(TCPService_Accept_Failure)
 		for (int i = 0; i < 10; i++)
 		{
 			auto sock = std::make_shared<TCPSocket>(io);
-			acceptor->asyncAccept(*sock, [&sem, sock](const TCPError& ec)
+			acceptor.asyncAccept(*sock, [&sem, sock](const TCPError& ec)
 			{
-				CHECK(ec.code == TCPError::Code::Cancelled && !sock->isValid());
+				CHECK_EQUAL((int)TCPError::Code::Cancelled, (int)ec.code);
+				CHECK(!sock->isValid());
 				sem.notify();
 			});
 		}
@@ -199,13 +206,16 @@ TEST(TCPService_Connect_Failure)
 	//
 	// Test synchronous connect failure
 	//
-	auto sock = std::make_shared<TCPSocket>(io);
-	TCPError ec = sock->connect("127.0.0.1", SERVER_PORT);
-	CHECK(ec.code==TCPError::Code::Other && !sock->isValid());
+	{
+		TCPSocket sock(io);
+		TCPError ec = sock.connect("127.0.0.1", SERVER_PORT);
+		CHECK_EQUAL((int)TCPError::Code::Other, (int)ec.code);
+		CHECK(!sock.isValid());
+	}
 
 	Semaphore sem;
 	//
-	// Test asynchronous connect failure
+	// Test asynchronous connect failure, with different timeouts
 	//
 	const int count = 10;
 	double times[count];
@@ -227,7 +237,8 @@ TEST(TCPService_Connect_Failure)
 		sock->asyncConnect("254.254.254.254", SERVER_PORT, [&sem, i, &times, &timer, sock](const TCPError& ec)
 		{
 			times[i] = timer.GetTimeInMs() - times[i];
-			CHECK(ec.code == TCPError::Code::ConnectFailed && !sock->isValid());
+			CHECK_EQUAL((int)TCPError::Code::ConnectFailed, (int)ec.code);
+			CHECK(!sock->isValid());
 			sem.notify();
 		}, (int)expectedTimes[i]);
 	}
@@ -241,7 +252,6 @@ TEST(TCPService_Connect_Failure)
 	th.join();
 }
 
-
 TEST(TCPSocket_recv_Success)
 {
 	TCPService io;
@@ -250,29 +260,30 @@ TEST(TCPSocket_recv_Success)
 		while (io.tick()) {}
 	});
 
-	TCPError ec;
-	auto acceptor = io.listen(SERVER_PORT, 1, ec);
-	CHECK(!ec && acceptor);
+	TCPAcceptor acceptor(io);
+	TCPError ec = acceptor.listen(SERVER_PORT, 1);
+	CHECK(!ec && acceptor.isValid());
 
 	Semaphore sem;
-	auto serverSock = std::make_shared<TCPSocket>(io);
-	acceptor->asyncAccept(*serverSock, [&sem, serverSock](const TCPError& ec)
+	TCPSocket serverSock(io);
+	acceptor.asyncAccept(serverSock, [&sem, &serverSock](const TCPError& ec)
 	{
 		CHECK(!ec);
+		CHECK(serverSock.isValid());
 		sem.notify();
 	});
 
-	auto sock = std::make_shared<TCPSocket>(io);
-	ec = sock->connect("127.0.0.1", SERVER_PORT);
-	CHECK(!ec && sock->isValid());
+	TCPSocket sock(io);
+	ec = sock.connect("127.0.0.1", SERVER_PORT);
+	CHECK(!ec && sock.isValid());
 	sem.wait();
 
 	// Test sending multiple chunks, but having it received in 1
-	serverSock->asyncWrite("AB", 2, [&sem](const TCPError& ec, int bytesTransfered) { sem.notify(); });
-	serverSock->asyncWrite("CD", 3, [&sem](const TCPError& ec, int bytesTransfered) { sem.notify(); });
+	serverSock.asyncWrite("AB", 2, [&sem](const TCPError& ec, int bytesTransfered) { sem.notify(); });
+	serverSock.asyncWrite("CD", 3, [&sem](const TCPError& ec, int bytesTransfered) { sem.notify(); });
 	TCPBuffer buf(10);
 	sem.wait(); sem.wait(); // Wait for both sends to finish, so we can test receiving in one chunk
-	sock->asyncReadSome(buf, [buf, &sem](const TCPError& ec, int bytesTransfered)
+	sock.asyncReadSome(buf, [buf, &sem](const TCPError& ec, int bytesTransfered)
 	{
 		CHECK(bytesTransfered == 5);
 		CHECK_EQUAL("ABCD", buf.ptr());
@@ -281,10 +292,10 @@ TEST(TCPSocket_recv_Success)
 	sem.wait(); // wait for the recv to process
 
 	// Test sending multiple chunks with some delay, and have the receiver receive in different chunks
-	serverSock->asyncWrite("AB", 2, [&serverSock, &sem](const TCPError& ec, int bytesTransfered)
+	serverSock.asyncWrite("AB", 2, [&serverSock, &sem](const TCPError& ec, int bytesTransfered)
 	{
 		CHECK(bytesTransfered == 2);
-		serverSock->asyncWrite("CD", 3, [&sem](const TCPError& ec, int bytesTransfered)
+		serverSock.asyncWrite("CD", 3, [&sem](const TCPError& ec, int bytesTransfered)
 		{
 			sem.notify();
 		});
@@ -292,7 +303,7 @@ TEST(TCPSocket_recv_Success)
 	sem.wait(); // wait for the two chunks to be sent
 
 	TCPBuffer buf1(1);
-	sock->asyncReadSome(buf1, [buf1, &sem, sock](const TCPError& ec, int bytesTransfered)
+	sock.asyncReadSome(buf1, [buf1, &sem, &sock](const TCPError& ec, int bytesTransfered)
 	{
 		CHECK(bytesTransfered == 1);
 		CHECK(buf1.ptr()[0] == 'A');
@@ -301,7 +312,7 @@ TEST(TCPSocket_recv_Success)
 		// Read the rest
 		TCPBuffer buf2(10);
 		buf2.zero();
-		sock->asyncReadSome(buf2, [buf2, &sem](const TCPError& ec, int bytesTransfered)
+		sock.asyncReadSome(buf2, [buf2, &sem](const TCPError& ec, int bytesTransfered)
 		{
 			CHECK_EQUAL(4, bytesTransfered);
 			CHECK_EQUAL("BCD", buf2.ptr());
@@ -323,23 +334,23 @@ TEST(TCPSocket_recv_Failure)
 		while (io.tick()) {}
 	});
 
-	TCPError ec;
-	auto acceptor = io.listen(SERVER_PORT, 1, ec);
-	CHECK(!ec && acceptor);
+	TCPAcceptor acceptor(io);
+	TCPError ec = acceptor.listen(SERVER_PORT, 1);
+	CHECK(!ec && acceptor.isValid());
 
 	Semaphore sem;
-	auto serverSock1 = std::make_shared<TCPSocket>(io);
-	acceptor->asyncAccept(*serverSock1, [&sem, serverSock1](const TCPError& ec)
+	TCPSocket serverSock1(io);
+	acceptor.asyncAccept(serverSock1, [&sem, &serverSock1](const TCPError& ec)
 	{
 		CHECK(!ec);
+		CHECK(serverSock1.isValid());
 		sem.notify();
 	});
-	// Setup another accept for the same server side socket, so we can test disconnect,
-	// then connect again
-	auto serverSock2 = std::make_shared<TCPSocket>(io);
-	acceptor->asyncAccept(*serverSock2, [&sem, serverSock2](const TCPError& ec)
+	TCPSocket serverSock2(io);
+	acceptor.asyncAccept(serverSock2, [&sem, &serverSock2](const TCPError& ec)
 	{
 		CHECK(!ec);
+		CHECK(serverSock2.isValid());
 		sem.notify();
 	});
 
@@ -354,13 +365,14 @@ TEST(TCPSocket_recv_Failure)
 	for (int i = 0; i < 10; i++)
 	{
 		TCPBuffer buf(10);
-		sock->asyncReadSome(buf, [buf, &sem](const TCPError& ec, int bytesTransfered)
+		sock->asyncReadSome(buf, [buf, &sem, sock](const TCPError& ec, int bytesTransfered)
 		{
-			CHECK(ec.code == TCPError::Code::Cancelled && bytesTransfered == 0);
+			CHECK_EQUAL((int)TCPError::Code::Cancelled, (int)ec.code);
+			CHECK_EQUAL(0, bytesTransfered);
 			sem.notify();
 		});
 	}
-	sock->asyncCancel();
+	sock->asyncCancel(nullptr);
 	for (int i = 0; i < 10; i++)
 	{
 		sem.wait();
@@ -370,13 +382,14 @@ TEST(TCPSocket_recv_Failure)
 	// Test connection closed
 	//
 	TCPBuffer buf(10);
-	sock->asyncReadSome(buf, [buf, &sem](const TCPError& ec, int bytesTransfered)
+	sock->asyncReadSome(buf, [buf, &sem, sock](const TCPError& ec, int bytesTransfered)
 	{
-		CHECK(ec.code == TCPError::Code::ConnectionClosed && bytesTransfered == 0);
+		CHECK_EQUAL((int)TCPError::Code::ConnectionClosed, (int)ec.code);
+		CHECK_EQUAL(0, bytesTransfered);
 		sem.notify();
 	});
-	// Closing the server side socket, will cause our client to detect it
-	serverSock1 = nullptr;
+	// Closing the server side socket will cause our client to detect it and cancel the pending operations
+	serverSock1.asyncClose(nullptr);
 	sem.wait();
 
 	//
@@ -386,13 +399,14 @@ TEST(TCPSocket_recv_Failure)
 	ec = sock->connect("127.0.0.1", SERVER_PORT);
 	CHECK(!ec && sock->isValid());
 	sem.wait(); // wait for the second accept
-	CHECK(serverSock2);
+	CHECK(serverSock2.isValid());
 	for (int i = 0; i < 10; i++)
 	{
 		TCPBuffer buf(10);
-		sock->asyncReadSome(buf, [buf, &sem](const TCPError& ec, int bytesTransfered)
+		sock->asyncReadSome(buf, [buf, &sem, sock](const TCPError& ec, int bytesTransfered)
 		{
-			CHECK(ec.code == TCPError::Code::Cancelled && bytesTransfered == 0);
+			CHECK_EQUAL((int)TCPError::Code::Cancelled, (int)ec.code);
+			CHECK_EQUAL(0, bytesTransfered);
 			sem.notify();
 		});
 	}
@@ -414,41 +428,45 @@ TEST(TCPSocket_cancel_lifetime)
 		while (io.tick()) {}
 	});
 
-	TCPError ec;
-	auto acceptor = io.listen(SERVER_PORT, 1, ec);
-	CHECK(!ec && acceptor);
+
+	TCPAcceptor acceptor(io);
+	TCPError ec = acceptor.listen(SERVER_PORT, 1);
+	CHECK(!ec && acceptor.isValid());
 
 	auto sock = std::make_shared<TCPSocket>(io);
 	ec = sock->connect("127.0.0.1", SERVER_PORT);
 	CHECK(!ec && sock->isValid());
 	// This should not do anything, since there aren't any pending asynchronous operations yet
-	sock->asyncCancel();
+	sock->asyncCancel(nullptr);
 
 	Semaphore sem;
-	for(int i=0; i<10; i++)
+	const int count = 10;
+	for(int i=0; i<count; i++)
 	{
 		TCPBuffer buf(10);
-		sock->asyncReadSome(buf, [&sem](const TCPError& ec, int bytesTransfered)
+		// Initiate asynchronous operations, passing a strong reference to the handler to keep the
+		// socket alive
+		sock->asyncReadSome(buf, [&sem, sock](const TCPError& ec, int bytesTransfered)
 		{
 			CHECK(ec.code == TCPError::Code::Cancelled && bytesTransfered == 0);
 			sem.notify();
 		});
 	}
 
-	// Cancel all outstanding asynchronous operations
-	sock->asyncCancel();
-	// Now, release our strong reference (and keep a weak reference).
-	// The above cancel should cause the socket to be destroyed since all the strong references kept
-	// by the TCPIOService should be removed
+	// Get a weak reference and release our strong one, so we can check if it was indeed destroyed
+	// when all operations were cancelled and the strong references passed to the handlers were correctly lost
 	std::weak_ptr<TCPSocket> wsock = sock;
-	sock = nullptr; // remove our strong reference
-	// wait for all the handlers to be cancelled, so TCPIOService loses all the strong references
-	for (int i = 0; i < 10; i++)
+	sock->asyncCancel([sock] {});
+	sock = nullptr; // Release our strong reference
+
+	// wait for all the handlers to be cancelled, so all the passed strong references are lost
+	for (int i = 0; i < count; i++)
 	{
 		sem.wait();
 	}
+
 	// Small delay to make sure the TCPIOService has time to remove strong references after calling the handlers.
-	// This is needed, because after we notify the semaphore, this thread might get here because the the io service
+	// This is needed, because after we notify the semaphore, this thread might get here before the service
 	// has time to remove the strong references from the internal containers
 	UnitTest::TimeHelpers::SleepMs(10);
 	CHECK(wsock.lock()==nullptr);
@@ -466,67 +484,71 @@ TEST(TCPAcceptor_backlog)
 	});
 
 	Semaphore sem;
-	TCPError ec;
-	auto acceptor = io.listen(SERVER_PORT, 1, ec);
-	CHECK(!ec && acceptor);
+	TCPAcceptor acceptor(io);
+	TCPError ec = acceptor.listen(SERVER_PORT, 1);
+	CHECK(!ec && acceptor.isValid());
 
 	// Add only 1 accept operation, so the server only accepts 1 incoming connection.
 	// Extra connection attempts by clients can still succeed to connect due to the backlog, but doesn't mean
 	// the server will accept the connection
-	auto serverSock = std::make_shared<TCPSocket>(io);
-	acceptor->asyncAccept(*serverSock, [&sem](const TCPError& ec)
+	TCPSocket serverSock(io);
+	acceptor.asyncAccept(serverSock, [&sem](const TCPError& ec)
 	{
 		CHECK(!ec);
 		sem.notify();
 	});
 
-	auto sock1 = std::make_shared<TCPSocket>(io);
-	ec = sock1->connect("127.0.0.1", SERVER_PORT);
-	CHECK(!ec); CHECK(sock1); // First connect should work, since the server accepts it
-	auto sock2 = std::make_shared<TCPSocket>(io);
-	ec = sock2->connect("127.0.0.1", SERVER_PORT);
-	CHECK(!ec); CHECK(sock2); // Second should work, because of the backlog
-	auto sock3 = std::make_shared<TCPSocket>(io);
-	ec = sock3->connect("127.0.0.1", SERVER_PORT);
+	TCPSocket sock1(io);
+	ec = sock1.connect("127.0.0.1", SERVER_PORT);
+	CHECK(!ec); CHECK(sock1.isValid()); // First connect should work, since the server accepts it
+	TCPSocket sock2(io);
+	ec = sock2.connect("127.0.0.1", SERVER_PORT);
+	CHECK(!ec); CHECK(sock2.isValid()); // Second should work, because of the backlog
+	TCPSocket sock3(io);
+	ec = sock3.connect("127.0.0.1", SERVER_PORT);
 	// Third should fail because the backlog is not big enough.
 	// This might not work properly on all Operating Systems, since the backlog setting
 	// is just an hint to the OS.
-	// It seems to work as I expect in Windows, but not Linux:
+	// It seems to work as I expect on Windows, but not Linux:
 	// See: http://veithen.github.io/2014/01/01/how-tcp-backlog-works-in-linux.html
 #if _WIN32
-	CHECK(ec); CHECK(!sock3->isValid());
+	CHECK(ec); CHECK(!sock3.isValid());
 #endif
 
-	sem.wait(); // Wait for the server accept
-    // Give time for the io thread to remove its own reference to the acceptor
-	while(!acceptor.unique())
-		UnitTest::TimeHelpers::SleepMs(1);
-	acceptor = nullptr; // Causes the acceptor to be destroy.
-
-	// This send should fail because although we connected, the Acceptor never accepted the connection
-	// and it should be closed once the Acceptor is destroyed
-	sock2->asyncWrite("ABC", 4, [&sem](const TCPError& ec, int bytesTransfered)
+	sem.wait(); // Wait for 1 accept to run
+	// Close the acceptor.
+	// This should cause the following state:
+	// sock1 - Is fully connected already because of the accept we allowed
+	// sock2 - Is connected, but the server didn't accept it
+	// sock3 - OS dependent
+	acceptor.asyncClose([&sem]
 	{
-		CHECK(ec && bytesTransfered == 0);
 		sem.notify();
 	});
+	sem.wait(); // wait for the close to finish
 
-	sem.wait();
+	// This send should fail because although we connected, the acceptor never accepted the connection
+	sock2.asyncWrite("ABC", 4, [&sem](const TCPError& ec, int bytesTransfered)
+	{
+		CHECK_EQUAL((int)TCPError::Code::ConnectionClosed, (int)ec.code);
+		CHECK_EQUAL(0, bytesTransfered);
+		sem.notify();
+	});
+	sem.wait(); // Wait for the write to finish
 
 	io.stop();
 	th.join();
 }
 
-
-void testLatency_serverRecv(const std::shared_ptr<TCPSocket>& sock)
+void testLatency_serverRecv(TCPSocket& sock)
 {
 	TCPBuffer buf(1);
-	sock->asyncReadSome(buf, [buf, sock](TCPError ec, int bytesTransfered)
+	sock.asyncReadSome(buf, [buf, &sock](TCPError ec, int bytesTransfered)
 	{
 		if (ec)
 			return;
 		CHECK_EQUAL(1, bytesTransfered);
-		sock->asyncWrite(buf, [buf](const TCPError& ec, int bytesTransfered) {});
+		sock.asyncWrite(buf, [buf](const TCPError& ec, int bytesTransfered) {});
 		testLatency_serverRecv(sock);
 	});
 }
@@ -542,39 +564,38 @@ TEST(Latency)
 	UnitTest::Timer timer;
 	timer.Start();
 
-	const int num = 20;
+	const int count = 20;
 	const int waitMs = 5;
-	std::vector<std::pair<double, char>> times(num, std::make_pair(double(0), char(0)));
+	std::vector<std::pair<double, char>> times(count, std::make_pair(double(0), char(0)));
 
-	TCPError ec;
-	auto acceptor = io.listen(SERVER_PORT, 1, ec);
-	CHECK(!ec && acceptor);
+	TCPAcceptor acceptor(io);
+	TCPError ec = acceptor.listen(SERVER_PORT, 1);
 
-	auto serverSock = std::make_shared<TCPSocket>(io);
-	acceptor->asyncAccept(*serverSock, [serverSock](const TCPError& ec)
+	TCPSocket serverSock(io);
+	acceptor.asyncAccept(serverSock, [&serverSock](const TCPError& ec)
 	{
 		testLatency_serverRecv(serverSock);
 	});
 
-	auto client = std::make_shared<TCPSocket>(io);
-	ec = client->connect("127.0.0.1", SERVER_PORT);
-	CHECK(!ec && client->isValid());
+	TCPSocket client(io);
+	ec = client.connect("127.0.0.1", SERVER_PORT);
+	CHECK(!ec && client.isValid());
 
 	Semaphore sem;
-	for(int i=0; i<num; i++)
+	for(int i=0; i<count; i++)
 	{
 		// Setup receive first, to use the best case scenario where the data is sent really fast.
 		// If the sent is done first, it might happen the thread is put on hold before preparing the receive, causing the
 		// sent data to take a bit more to arrive.
 		{
 			TCPBuffer rcvBuf(1);
-			client->asyncReadSome(rcvBuf, [&sem, num, rcvBuf, i, &times, &timer](const TCPError& ec, int bytesTransfered)
+			client.asyncReadSome(rcvBuf, [&sem, count, rcvBuf, i, &times, &timer](const TCPError& ec, int bytesTransfered)
 			{
 				CHECK_EQUAL(1, bytesTransfered);
 				CHECK_EQUAL((char)i, *rcvBuf.ptr());
 				times[i].first = timer.GetTimeInMs() - times[i].first;
 				times[i].second = *rcvBuf.ptr();
-				if (i == num - 1)
+				if (i == count - 1)
 					sem.notify();
 			});
 		}
@@ -584,7 +605,7 @@ TEST(Latency)
 			TCPBuffer sndBuf(1);
 			*sndBuf.ptr() = (char)i;
 			times[i].first = timer.GetTimeInMs();
-			client->asyncWrite(sndBuf, [sndBuf](const TCPError& ec, int bytesTransfered)
+			client.asyncWrite(sndBuf, [sndBuf](const TCPError& ec, int bytesTransfered)
 			{
 			});
 		}
@@ -604,10 +625,10 @@ TEST(Latency)
 		high = std::max(high, t.first);
 		total += t.first;
 	}
-	printf("RPCTCPSocket latency (%d 1-byte messages, wait time between sends=%dms)\n", num, waitMs);
+	printf("RPCTCPSocket latency (round-trip) (%d 1-byte messages, wait time between sends=%dms)\n", count, waitMs);
 	printf("        min=%0.4fms\n", low);
 	printf("        max=%0.4fms\n", high);
-	printf("        avg=%0.4fms\n", total/num);
+	printf("        avg=%0.4fms\n", total/count);
 
 	io.stop();
 	th.join();
@@ -617,32 +638,31 @@ struct ThroughputData
 {
 	TCPBuffer buf;
 	uint64_t done = 0;
-	std::shared_ptr<TCPSocket> sock;
+	TCPSocket sock;
 	Semaphore finished;
-	ThroughputData() : buf(1 * 1024 * 1024)
+	ThroughputData(TCPService& io)
+		: buf(1 * 1024 * 1024)
+		, sock(io)
 	{}
 
 	void setupSend()
 	{
-		auto s = sock;
-		if (!s)
+		sock.asyncWrite(buf, [this](const TCPError& ec, int bytesTransfered)
 		{
-			finished.notify();
-			return;
-		}
-
-		s->asyncWrite(buf, [this, s](const TCPError& ec, int bytesTransfered)
-		{
-			CHECK(!ec);
-
 			done += bytesTransfered;
-			setupSend();
+			if (ec)
+			{
+				sock.asyncClose(nullptr);
+				finished.notify();
+			}
+			else
+				setupSend();
 		});
 	}
 
-	void setupReceive(std::shared_ptr<TCPSocket> s)
+	void setupReceive()
 	{
-		s->asyncReadSome(buf, [this, s](const TCPError& ec, int bytesTransfered)
+		sock.asyncReadSome(buf, [this](const TCPError& ec, int bytesTransfered)
 		{
 			if (ec)
 			{
@@ -651,7 +671,7 @@ struct ThroughputData
 			}
 
 			done += bytesTransfered;
-			setupReceive(s);
+			setupReceive();
 		});
 	}
 };
@@ -670,37 +690,33 @@ TEST(Throughput)
 		while(ioSnd.tick()) {}
 	});
 
-	TCPError ec;
-	auto acceptor = ioRcv.listen(SERVER_PORT, 1, ec);
-	CHECK(!ec && acceptor);
+	TCPAcceptor acceptor(ioRcv);
+	TCPError ec = acceptor.listen(SERVER_PORT, 1);
+	CHECK(!ec && acceptor.isValid());
 
-	ThroughputData snd, rcv;
+	ThroughputData snd(ioSnd), rcv(ioRcv);
 
-	std::promise<std::shared_ptr<TCPSocket>> rcvPr;
-	auto serverSock = std::make_shared<TCPSocket>(ioRcv);
-	acceptor->asyncAccept(*serverSock, [&rcvPr, serverSock](const TCPError& ec)
+	Semaphore sem;
+	acceptor.asyncAccept(rcv.sock, [&sem](const TCPError& ec)
 	{
 		CHECK(!ec);
-		rcvPr.set_value(serverSock);
+		sem.notify();
 	});
 
-	snd.sock = std::make_shared<TCPSocket>(ioSnd);
-	ec = snd.sock->connect("127.0.0.1", SERVER_PORT);
-	CHECK(!ec && snd.sock->isValid());
+	ec = snd.sock.connect("127.0.0.1", SERVER_PORT);
+	CHECK(!ec && snd.sock.isValid());
 
-	rcv.sock = rcvPr.get_future().get();
+	sem.wait();
 
-	//uint64_t todo = (uint64_t)1 * 1000 * 1000 * 1000;
 	uint64_t rcvDone = 0;
 	uint64_t sndDone = 0;
 	UnitTest::Timer timer;
 	timer.Start();
 	auto start = timer.GetTimeInMs();
-	rcv.setupReceive(rcv.sock);
+	rcv.setupReceive();
 	snd.setupSend();
 	UnitTest::TimeHelpers::SleepMs(4000);
-	snd.sock = nullptr;
-	snd.finished.wait();
+	snd.sock.asyncClose(nullptr);
 	rcv.finished.wait();
 	auto end = timer.GetTimeInMs();
 	ioRcv.stop();
