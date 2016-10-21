@@ -175,7 +175,25 @@ using TransferHandler = std::function<void(const TCPError& ec, int bytesTransfer
 
 namespace details
 {
-	class ErrorWrapper
+	// Checks if a specified "Func" type is callable and with the specified signature
+	template <typename, typename, typename = void>
+	struct check_signature : std::false_type {};
+
+    template <typename Func, typename Ret, typename... Args>
+    struct check_signature<
+        Func, Ret(Args...),
+        typename std::enable_if<
+            std::is_convertible<decltype(std::declval<Func>()(std::declval<Args>()...)), Ret>::value, void>::type>
+        : std::true_type
+    {
+    };
+
+	template<typename H>
+	using IsTransferHandler = std::enable_if_t<check_signature<H, void(const TCPError&, int)>::value>;
+	template<typename H>
+	using IsSimpleHandler = std::enable_if_t<check_signature<H, void()>::value>;
+
+    class ErrorWrapper
 	{
 	public:
 #if CZRPC_WINSOCK
@@ -518,15 +536,12 @@ namespace details
 				TCPFATAL(details::ErrorWrapper().msg().c_str());
 		}
 
-		template<
-			typename F,
-			typename = std::enable_if_t< std::is_assignable<std::function<void()>, F>::value >
-		>
-		void addCmd(F&& f)
+		template< typename H, typename = IsSimpleHandler<H> >
+		void addCmd(H&& h)
 		{
 			m_cmdQueue([&](CmdQueue& q)
 			{
-				q.push(std::move(f));
+				q.push(std::move(h));
 			});
 			signal();
 		}
@@ -565,7 +580,7 @@ public:
 	// Move to TCPBaseSocket
 	void releaseHandle()
 	{
-		printf("%p : releaseHandle()\n", this);
+		//printf("%p : releaseHandle()\n", this);
 		TCPASSERT(m_recvs.size() == 0);
 		TCPASSERT(m_sends.size() == 0);
 		TCPASSERT(m_owner.m_sends.find(this) == m_owner.m_sends.end());
@@ -598,9 +613,9 @@ public:
 		inet_pton(AF_INET, ip, &(addr.sin_addr));
 		if (::connect(m_s, (const sockaddr*)&addr, sizeof(addr)) == CZRPC_SOCKET_ERROR)
 		{
-			releaseHandle();
 			auto ec = details::ErrorWrapper().getError();
 			TCPERROR(ec.msg());
+			releaseHandle();
 			return ec;
 		}
 
@@ -679,34 +694,22 @@ public:
 	//
 	// Asynchronous reading
 	//
-	template<
-		typename H,
-		typename = std::enable_if_t<std::is_assignable<TransferHandler, H>::value>
-	>
+	template< typename H, typename = details::IsTransferHandler<H> >
 	void asyncReadSome(char* buf, int len, H&& h)
 	{
 		asyncReadImpl(buf, len, std::forward<H>(h), false);
 	}
-	template<
-		typename H,
-		typename = std::enable_if_t<std::is_assignable<TransferHandler, H>::value>
-	>
+	template< typename H, typename = details::IsTransferHandler<H> >
 	void asyncReadSome(TCPBuffer& buf, H&& h)
 	{
 		asyncReadImpl(buf.buf.get(), buf.size, std::forward<H>(h), false);
 	}
-	template<
-		typename H,
-		typename = std::enable_if_t<std::is_assignable<TransferHandler, H>::value>
-	>
+	template< typename H, typename = details::IsTransferHandler<H> >
 	void asyncRead(char* buf, int len, H&& h)
 	{
 		asyncReadImpl(buf, len, std::forward<H>(h), true);
 	}
-	template<
-		typename H,
-		typename = std::enable_if_t<std::is_assignable<TransferHandler, H>::value>
-	>
+	template< typename H, typename = details::IsTransferHandler<H> >
 	void asyncRead(TCPBuffer& buf, H&& h)
 	{
 		asyncReadImpl(buf.buf.get(), buf.size, std::forward<H>(h), true);
@@ -715,10 +718,7 @@ public:
 	//
 	// Asynchronous sending
 	//
-	template<
-		typename H,
-		typename = std::enable_if_t<std::is_assignable<TransferHandler, H>::value>
-	>
+	template< typename H, typename = details::IsTransferHandler<H> >
 	void asyncWrite(const char* buf, int len, H&& h)
 	{
 		SendOp op;
@@ -737,20 +737,14 @@ public:
 		});
 	}
 
-	template<
-		typename H,
-		typename = std::enable_if_t<std::is_assignable<TransferHandler, H>::value>
-	>
+	template< typename H, typename = details::IsTransferHandler<H> >
 	void asyncWrite(const TCPBuffer& buf, H&& h)
 	{
 		asyncWrite(buf.buf.get(), buf.size, std::forward<H>(h));
 	}
 
 	//! Cancels all outstanding asynchronous operations
-	template<
-		typename H,
-		typename = std::enable_if_t< std::is_assignable<std::function<void()>, H>::value >
-	>
+	template< typename H, typename = details::IsSimpleHandler<H> >
 	void asyncCancel(H&& h)
 	{
 		m_owner.addCmd([this, h=std::move(h)]
@@ -762,10 +756,7 @@ public:
 		});
 	}
 
-	template<
-		typename H,
-		typename = std::enable_if_t< std::is_assignable<std::function<void()>, H>::value >
-	>
+	template< typename H, typename = details::IsSimpleHandler<H> >
 	void asyncClose(H&& h)
 	{
 		asyncCancel([this, h=std::move(h)]()
@@ -787,10 +778,7 @@ public:
 
 protected:
 
-	template<
-		typename H,
-		typename = std::enable_if_t<std::is_assignable<TransferHandler, H>::value>
-	>
+	template< typename H, typename = details::IsTransferHandler<H> >
 	void asyncReadImpl(char* buf, int len, H&& h, bool fill)
 	{
 		RecvOp op;
@@ -993,6 +981,8 @@ public:
 	}
 
 	using AcceptHandler = std::function<void(const TCPError& ec)>;
+	template<typename H>
+	using IsAcceptHandler = std::enable_if_t<details::check_signature<H, void(const TCPError&)>::value>;
 
 	//! Starts listening for new connections at the specified port
 	/*
@@ -1027,17 +1017,17 @@ public:
 		addr.sin_addr.s_addr = htonl(INADDR_ANY);
 		if (::bind(m_s, (const sockaddr*)&addr, sizeof(addr)) == CZRPC_SOCKET_ERROR)
 		{
-			releaseHandle();
 			auto ec = details::ErrorWrapper().getError();
 			TCPERROR(ec.msg());
+			releaseHandle();
 			return ec;
 		}
 
 		if (::listen(m_s, backlog) == CZRPC_SOCKET_ERROR)
 		{
-			releaseHandle();
 			auto ec = details::ErrorWrapper().getError();
 			TCPERROR(ec.msg());
+			releaseHandle();
 			return ec;
 		}
 
@@ -1050,7 +1040,8 @@ public:
 	}
 
 	//! Starts an asynchronous accept
-	void asyncAccept(TCPSocket& sock, AcceptHandler h)
+	template< typename H, typename = IsAcceptHandler<H> >
+	void asyncAccept(TCPSocket& sock, H&& h)
 	{
 		m_owner.addCmd([this, sock=&sock, h(std::move(h))]
 		{
@@ -1060,25 +1051,25 @@ public:
 	}
 
 	//! Cancels all outstanding asynchronous operations
-	void asyncCancel(std::function<void()> h)
+	template<typename H, typename = details::IsSimpleHandler<H> >
+	void asyncCancel(H&& h)
 	{
 		m_owner.addCmd([this, h=std::move(h)]
 		{
 			doCancel();
 			m_owner.m_accepts.erase(this);
-			if (h)
-				h();
+			h();
 		});
 	}
 
 	//! Disconnects the socket
-	void asyncClose(std::function<void()> h)
+	template<typename H, typename = details::IsSimpleHandler<H> >
+	void asyncClose(H&& h)
 	{
 		asyncCancel([this, h=std::move(h)]()
 		{
 			releaseHandle();
-			if (h)
-				h();
+			h();
 		});
 	}
 
@@ -1436,23 +1427,20 @@ public:
 	void stop()
 	{
 		m_stopped = true;
-		// Signal the end by sending an empty command
-		addCmd(nullptr);
+		// Signal the end by sending an "empty" command
+		// NOTE:
+		// Although "nullptr" would be preferable since it would convert to std::function<void()>, addCmd parameter
+		// itself is not an std::function for performance reasons. So I need to pass an empty std::function
+		addCmd(std::function<void()>());
 	}
 
-	template<
-		typename H,
-		typename = std::enable_if_t< std::is_assignable<std::function<void()>, H>::value>
-	>
+	template< typename H, typename = details::IsSimpleHandler<H> >
 	void post(H&& handler)
 	{
 		addCmd(std::forward<H>(handler));
 	}
 
-	template<
-		typename H,
-		typename = std::enable_if_t< std::is_assignable<std::function<void()>, H>::value>
-	>
+	template< typename H, typename = details::IsSimpleHandler<H> >
 	void dispatch(H&& handler)
 	{
 		if (tickingInThisThread())

@@ -1,6 +1,15 @@
 #include "testsPCH.h"
 //#include "crazygaze/rpc/RPCTCPSocket.h"
 
+namespace cz
+{
+	namespace rpc
+	{
+		bool MyTCPLog::ms_assertOnFatal = true;
+		bool MyTCPLog::ms_logEnabled = true;
+	}
+}
+
 //
 // Entry points to try samples used in the documentation
 void RunDocTest_ASmallTaste();

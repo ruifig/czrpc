@@ -3,7 +3,17 @@
 #include "crazygaze/rpc/RPC.h"
 #include "crazygaze/rpc/RPCTCPSocket.h"
 
-#define TRPLOG(fmt, ...) printf("TRPLOG th=%u, %s:%d: "##fmt##"\n", GetCurrentThreadId(), __FUNCTION__, __LINE__, ##__VA_ARGS__)
+#ifdef _WIN32
+	#define TRPLOG(fmt, ...) \
+		printf(TRPLOG_CONCAT("TRPLOG th=%ld, %s:%d: ", fmt, "\n"), (long)GetCurrentThreadId(), __FUNCTION__, __LINE__, ##__VA_ARGS__)
+#else
+	#include <sys/types.h>
+	#include <sys/syscall.h>
+	#define TRPLOG(fmt, ...) \
+		printf(TRPLOG_CONCAT("TRPLOG th=%ld, %s:%d: ", fmt, "\n"), (long)syscall(SYS_gettid), __FUNCTION__, __LINE__, ##__VA_ARGS__)
+#endif
+
+#define TRPLOG_CONCAT(a,b,c) a # b # c
 
 namespace cz
 {

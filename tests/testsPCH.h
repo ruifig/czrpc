@@ -15,8 +15,32 @@ namespace cz {
 
 		struct MyTCPLog
 		{
+			struct DisableFatalAssert
+			{
+				DisableFatalAssert(const DisableFatalAssert&) = delete;
+				DisableFatalAssert& operator =(const DisableFatalAssert&) = delete;
+				DisableFatalAssert() : previous(ms_assertOnFatal) {
+					ms_assertOnFatal = false;
+				}
+				~DisableFatalAssert() { ms_assertOnFatal = previous; }
+				bool previous;
+			};
+			struct DisableLogging
+			{
+				DisableLogging(const DisableFatalAssert&) = delete;
+				DisableLogging& operator =(const DisableFatalAssert&) = delete;
+				DisableLogging() : previous(ms_logEnabled) {
+					ms_logEnabled = false;
+				}
+				~DisableLogging() { ms_logEnabled = previous; }
+				bool previous;
+			};
+			static bool ms_assertOnFatal;
+			static bool ms_logEnabled;
 			static void out(bool fatal, const char* type, const char* fmt, ...)
 			{
+				if (!ms_logEnabled)
+					return;
 				char buf[256];
 				strcpy(buf, type);
 				va_list args;
@@ -24,7 +48,7 @@ namespace cz {
 				vsnprintf(buf + strlen(buf), sizeof(buf) - strlen(buf) - 1, fmt, args);
 				va_end(args);
 				printf("%s\n",buf);
-				if (fatal)
+				if (fatal && ms_assertOnFatal)
 				{
 					CZRPC_DEBUG_BREAK();
 					exit(1);

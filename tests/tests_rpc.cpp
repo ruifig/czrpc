@@ -2,7 +2,7 @@
 #include "Semaphore.h"
 #include "Foo.h"
 
-#if 0
+#if 1
 
 #define TEST_PORT 9000
 
