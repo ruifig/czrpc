@@ -513,7 +513,7 @@ public:
 			return ec;
 		}
 
-		TCPINFO("Connect socket=%d", (int)sock->m_s);
+		TCPINFO("Connect socket=%d", (int)m_s);
 		// Enable any loopback optimizations (in case this socket is used in loopback)
 		details::utils::optimizeLoopback(m_s);
 
@@ -555,7 +555,7 @@ public:
 			});
 			return;
 		}
-		TCPINFO("Connect socket=%d", (int)sock->m_s);
+		TCPINFO("Connect socket=%d", (int)m_s);
 
 		// Enable any loopback optimizations (in case this socket is used in loopback)
 		details::utils::optimizeLoopback(m_s);
@@ -866,6 +866,7 @@ public:
 	{
 		TCPASSERT(m_accepts.size() == 0);
 	}
+
 	using AcceptHandler = std::function<void(const TCPError& ec)>;
 
 	//! Starts listening for new connections at the specified port
@@ -875,7 +876,7 @@ public:
 	\param ec
 		If an error occurs, this contains the error.
 	\param backlog
-		Size of the the connection backlog. Default value to use the maximum allowed.
+		Size of the the connection backlog.
 		Also, this is only an hint to the OS. It's not guaranteed.
 	\return
 		The Acceptor socket, or nullptr, if there was an error
@@ -894,7 +895,7 @@ public:
 
 		details::utils::setReuseAddress(m_s);
 
-		TCPINFO("Listen socket=%d", (int)sock->m_s);
+		TCPINFO("Listen socket=%d", (int)m_s);
 		sockaddr_in addr;
 		addr.sin_family = AF_INET;
 		addr.sin_port = htons(port);
@@ -993,7 +994,7 @@ protected:
 		op.sock.m_peerAddr = details::utils::getRemoteAddr(op.sock.m_s);
 		details::utils::setBlocking(op.sock.m_s, false);
 		TCPINFO("Server side socket %d connected to %s:%d, socket %d",
-			(int)s, op.sock.m_peerAddr.first.c_str(), op.sock.m_peerAddr.second,
+			(int)op.sock.m_s, op.sock.m_peerAddr.first.c_str(), op.sock.m_peerAddr.second,
 			(int)m_s);
 		op.h(TCPError());
 
@@ -1074,6 +1075,15 @@ public:
 		{
 			TCPASSERT(q.size() == 0);
 		});
+	}
+
+	static TCPService& getFrom(TCPAcceptor& s)
+	{
+		return static_cast<TCPService&>(s.m_owner);
+	}
+	static TCPService& getFrom(TCPSocket& s)
+	{
+		return static_cast<TCPService&>(s.m_owner);
 	}
 
 	//! Processes whatever it needs
