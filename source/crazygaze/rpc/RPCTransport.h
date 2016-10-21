@@ -20,6 +20,9 @@ class Transport : public std::enable_shared_from_this<Transport>
 
 	// Close connection to the peer
 	virtual void close() = 0;
+
+	// Called when the owning Connection object is destroyed
+	virtual void onConnectionDestroyed() = 0;
 };
 }
 }

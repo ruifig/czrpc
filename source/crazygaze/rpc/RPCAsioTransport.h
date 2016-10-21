@@ -123,6 +123,10 @@ public:
 		});
 	}
 
+	virtual void onConnectionDestroyed() override
+	{
+	}
+
 	void connect(const char* ip, int port, std::function<void(bool)> callback)
 	{
 		//printf("Client side transport = this=%p, ms=%p\n", this, m_s.get());

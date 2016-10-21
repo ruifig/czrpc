@@ -23,7 +23,9 @@ public:
 	virtual void send(std::vector<char> data) override
 	{
 		auto d = std::make_shared<std::vector<char>>(std::move(data));
-		m_sock.asyncWrite(d->data(), d->size(), [d, this](const TCPError& ec, int bytesTransfered)
+		m_sock.asyncWrite(
+			d->data(), d->size(),
+			[d, this, con=m_rpcCon.lock()](const TCPError& ec, int bytesTransfered)
 		{
 			if (ec)
 			{
@@ -36,15 +38,23 @@ public:
 
 	virtual bool receive(std::vector<char>& dst) override
 	{
-		if (m_incoming.size() == 0)
+		if (!m_incomingReady)
 			return false;
+		assert(m_incoming.size());
 		dst = std::move(m_incoming);
+		m_incomingReady = false;
 		return true;
 	}
 
 	virtual void close() override
 	{
-		m_sock.asyncClose(nullptr);
+		m_sock.asyncClose([con=m_rpcCon.lock()]()
+		{
+		});
+	}
+
+	virtual void onConnectionDestroyed() override
+	{
 	}
 
 protected:
@@ -52,7 +62,8 @@ protected:
 
 	void onClosed()
 	{
-		m_rpcCon->process();
+		if (auto con = m_rpcCon.lock())
+			con->process();
 	}
 
 	void startReadSize()
@@ -60,7 +71,9 @@ protected:
 		assert(m_incoming.size() == 0);
 		const auto headerSize = sizeof(uint32_t);
 		m_incoming.insert(m_incoming.end(), headerSize, 0);
-		m_sock.asyncRead(m_incoming.data(), headerSize, [this](const TCPError& ec, int bytesTransfered)
+		m_sock.asyncRead(
+			m_incoming.data(), headerSize,
+			[this, con=m_rpcCon.lock()](const TCPError& ec, int bytesTransfered)
 		{
 			if (ec)
 			{
@@ -79,9 +92,9 @@ protected:
 		// To received "rpcSize" is the total size of the data, so the remaining iss rpcSize - sizeof(uint32_t)
 		const int remaining = rpcSize - sizeof(uint32_t);
 		m_incoming.insert(m_incoming.end(), remaining, 0);
-		m_sock.asyncRead(m_incoming.data() + sizeof(uint32_t), remaining,
-
-			[this](const TCPError& ec, int bytesTransfered)
+		m_sock.asyncRead(
+			m_incoming.data() + sizeof(uint32_t), remaining,
+			[this, con=m_rpcCon.lock()](const TCPError& ec, int bytesTransfered)
 		{
 			if (ec)
 			{
@@ -90,7 +103,8 @@ protected:
 			}
 
 			assert(bytesTransfered == m_incoming.size() - sizeof(uint32_t));
-			m_rpcCon->process(BaseConnection::Direction::In);
+			m_incomingReady = true;
+			con->process(BaseConnection::Direction::In);
 			startReadSize();
 		});
 	}
@@ -111,7 +125,8 @@ protected:
 			}
 
 			auto con = std::make_shared<Connection<LOCAL,REMOTE>>(localObj, trp);
-			trp->m_rpcCon = con.get();
+			trp->m_rpcCon = con;
+			printf("trp<->con : %p <-> %p\n", trp.get(), con.get());
 			con->setOutSignal([con=con.get()]()
 			{
 				con->process(BaseConnection::Direction::Out);
@@ -124,10 +139,11 @@ protected:
 	}
 
 	TCPSocket m_sock;
-	BaseConnection* m_rpcCon = nullptr;
+	std::weak_ptr<BaseConnection> m_rpcCon;
 
-	// Holds the next incoming RPC data
+	// Holds the currently incoming RPC data
 	std::vector<char> m_incoming;
+	bool m_incomingReady = false;
 };
 
 
@@ -209,14 +225,15 @@ private:
 		if (ec)
 			return;
 
-		trp->startReadSize();
 		auto con = std::make_shared<ConnectionType>(&m_localObj, trp);
-		trp->m_rpcCon = con.get();
+		trp->m_rpcCon = con;
+		printf("Accepted: trp<->con : %p <-> %p\n", trp.get(), con.get());
 		con->setOutSignal([con=con.get()]
 		{
 			con->process(BaseConnection::Direction::Out);
 		});
 
+		trp->startReadSize();
 		if (m_newConnectionCallback)
 			m_newConnectionCallback(std::move(con));
 	}
