@@ -29,12 +29,61 @@ public:
 	REGISTERRPC(sub)
 #include "crazygaze/rpc/RPCGenerate.h"
 
+/*
+class SingleThreadEnforcerTest
+{
+public:
+	void func1()
+	{
+		SINGLETHREAD_ENFORCE();
+	}
+
+	void func2()
+	{
+		SINGLETHREAD_ENFORCE();
+		Sleep(100);
+	}
+
+	void func3()
+	{
+		Sleep(210);
+		SINGLETHREAD_ENFORCE();
+	}
+private:
+	DECLARE_SINGLETHREAD_ENFORCER_STRICT;
+};
+*/
 
 SUITE(RPCTCP)
 {
 
+/*
+TEST(SingleThreadEnforcer)
+{
+	SingleThreadEnforcerTest test;
+	auto res1 = std::async(std::launch::async, [&]()
+	{
+		test.func1();
+		test.func2();
+	});
+
+	auto res2 = std::async(std::launch::async, [&]()
+	{
+		test.func3();
+	});
+	//auto res3 = std::async(std::launch::async, &SingleThreadEnforcerTest::func3, &test);
+
+	res1.get();
+	res2.get();
+	printf("\n");
+}
+*/
+
 TEST(1)
 {
+	while(true)
+	{
+	printf("-------------------START------------------\n");
 	TCPService io;
 	auto th = std::thread([&io]
 	{
@@ -48,19 +97,26 @@ TEST(1)
 	acceptor.start(TEST_PORT, [&serverCon](std::shared_ptr<Connection<CalcTest, void>> con)
 	{
 		con->close();
-		printf("Derp\n");
+		printf("Accepted\n");
 		//serverCon = con;
 	});
 
 	auto conFt = TCPTransport<void, CalcTest>::create(io, "127.0.0.1", TEST_PORT);
 	auto con = conFt.get();
-	printf("Derp\n");
+	printf("Connected\n");
 
+	//Sleep(1);
 	Semaphore sem;
 	CZRPC_CALL(*con, add, 1, 2).async([&sem](Result<int> res)
 	{
-		printf("%d\n", res.get());
-		sem.notify();
+		CHECK(res.isAborted());
+		//printf("%d\n", res.get());
+		if (res.isAborted())
+			sem.notify();
+		else
+		{
+			assert(false);
+		}
 	});
 
 	sem.wait();
@@ -68,6 +124,7 @@ TEST(1)
 
 	io.stop();
 	th.join();
+	}
 }
 
 }

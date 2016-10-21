@@ -118,7 +118,6 @@ public:
 
 	virtual ~Connection()
 	{
-		m_transport->onConnectionDestroyed();
 	}
 
 	template<typename F, typename... Args>
@@ -178,7 +177,7 @@ public:
 	}
 
 	// Called whenever a RPC call is committed (e.g: As a result of CZRPC_CALL).
-	// Can be used by custom transports to trigger calls to Connection::process"
+	// Can be used by custom transports to trigger calls to Connection::process
 	void setOutSignal(std::function<void()> callback)
 	{
 		m_outSignal = std::move(callback);
@@ -238,13 +237,9 @@ protected:
 			in >> hdr;
 
 			if (hdr.bits.isReply)
-			{
 				m_remotePrc.processReply(in, hdr);
-			}
 			else
-			{
 				m_localPrc.processCall(*m_transport, in, hdr);
-			}
 		}
 	}
 

@@ -381,7 +381,7 @@ namespace details
 	};
 #endif
 
-	struct TCPServiceData;
+	class TCPServiceData;
 	//////////////////////////////////////////////////////////////////////////
 	// TCPBaseSocket
 	//////////////////////////////////////////////////////////////////////////
@@ -391,7 +391,7 @@ namespace details
 		TCPBaseSocket() {}
 		virtual ~TCPBaseSocket()
 		{
-			releaseHandle();
+			//releaseHandle();
 		}
 
 		bool isValid() const
@@ -404,11 +404,13 @@ namespace details
 		TCPBaseSocket(const TCPBaseSocket&) = delete;
 		void operator=(const TCPBaseSocket&) = delete;
 
+		/*
 		void releaseHandle()
 		{
 			details::utils::closeSocket(m_s);
 			m_s = CZRPC_INVALID_SOCKET;
 		}
+		*/
 
 		friend TCPServiceData;
 		friend TCPService;
@@ -417,13 +419,19 @@ namespace details
 
 	// This is not part of the TCPService class, so we can break the circular dependency
 	// between TCPAcceptor/TCPSocket and TCPService
-	struct TCPServiceData
+	class TCPServiceData
 	{
+	public:
 		TCPServiceData()
 			: m_stopped(false)
 			, m_signalFlight(0)
 		{
 		}
+
+	protected:
+
+		friend TCPSocket;
+		friend TCPAcceptor;
 
 #if _WIN32
 		details::WSAInstance m_wsaInstance;
@@ -498,6 +506,20 @@ public:
 	{
 		TCPASSERT(m_recvs.size() == 0);
 		TCPASSERT(m_sends.size() == 0);
+		releaseHandle();
+	}
+
+	// #TODO : Remove or make private/protected
+	// Move to TCPBaseSocket
+	void releaseHandle()
+	{
+		printf("%p : releaseHandle()\n", this);
+		TCPASSERT(m_recvs.size() == 0);
+		TCPASSERT(m_sends.size() == 0);
+		TCPASSERT(m_owner.m_sends.find(this) == m_owner.m_sends.end());
+		TCPASSERT(m_owner.m_recvs.find(this) == m_owner.m_recvs.end());
+		details::utils::closeSocket(m_s);
+		m_s = CZRPC_INVALID_SOCKET;
 	}
 
 	TCPError connect(const char* ip, int port)
@@ -637,6 +659,11 @@ public:
 		op.h = std::move(h);
 		m_owner.addCmd([this, op = std::move(op)]
 		{
+			if (!isValid())
+			{
+				op.h(TCPError(TCPError::Code::Other, "asyncWrite called on a closed socket"), 0);
+				return;
+			}
 			m_sends.push(std::move(op));
 			m_owner.m_sends.insert(this);
 		});
@@ -690,6 +717,12 @@ protected:
 		op.h = std::move(h);
 		m_owner.addCmd([this, op = std::move(op)]
 		{
+			if (!isValid())
+			{
+				op.h(TCPError(TCPError::Code::Other, "asyncRead/asyncReadSome called on a closed socket"), 0);
+				return;
+			}
+
 			m_recvs.push(std::move(op));
 			m_owner.m_recvs.insert(this);
 		});
@@ -865,6 +898,15 @@ public:
 	virtual ~TCPAcceptor()
 	{
 		TCPASSERT(m_accepts.size() == 0);
+		releaseHandle();
+	}
+
+	void releaseHandle()
+	{
+		TCPASSERT(m_accepts.size() == 0);
+		TCPASSERT(m_owner.m_accepts.find(this) == m_owner.m_accepts.end());
+		details::utils::closeSocket(m_s);
+		m_s = CZRPC_INVALID_SOCKET;
 	}
 
 	using AcceptHandler = std::function<void(const TCPError& ec)>;
@@ -1075,6 +1117,12 @@ public:
 		{
 			TCPASSERT(q.size() == 0);
 		});
+
+		// Releasing these here, instead of letting it be cleared up automatically,
+		// so that TCPSocket can do asserts that use their owner (TCPService) while all
+		// the owner's members are all valid
+		m_signalOut = nullptr;
+		m_signalIn = nullptr;
 	}
 
 	static TCPService& getFrom(TCPAcceptor& s)
@@ -1103,13 +1151,9 @@ public:
 		{
 			auto&& fn = m_tmpQueue.front();
 			if (fn)
-			{
 				fn();
-			}
 			else
-			{
 				finished = true;
-			}
 			m_tmpQueue.pop();
 		}
 
@@ -1149,6 +1193,7 @@ public:
 		{
 			for (auto&& s : container)
 			{
+				assert(s->m_s != CZRPC_INVALID_SOCKET);
 				if (s->m_s > maxfd)
 					maxfd = s->m_s;
 				FD_SET(s->m_s, &fds);
@@ -1303,7 +1348,12 @@ public:
 		addCmd(nullptr);
 	}
 
-	//! Used only by the unit tests
+	template<typename H>
+	void post(H&& handler)
+	{
+		addCmd(std::forward<H>(handler));
+	}
+
 protected:
 
 	void startSignalIn()

@@ -1,6 +1,9 @@
 #pragma once
 
+#include "crazygaze/rpc/RPC.h"
 #include "crazygaze/rpc/RPCTCPSocket.h"
+
+#define TRPLOG(fmt, ...) printf("TRPLOG th=%u, %s:%d: "##fmt##"\n", GetCurrentThreadId(), __FUNCTION__, __LINE__, ##__VA_ARGS__)
 
 namespace cz
 {
@@ -8,20 +11,96 @@ namespace rpc
 {
 
 
+class SingleThreadEnforcer
+{
+public:
+	virtual void lock()
+	{
+		if (!m_mtx.try_lock())
+		{
+			// If it breaks here, then there are multiple threads accessing this object at this moment
+			DebugBreak();
+		}
+	}
+	virtual void unlock()
+	{
+		m_mtx.unlock();
+	}
+protected:
+	std::recursive_mutex m_mtx;
+};
+
+struct SingleThreadEnforcerStrict : public SingleThreadEnforcer
+{
+public:
+	virtual void lock() override
+	{
+		if (!m_mtx.try_lock())
+		{
+			// If it breaks here, then there are multiple threads accessing this object at this moment
+			DebugBreak();
+		}
+
+		if (
+			m_lastThreadId != std::thread::id() &&
+			std::this_thread::get_id() != m_lastThreadId)
+		{
+			// If if breaks here, then this object was access from different threads at some point, even if not
+			// concurrently
+			DebugBreak();
+		}
+
+		m_lastThreadId = std::this_thread::get_id();
+	}
+	virtual void unlock() override
+	{
+		m_mtx.unlock();
+	}
+private:
+	std::thread::id m_lastThreadId;
+};
+
+class SingleThreadEnforcerLock
+{
+public:
+	SingleThreadEnforcerLock(SingleThreadEnforcer& data)
+		: m_data(data)
+	{
+		m_data.lock();
+	}
+	~SingleThreadEnforcerLock()
+	{
+		m_data.unlock();
+	}
+	SingleThreadEnforcer& m_data;
+};
+
+#define SINGLETHREAD_ENFORCE() \
+	auto singleThreadEnforcer_ = SingleThreadEnforcerLock(m_singleThreadEnforcer)
+#define DECLARE_SINGLETHREAD_ENFORCER \
+	SingleThreadEnforcer m_singleThreadEnforcer
+#define DECLARE_SINGLETHREAD_ENFORCER_STRICT \
+	SingleThreadEnforcerStrict m_singleThreadEnforcer
+
 class BaseTCPTransport : public Transport
 {
 public:
 	BaseTCPTransport(TCPService& service)
 		: m_sock(service)
 	{
+		TRPLOG("%p", this);
 	}
 
 	virtual ~BaseTCPTransport()
 	{
+		TRPLOG("%p", this);
 	}
 
 	virtual void send(std::vector<char> data) override
 	{
+		SINGLETHREAD_ENFORCE();
+
+		TRPLOG("%p", this);
 		auto d = std::make_shared<std::vector<char>>(std::move(data));
 		m_sock.asyncWrite(
 			d->data(), d->size(),
@@ -29,7 +108,8 @@ public:
 		{
 			if (ec)
 			{
-				onClosed();
+				TRPLOG("%p: asyncWrite failed", this);
+				close();
 				return;
 			}
 			assert((size_t)bytesTransfered == d->size());
@@ -38,8 +118,19 @@ public:
 
 	virtual bool receive(std::vector<char>& dst) override
 	{
-		if (!m_incomingReady)
+		SINGLETHREAD_ENFORCE();
+		
+		if (m_closing)
 			return false;
+
+		if (!m_incomingReady)
+		{
+			TRPLOG("%p: Not ready", this);
+			dst.clear();
+			return true;
+		}
+
+		TRPLOG("%p: Ready. %d bytes", this, (int)m_incoming.size());
 		assert(m_incoming.size());
 		dst = std::move(m_incoming);
 		m_incomingReady = false;
@@ -48,26 +139,31 @@ public:
 
 	virtual void close() override
 	{
+		SINGLETHREAD_ENFORCE();
+
+		if (m_closing)
+		{
+			TRPLOG("%p : Close: Was already closing...", this);
+			return;
+		}
+		TRPLOG("%p : Close: closing...", this);
+		m_closing = true;
 		m_sock.asyncClose([con=m_rpcCon.lock()]()
 		{
+			con->process();
 		});
 	}
 
-	virtual void onConnectionDestroyed() override
-	{
-	}
-
 protected:
-	template<typename, typename> friend class TCPTransportAcceptor;
 
-	void onClosed()
-	{
-		if (auto con = m_rpcCon.lock())
-			con->process();
-	}
+	DECLARE_SINGLETHREAD_ENFORCER_STRICT;
+
+	template<typename, typename> friend class TCPTransportAcceptor;
 
 	void startReadSize()
 	{
+		SINGLETHREAD_ENFORCE();
+
 		assert(m_incoming.size() == 0);
 		const auto headerSize = sizeof(uint32_t);
 		m_incoming.insert(m_incoming.end(), headerSize, 0);
@@ -77,7 +173,8 @@ protected:
 		{
 			if (ec)
 			{
-				onClosed();
+				TRPLOG("%p: asyncRead (startReadSize) failed", this);
+				close();
 				return;
 			}
 
@@ -88,6 +185,8 @@ protected:
 
 	void startReadData()
 	{
+		SINGLETHREAD_ENFORCE();
+
 		const int rpcSize = *reinterpret_cast<uint32_t*>(m_incoming.data());
 		// To received "rpcSize" is the total size of the data, so the remaining iss rpcSize - sizeof(uint32_t)
 		const int remaining = rpcSize - sizeof(uint32_t);
@@ -98,7 +197,8 @@ protected:
 		{
 			if (ec)
 			{
-				onClosed();
+				TRPLOG("%p: asyncRead (startReadData) failed", this);
+				close();
 				return;
 			}
 
@@ -126,10 +226,15 @@ protected:
 
 			auto con = std::make_shared<Connection<LOCAL,REMOTE>>(localObj, trp);
 			trp->m_rpcCon = con;
-			printf("trp<->con : %p <-> %p\n", trp.get(), con.get());
-			con->setOutSignal([con=con.get()]()
+			TRPLOG("Connected: trp<->con : %p <-> %p", trp.get(), con.get());
+			con->setOutSignal([trp=trp.get()]()
 			{
-				con->process(BaseConnection::Direction::Out);
+				// Connection will call our outSignal handler from any thread calling CZRPC_CALL,
+				// but we need to make sure the Connection processing will only happen in our io thread.
+				TCPService::getFrom(trp->m_sock).post([con=trp->m_rpcCon.lock()]()
+				{
+					con->process(BaseConnection::Direction::Out);
+				});
 			});
 			trp->startReadSize();
 			pr->set_value(std::move(con));
@@ -144,6 +249,7 @@ protected:
 	// Holds the currently incoming RPC data
 	std::vector<char> m_incoming;
 	bool m_incomingReady = false;
+	bool m_closing = false;
 };
 
 
@@ -201,6 +307,7 @@ public:
 
 	bool start(int port, std::function<void(std::shared_ptr<ConnectionType>)> newConnectionCallback)
 	{
+		assert(!m_acceptor.isValid());
 		auto ec = m_acceptor.listen(port, 200);
 		if (ec)
 			return false;
@@ -208,6 +315,8 @@ public:
 		setupAccept();
 		return true;
 	}
+
+private:
 
 	void setupAccept()
 	{
@@ -218,16 +327,16 @@ public:
 		});
 	}
 
-private:
-
 	void doAccept(const TCPError& ec, std::shared_ptr<BaseTCPTransport> trp)
 	{
+		SINGLETHREAD_ENFORCE();
+
 		if (ec)
 			return;
 
 		auto con = std::make_shared<ConnectionType>(&m_localObj, trp);
 		trp->m_rpcCon = con;
-		printf("Accepted: trp<->con : %p <-> %p\n", trp.get(), con.get());
+		TRPLOG("Accepted: trp<->con : %p <-> %p", trp.get(), con.get());
 		con->setOutSignal([con=con.get()]
 		{
 			con->process(BaseConnection::Direction::Out);
@@ -238,6 +347,7 @@ private:
 			m_newConnectionCallback(std::move(con));
 	}
 
+	DECLARE_SINGLETHREAD_ENFORCER_STRICT;
 	LocalType& m_localObj;
 	std::function<void(std::shared_ptr<ConnectionType>)>  m_newConnectionCallback;
 };
