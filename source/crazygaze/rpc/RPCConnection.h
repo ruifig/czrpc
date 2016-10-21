@@ -116,7 +116,10 @@ public:
 	{
 	}
 
-	virtual ~Connection() { }
+	virtual ~Connection()
+	{
+		m_transport->onConnectionDestroyed();
+	}
 
 	template<typename F, typename... Args>
 	auto call(uint32_t rpcid, Args&&... args)

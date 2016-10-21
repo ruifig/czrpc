@@ -47,8 +47,9 @@ TEST(1)
 	std::shared_ptr<Connection<CalcTest, void>> serverCon;
 	acceptor.start(TEST_PORT, [&serverCon](std::shared_ptr<Connection<CalcTest, void>> con)
 	{
+		con->close();
 		printf("Derp\n");
-		serverCon = con;
+		//serverCon = con;
 	});
 
 	auto conFt = TCPTransport<void, CalcTest>::create(io, "127.0.0.1", TEST_PORT);
@@ -64,6 +65,9 @@ TEST(1)
 
 	sem.wait();
 	printf("\n");
+
+	io.stop();
+	th.join();
 }
 
 }
