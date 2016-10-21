@@ -16,15 +16,8 @@
 /*
 
 TODO:
-	- Revise TCPSocket to match asio's tcp::socket more closely
-		- put the connect and asyncConnect in the TCPSocket itself
-		- remove connect and asyncConnect from TCPService
 	- Revise TCPService to match asio's io_service more closely
 		- put a "post" method, so the user can add custom commands to execute by the service, similar to what asio does. ??
-	- Refactor things so we can use scoped sockets, instead of std::shared_ptr all over
-		- This will require serious refactoring of how TCPService tracks sockets
-		- Also, the user will have to explicitly pass a shared_ptr to the handlers to keep the sockets alive as required,
-		instead of relying of the current behavior, which automatically does this
 */
 #pragma once
 
@@ -392,15 +385,31 @@ namespace details
 	//////////////////////////////////////////////////////////////////////////
 	// TCPBaseSocket
 	//////////////////////////////////////////////////////////////////////////
-	class TCPBaseSocket : public std::enable_shared_from_this<TCPBaseSocket>
+	class TCPBaseSocket
 	{
 	public:
 		TCPBaseSocket() {}
 		virtual ~TCPBaseSocket()
 		{
-			details::utils::closeSocket(m_s);
+			releaseHandle();
 		}
+
+		bool isValid() const
+		{
+			return m_s != CZRPC_INVALID_SOCKET;
+		}
+
 	protected:
+
+		TCPBaseSocket(const TCPBaseSocket&) = delete;
+		void operator=(const TCPBaseSocket&) = delete;
+
+		void releaseHandle()
+		{
+			details::utils::closeSocket(m_s);
+			m_s = CZRPC_INVALID_SOCKET;
+		}
+
 		friend TCPServiceData;
 		friend TCPService;
 		SocketHandle m_s = CZRPC_INVALID_SOCKET;
@@ -419,9 +428,8 @@ namespace details
 #if _WIN32
 		details::WSAInstance m_wsaInstance;
 #endif
-		// Change these to unique_ptr once the refactoring is done
-		std::shared_ptr<TCPBaseSocket> m_signalIn;
-		std::shared_ptr<TCPBaseSocket> m_signalOut;
+		std::unique_ptr<TCPBaseSocket> m_signalIn;
+		std::unique_ptr<TCPBaseSocket> m_signalOut;
 
 		std::atomic<int> m_signalFlight;
 		std::atomic<bool> m_stopped;
@@ -432,10 +440,10 @@ namespace details
 			ConnectHandler h;
 		};
 
-		std::unordered_map<std::shared_ptr<TCPSocket>, ConnectOp> m_connects;  // Pending connects
-		std::set<std::shared_ptr<TCPAcceptor>> m_accepts; // pending accepts
-		std::set<std::shared_ptr<TCPSocket>> m_recvs; // pending reads
-		std::set<std::shared_ptr<TCPSocket>> m_sends; // pending writes
+		std::unordered_map<TCPSocket*, ConnectOp> m_connects;  // Pending connects
+		std::set<TCPAcceptor*> m_accepts; // pending accepts
+		std::set<TCPSocket*> m_recvs; // pending reads
+		std::set<TCPSocket*> m_sends; // pending writes
 
 		using CmdQueue = std::queue<std::function<void()>>;
 		Monitor<CmdQueue> m_cmdQueue;
@@ -492,11 +500,6 @@ public:
 		TCPASSERT(m_sends.size() == 0);
 	}
 
-	bool isValid() const
-	{
-		return m_s != CZRPC_INVALID_SOCKET;
-	}
-
 	TCPError connect(const char* ip, int port)
 	{
 		TCPASSERT(m_s == CZRPC_INVALID_SOCKET);
@@ -521,8 +524,7 @@ public:
 		inet_pton(AF_INET, ip, &(addr.sin_addr));
 		if (::connect(m_s, (const sockaddr*)&addr, sizeof(addr)) == CZRPC_SOCKET_ERROR)
 		{
-			details::utils::closeSocket(m_s);
-			m_s = CZRPC_INVALID_SOCKET;
+			releaseHandle();
 			auto ec = details::ErrorWrapper().getError();
 			TCPERROR(ec.msg());
 			return ec;
@@ -572,21 +574,20 @@ public:
 			if (err.isBlockError())
 			{
 				// Normal behavior, so setup the connect detection with select
-				m_owner.addCmd([this_=shared_from_this(), h = std::move(h), timeoutMs]
+				m_owner.addCmd([this, h = std::move(h), timeoutMs]
 				{
 					details::TCPServiceData::ConnectOp op;
 					op.timeoutPoint = std::chrono::high_resolution_clock::now() + std::chrono::milliseconds(timeoutMs);
 					op.h = std::move(h);
-					this_->m_owner.m_connects[this_] = std::move(op);
+					m_owner.m_connects[this] = std::move(op);
 				});
 			}
 			else
 			{
 				// Anything else than a blocking error is a real error
-				m_owner.addCmd([this_=shared_from_this(), ec = err.getError(), h = std::move(h)]
+				m_owner.addCmd([this, ec = err.getError(), h = std::move(h)]
 				{
-					details::utils::closeSocket(this_->m_s);
-					this_->m_s = CZRPC_INVALID_SOCKET;
+					releaseHandle();
 					h(ec);
 				});
 			}
@@ -594,7 +595,7 @@ public:
 		else
 		{
 			// It may happen that the connect succeeds right away.
-			m_owner.addCmd([this_ = shared_from_this(), h = std::move(h)]
+			m_owner.addCmd([h = std::move(h)]
 			{
 				h(TCPError());
 			});
@@ -634,10 +635,10 @@ public:
 		op.buf = buf;
 		op.bufLen = len;
 		op.h = std::move(h);
-		m_owner.addCmd([this_ = shared_from_this(), op = std::move(op)]
+		m_owner.addCmd([this, op = std::move(op)]
 		{
-			this_->m_sends.push(std::move(op));
-			this_->m_owner.m_sends.insert(this_);
+			m_sends.push(std::move(op));
+			m_owner.m_sends.insert(this);
 		});
 	}
 	template<typename H>
@@ -647,13 +648,25 @@ public:
 	}
 
 	//! Cancels all outstanding asynchronous operations
-	void asyncCancel()
+	void asyncCancel(std::function<void()> h)
 	{
-		m_owner.addCmd([this_ = shared_from_this()]
+		m_owner.addCmd([this, h=std::move(h)]
 		{
-			this_->doCancel();
-			this_->m_owner.m_recvs.erase(this_);
-			this_->m_owner.m_sends.erase(this_);
+			doCancel();
+			m_owner.m_recvs.erase(this);
+			m_owner.m_sends.erase(this);
+			if (h)
+				h();
+		});
+	}
+
+	void asyncClose(std::function<void()> h)
+	{
+		asyncCancel([this, h=std::move(h)]()
+		{
+			releaseHandle();
+			if (h)
+				h();
 		});
 	}
 
@@ -667,11 +680,6 @@ public:
 		return m_peerAddr;
 	}
 
-	std::shared_ptr<TCPSocket> shared_from_this()
-	{
-		return std::static_pointer_cast<TCPSocket>(TCPBaseSocket::shared_from_this());
-	}
-
 protected:
 	void asyncReadImpl(char* buf, int len, TransferHandler h, bool fill)
 	{
@@ -680,10 +688,10 @@ protected:
 		op.bufLen = len;
 		op.fill = fill;
 		op.h = std::move(h);
-		m_owner.addCmd([this_ = shared_from_this(), op = std::move(op)]
+		m_owner.addCmd([this, op = std::move(op)]
 		{
-			this_->m_recvs.push(std::move(op));
-			this_->m_owner.m_recvs.insert(this_);
+			m_recvs.push(std::move(op));
+			m_owner.m_recvs.insert(this);
 		});
 	}
 
@@ -715,8 +723,11 @@ protected:
 
 	bool doRecv()
 	{
-		TCPASSERT(m_recvs.size());
+		// NOTE:
+		// The Operation is moved to a local variable and pop before calling the handler, otherwise the TCPSocket
+		// destructor can assert as the result of pop itself since the container is not empty.
 
+		TCPASSERT(m_recvs.size());
 		while (m_recvs.size())
 		{
 			RecvOp& op = m_recvs.front();
@@ -730,8 +741,9 @@ protected:
 					{
 						// If this operation doesn't require a full buffer, we call the handler with
 						// whatever data we received, and discard the operation
-						op.h(TCPError(), op.bytesTransfered);
+						RecvOp o(std::move(op));
 						m_recvs.pop();
+						o.h(TCPError(), op.bytesTransfered);
 					}
 
 					// Done receiving, since the socket doesn't have more incoming data
@@ -747,16 +759,18 @@ protected:
 				op.bytesTransfered += len;
 				if (op.bufLen == op.bytesTransfered)
 				{
-					op.h(TCPError(), op.bytesTransfered);
+					RecvOp o(std::move(op));
 					m_recvs.pop();
+					o.h(TCPError(), op.bytesTransfered);
 				}
 			}
 			else if (len == 0)
 			{
-				// #TODO : Peer disconnected gracefully.
-				// #TODO : Cancel all pending receives?
-				op.h(TCPError(TCPError::Code::ConnectionClosed), op.bytesTransfered);
+				// Move to a local variable and pop before calling, otherwise TCPSocket destructor
+				// can assert as the result of popping itself since the container is not empty.
+				RecvOp o(std::move(op));
 				m_recvs.pop();
+				o.h(TCPError(TCPError::Code::ConnectionClosed), op.bytesTransfered);
 				break;
 			}
 			else
@@ -770,6 +784,10 @@ protected:
 
 	bool doSend()
 	{
+		// NOTE:
+		// The Operation is moved to a local variable and pop before calling the handler, otherwise the TCPSocket
+		// destructor can assert as the result of pop itself since the container is not empty.
+
 		while (m_sends.size())
 		{
 			SendOp& op = m_sends.front();
@@ -785,9 +803,10 @@ protected:
 				else
 				{
 					TCPERROR(err.msg().c_str());
-					if (op.h)
-						op.h(TCPError(TCPError::Code::ConnectionClosed, err.msg()), op.bytesTransfered);
+					SendOp o(std::move(op));
 					m_sends.pop();
+					if (o.h)
+						o.h(TCPError(TCPError::Code::ConnectionClosed, err.msg()), op.bytesTransfered);
 				}
 			}
 			else
@@ -795,9 +814,10 @@ protected:
 				op.bytesTransfered += res;
 				if (op.bufLen == op.bytesTransfered)
 				{
-					if (op.h)
-						op.h(TCPError(), op.bytesTransfered);
+					SendOp o(std::move(op));
 					m_sends.pop();
+					if (o.h)
+						o.h(TCPError(), op.bytesTransfered);
 				}
 			}
 		}
@@ -848,23 +868,88 @@ public:
 	}
 	using AcceptHandler = std::function<void(const TCPError& ec)>;
 
+	//! Starts listening for new connections at the specified port
+	/*
+	\param port
+		What port to listen on. If 0, the OS will pick a port from the dynamic range
+	\param ec
+		If an error occurs, this contains the error.
+	\param backlog
+		Size of the the connection backlog. Default value to use the maximum allowed.
+		Also, this is only an hint to the OS. It's not guaranteed.
+	\return
+		The Acceptor socket, or nullptr, if there was an error
+	*/
+	TCPError listen(int port, int backlog)
+	{
+		TCPASSERT(!isValid());
+
+		m_s = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+		if (m_s == CZRPC_INVALID_SOCKET)
+		{
+			auto ec = details::ErrorWrapper().getError();
+			TCPERROR(ec.msg());
+			return ec;
+		}
+
+		details::utils::setReuseAddress(m_s);
+
+		TCPINFO("Listen socket=%d", (int)sock->m_s);
+		sockaddr_in addr;
+		addr.sin_family = AF_INET;
+		addr.sin_port = htons(port);
+		addr.sin_addr.s_addr = htonl(INADDR_ANY);
+		if (::bind(m_s, (const sockaddr*)&addr, sizeof(addr)) == CZRPC_SOCKET_ERROR)
+		{
+			releaseHandle();
+			auto ec = details::ErrorWrapper().getError();
+			TCPERROR(ec.msg());
+			return ec;
+		}
+
+		if (::listen(m_s, backlog) == CZRPC_SOCKET_ERROR)
+		{
+			releaseHandle();
+			auto ec = details::ErrorWrapper().getError();
+			TCPERROR(ec.msg());
+			return ec;
+		}
+
+		// Enable any loopback optimizations (in case this socket is used in loopback)
+		details::utils::optimizeLoopback(m_s);
+
+		m_localAddr = details::utils::getLocalAddr(m_s);
+
+		return TCPError();
+	}
+
 	//! Starts an asynchronous accept
 	void asyncAccept(TCPSocket& sock, AcceptHandler h)
 	{
-		m_owner.addCmd([this_ = shared_from_this(), sock=&sock, h(std::move(h))]
+		m_owner.addCmd([this, sock=&sock, h(std::move(h))]
 		{
-			this_->m_accepts.push({*sock, std::move(h)});
-			this_->m_owner.m_accepts.insert(this_);
+			m_accepts.push({*sock, std::move(h)});
+			m_owner.m_accepts.insert(this);
 		});
 	}
 
 	//! Cancels all outstanding asynchronous operations
 	void asyncCancel(std::function<void()> h)
 	{
-		m_owner.addCmd([this_ = shared_from_this(), h=std::move(h)]
+		m_owner.addCmd([this, h=std::move(h)]
 		{
-			this_->doCancel();
-			this_->m_owner.m_accepts.erase(this_);
+			doCancel();
+			m_owner.m_accepts.erase(this);
+			if (h)
+				h();
+		});
+	}
+
+	void asyncClose(std::function<void()> h)
+	{
+		asyncCancel([this, h=std::move(h)]()
+		{
+			releaseHandle();
 			if (h)
 				h();
 		});
@@ -873,11 +958,6 @@ public:
 	const std::pair<std::string, int>& getLocalAddress() const
 	{
 		return m_localAddr;
-	}
-
-	std::shared_ptr<TCPAcceptor> shared_from_this()
-	{
-		return std::static_pointer_cast<TCPAcceptor>(TCPBaseSocket::shared_from_this());
 	}
 
 protected:
@@ -924,8 +1004,9 @@ protected:
 	{
 		while (m_accepts.size())
 		{
-			m_accepts.front().h(TCPError::Code::Cancelled);
+			AcceptOp op(std::move(m_accepts.front()));
 			m_accepts.pop();
+			op.h(TCPError::Code::Cancelled);
 		}
 	}
 
@@ -950,12 +1031,12 @@ class TCPService : public details::TCPServiceData
 public:
 	TCPService()
 	{
-		TCPError ec;
-		auto dummyListen = listen(0, 1, ec);
+		TCPAcceptor dummyListen(*this);
+		TCPError ec = dummyListen.listen(0, 1);
 		TCPASSERT(!ec);
-		m_signalIn = std::make_shared<TCPSocket>(*this);
+		m_signalIn = std::make_unique<TCPSocket>(*this);
 		bool signalInConnected=false;
-		dummyListen->asyncAccept(*reinterpret_cast<TCPSocket*>(m_signalIn.get()), [this, &signalInConnected](const TCPError& ec)
+		dummyListen.asyncAccept(*reinterpret_cast<TCPSocket*>(m_signalIn.get()), [this, &signalInConnected](const TCPError& ec)
 		{
 			TCPASSERT(!ec);
 			signalInConnected = true;
@@ -964,23 +1045,21 @@ public:
 
 		// Do this temporary ticking in a different thread, since our signal socket
 		// is connected here synchronously
-		TCPINFO("Dummy listen socket=%d", (int)(dummyListen->m_s));
+		TCPINFO("Dummy listen socket=%d", (int)(dummyListen.m_s));
 		auto tmptick = std::async(std::launch::async, [this, &signalInConnected]
 		{
 			while (!signalInConnected)
 				tick();
 		});
 
-		m_signalOut = std::make_shared<TCPSocket>(*this);
-		ec = reinterpret_cast<TCPSocket*>(m_signalOut.get())->connect("127.0.0.1", dummyListen->m_localAddr.second);
+		m_signalOut = std::make_unique<TCPSocket>(*this);
+		ec = reinterpret_cast<TCPSocket*>(m_signalOut.get())->connect("127.0.0.1", dummyListen.m_localAddr.second);
 		TCPASSERT(!ec);
 		TCPINFO("m_signalOut socket=%d", (int)(m_signalOut->m_s));
-		tmptick.get();
+		tmptick.get(); // Wait for the std::async to finish
 
 		// Initiate reading for the dummy input socket
 		startSignalIn();
-
-		dummyListen = nullptr; // Not needed, since it goes out of scope, but easier to debug
 
 		details::utils::disableNagle(m_signalIn->m_s);
 		details::utils::disableNagle(m_signalOut->m_s);
@@ -996,66 +1075,6 @@ public:
 			TCPASSERT(q.size() == 0);
 		});
 	}
-
-	//! Creates a listening socket at the specified port
-	/*
-	This is a synchronous operation.
-	\param port
-		What port to listen on. If 0, the OS will pick a port from the dynamic range
-	\param ec
-		If an error occurs, this contains the error.
-	\param backlog
-		Size of the the connection backlog. Default value to use the maximum allowed.
-		Also, this is only an hint to the OS. It's not guaranteed.
-	\return
-		The Acceptor socket, or nullptr, if there was an error
-	*/
-	std::shared_ptr<TCPAcceptor> listen(int port, int backlog, TCPError& ec)
-	{
-		auto sock = std::make_shared<TCPAcceptor>(*this);
-
-		sock->m_s = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-		if (sock->m_s == CZRPC_INVALID_SOCKET)
-		{
-			ec = details::ErrorWrapper().getError();
-			TCPERROR(ec.msg());
-			return nullptr;
-		}
-
-		details::utils::setReuseAddress(sock->m_s);
-
-		TCPINFO("Listen socket=%d", (int)sock->m_s);
-		sockaddr_in addr;
-		addr.sin_family = AF_INET;
-		addr.sin_port = htons(port);
-		addr.sin_addr.s_addr = htonl(INADDR_ANY);
-		if (::bind(sock->m_s, (const sockaddr*)&addr, sizeof(addr)) == CZRPC_SOCKET_ERROR)
-		{
-			ec = details::ErrorWrapper().getError();
-			TCPERROR(ec.msg());
-			return nullptr;
-		}
-
-		if (::listen(sock->m_s, backlog) == CZRPC_SOCKET_ERROR)
-		{
-			ec = details::ErrorWrapper().getError();
-			TCPERROR(ec.msg());
-			return nullptr;
-		}
-
-		// Enable any loopback optimizations (in case this socket is used in loopback)
-		details::utils::optimizeLoopback(sock->m_s);
-
-		sock->m_localAddr = details::utils::getLocalAddr(sock->m_s);
-
-		ec = TCPError();
-		return sock;
-	}
-
-	//! Creates a connection
-	/*
-	This operation is synchronous.
-	*/
 
 	//! Processes whatever it needs
 	// \return
@@ -1234,8 +1253,7 @@ public:
 				}
 				else
 				{
-					details::utils::closeSocket(it->first->m_s);
-					it->first->m_s = CZRPC_INVALID_SOCKET;
+					it->first->releaseHandle();
 					auto ec = details::ErrorWrapper().getError();
 					ec.code = TCPError::Code::ConnectFailed;
 					it->second.h(ec);
@@ -1252,8 +1270,7 @@ public:
 		{
 			if (it->second.timeoutPoint < end)
 			{
-				details::utils::closeSocket(it->first->m_s);
-				it->first->m_s = CZRPC_INVALID_SOCKET;
+				it->first->releaseHandle();
 				it->second.h(TCPError::Code::ConnectFailed);
 				it = m_connects.erase(it);
 			}
@@ -1267,7 +1284,7 @@ public:
 	}
 
 
-	//! Interrupts any tick calls in progress, and marks service as finishing
+	//! Interrupts any tick calls in progress, and marks the service as finishing
 	// You should not make any other calls to the service after this
 	void stop()
 	{
@@ -1296,7 +1313,7 @@ protected:
 			startSignalIn();
 		};
 		static_cast<TCPSocket*>(m_signalIn.get())->m_recvs.push(std::move(op));
-		m_recvs.insert(std::dynamic_pointer_cast<TCPSocket>(m_signalIn));
+		m_recvs.insert(reinterpret_cast<TCPSocket*>(m_signalIn.get()));
 	}
 
 };
