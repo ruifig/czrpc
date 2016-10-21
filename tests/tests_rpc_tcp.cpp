@@ -105,7 +105,7 @@ TEST(1)
 	auto con = conFt.get();
 	printf("Connected\n");
 
-	//Sleep(1);
+	Sleep(1);
 	Semaphore sem;
 	CZRPC_CALL(*con, add, 1, 2).async([&sem](Result<int> res)
 	{

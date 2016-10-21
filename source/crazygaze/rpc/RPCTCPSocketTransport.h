@@ -14,31 +14,41 @@ namespace rpc
 class SingleThreadEnforcer
 {
 public:
-	virtual void lock()
+	static void doBreak()
+	{
+#ifdef _WIN32
+		__debugbreak();
+#else
+		__builtin_trap();
+#endif
+	}
+
+	void lock()
 	{
 		if (!m_mtx.try_lock())
 		{
 			// If it breaks here, then there are multiple threads accessing this object at this moment
-			DebugBreak();
+			doBreak();
 		}
 	}
-	virtual void unlock()
+
+	void unlock()
 	{
 		m_mtx.unlock();
 	}
-protected:
+private:
 	std::recursive_mutex m_mtx;
 };
 
-struct SingleThreadEnforcerStrict : public SingleThreadEnforcer
+class SingleThreadEnforcerStrict
 {
 public:
-	virtual void lock() override
+	void lock()
 	{
 		if (!m_mtx.try_lock())
 		{
 			// If it breaks here, then there are multiple threads accessing this object at this moment
-			DebugBreak();
+			SingleThreadEnforcer::doBreak();
 		}
 
 		if (
@@ -47,36 +57,33 @@ public:
 		{
 			// If if breaks here, then this object was access from different threads at some point, even if not
 			// concurrently
-			DebugBreak();
+			SingleThreadEnforcer::doBreak();
 		}
 
 		m_lastThreadId = std::this_thread::get_id();
 	}
-	virtual void unlock() override
+
+	void unlock()
 	{
 		m_mtx.unlock();
 	}
+
 private:
+	std::recursive_mutex m_mtx;
 	std::thread::id m_lastThreadId;
 };
 
-class SingleThreadEnforcerLock
+template<typename T>
+struct SingleThreadEnforcerLock
 {
-public:
-	SingleThreadEnforcerLock(SingleThreadEnforcer& data)
-		: m_data(data)
-	{
-		m_data.lock();
-	}
-	~SingleThreadEnforcerLock()
-	{
-		m_data.unlock();
-	}
-	SingleThreadEnforcer& m_data;
+	Lock(T& outer) : outer(outer) { outer.lock(); }
+	~Lock() { outer.unlock() }
+	T& outher;
 };
 
+
 #define SINGLETHREAD_ENFORCE() \
-	auto singleThreadEnforcer_ = SingleThreadEnforcerLock(m_singleThreadEnforcer)
+	auto singleThreadEnforcer_ = SingleThreadEnforcerLock<decltype(m_singleThreadEnforcer)>(m_singleThreadEnforcer)
 #define DECLARE_SINGLETHREAD_ENFORCER \
 	SingleThreadEnforcer m_singleThreadEnforcer
 #define DECLARE_SINGLETHREAD_ENFORCER_STRICT \
