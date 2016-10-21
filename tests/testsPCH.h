@@ -9,15 +9,13 @@
 //
 #include "crazygaze/rpc/RPC.h"
 #include "crazygaze/rpc/RPCAsioTransport.h"
+#include "crazygaze/rpc/RPCTCPSocketTransport.h"
 
 #include <stdio.h>
 #include <vector>
 #include <string>
 #include <queue>
 #include <cstdarg>
-
-// #TODO : Really needed? Non-existent on Linux
-//#include <tchar.h>
 
 //
 // UnitTest++
