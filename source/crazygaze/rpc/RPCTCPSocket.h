@@ -675,6 +675,8 @@ public:
 	}
 
 	//! Cancels all outstanding asynchronous operations
+	//template<typename H>
+	//void asyncCancel(H&& h)
 	void asyncCancel(std::function<void()> h)
 	{
 		m_owner.addCmd([this, h=std::move(h)]

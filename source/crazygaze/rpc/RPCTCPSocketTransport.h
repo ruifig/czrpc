@@ -11,83 +11,94 @@ namespace rpc
 {
 
 
-class SingleThreadEnforcer
+namespace ThreadEnforcer
 {
-public:
-	static void doBreak()
+	class None
 	{
+	public:
+		void lock() {}
+		void unlock() {}
+	};
+
+	class Serialize
+	{
+	public:
+		static void doBreak()
+		{
 #ifdef _WIN32
-		__debugbreak();
+			__debugbreak();
 #else
-		__builtin_trap();
+			__builtin_trap();
 #endif
-	}
-
-	void lock()
-	{
-		if (!m_mtx.try_lock())
-		{
-			// If it breaks here, then there are multiple threads accessing this object at this moment
-			doBreak();
-		}
-	}
-
-	void unlock()
-	{
-		m_mtx.unlock();
-	}
-private:
-	std::recursive_mutex m_mtx;
-};
-
-class SingleThreadEnforcerStrict
-{
-public:
-	void lock()
-	{
-		if (!m_mtx.try_lock())
-		{
-			// If it breaks here, then there are multiple threads accessing this object at this moment
-			SingleThreadEnforcer::doBreak();
 		}
 
-		if (
-			m_lastThreadId != std::thread::id() &&
-			std::this_thread::get_id() != m_lastThreadId)
+		void lock()
 		{
-			// If if breaks here, then this object was access from different threads at some point, even if not
-			// concurrently
-			SingleThreadEnforcer::doBreak();
+			if (!m_mtx.try_lock())
+			{
+				// If it breaks here, then there are multiple threads accessing this object at this moment
+				doBreak();
+			}
 		}
 
-		m_lastThreadId = std::this_thread::get_id();
-	}
+		void unlock()
+		{
+			m_mtx.unlock();
+		}
+	private:
+		std::recursive_mutex m_mtx;
+	};
 
-	void unlock()
+	class Affinity
 	{
-		m_mtx.unlock();
-	}
+	public:
+		void lock()
+		{
+			if (!m_mtx.try_lock())
+			{
+				// If it breaks here, then there are multiple threads accessing this object at this moment
+				Serialize::doBreak();
+			}
 
-private:
-	std::recursive_mutex m_mtx;
-	std::thread::id m_lastThreadId;
-};
+			if (
+				m_lastThreadId != std::thread::id() &&
+				std::this_thread::get_id() != m_lastThreadId)
+			{
+				// If if breaks here, then this object was access from different threads at some point, even if not
+				// concurrently
+				Serialize::doBreak();
+			}
+
+			m_lastThreadId = std::this_thread::get_id();
+		}
+
+		void unlock()
+		{
+			m_mtx.unlock();
+		}
+
+	private:
+		std::recursive_mutex m_mtx;
+		std::thread::id m_lastThreadId;
+	};
+}
 
 template<typename T>
 struct SingleThreadEnforcerLock
 {
-	Lock(T& outer) : outer(outer) { outer.lock(); }
-	~Lock() { outer.unlock() }
-	T& outher;
+	SingleThreadEnforcerLock(T& outer) : outer(outer) { outer.lock(); }
+	~SingleThreadEnforcerLock() { outer.unlock(); }
+	T& outer;
 };
 
-
 #define SINGLETHREAD_ENFORCE() \
-	auto singleThreadEnforcer_ = SingleThreadEnforcerLock<decltype(m_singleThreadEnforcer)>(m_singleThreadEnforcer)
-#define DECLARE_SINGLETHREAD_ENFORCER \
-	SingleThreadEnforcer m_singleThreadEnforcer
-#define DECLARE_SINGLETHREAD_ENFORCER_STRICT \
-	SingleThreadEnforcerStrict m_singleThreadEnforcer
+	auto threadEnforcerLock_ = SingleThreadEnforcerLock<decltype(threadEnforcer_)>(threadEnforcer_)
+#define DECLARE_THREADENFORCER_NONE \
+	cz::rpc::ThreadEnforcer::None threadEnforcer_
+#define DECLARE_THREADENFORCER_SERIALIZE \
+	cz::rpc::ThreadEnforcer::Serialize threadEnforcer_
+#define DECLARE_THREADENFORCER_AFFINITY \
+	cz::rpc::ThreadEnforcer::Affinity threadEnforcer_
 
 class BaseTCPTransport : public Transport
 {
@@ -103,9 +114,12 @@ public:
 		TRPLOG("%p", this);
 	}
 
-	virtual void send(std::vector<char> data) override
+	virtual bool send(std::vector<char> data) override
 	{
 		SINGLETHREAD_ENFORCE();
+
+		if (m_closing)
+			return false;
 
 		TRPLOG("%p", this);
 		auto d = std::make_shared<std::vector<char>>(std::move(data));
@@ -121,6 +135,8 @@ public:
 			}
 			assert((size_t)bytesTransfered == d->size());
 		});
+
+		return true;
 	}
 
 	virtual bool receive(std::vector<char>& dst) override
@@ -163,7 +179,7 @@ public:
 
 protected:
 
-	DECLARE_SINGLETHREAD_ENFORCER_STRICT;
+	DECLARE_THREADENFORCER_AFFINITY;
 
 	template<typename, typename> friend class TCPTransportAcceptor;
 
@@ -354,7 +370,7 @@ private:
 			m_newConnectionCallback(std::move(con));
 	}
 
-	DECLARE_SINGLETHREAD_ENFORCER_STRICT;
+	DECLARE_THREADENFORCER_AFFINITY;
 	LocalType& m_localObj;
 	std::function<void(std::shared_ptr<ConnectionType>)>  m_newConnectionCallback;
 };

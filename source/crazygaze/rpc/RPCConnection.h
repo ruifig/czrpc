@@ -150,18 +150,19 @@ public:
 	{
 		// Place a callstack marker, so other code can detect we are serving an RPC
 		typename Callstack<ThisType>::Context ctx(this);
+		bool ok = true;
 		if ((int)what & (int)Direction::Out)
-			processOut();
+			ok = processOut() && ok;
 		if ((int)what & (int)Direction::In)
+			ok = processIn() && ok;
+		if (!ok)
 		{
-			if (!processIn())
+			m_remotePrc.abortReplies();
+			if (m_disconnectSignal)
 			{
-				if (m_disconnectSignal)
-				{
-					m_disconnectSignal();
-					// Release any resources kept by the handler
-					m_disconnectSignal = nullptr;
-				}
+				m_disconnectSignal();
+				// Release any resources kept by the handler
+				m_disconnectSignal = nullptr;
 			}
 		}
 	}
@@ -190,7 +191,7 @@ public:
 
 protected:
 
-	using WorkQueue = std::queue<std::function<void()>>;
+	using WorkQueue = std::queue<std::function<bool()>>;
 	std::shared_ptr<Transport> m_transport;
 	InProcessor<Local> m_localPrc;
 	OutProcessor<Remote> m_remotePrc;
@@ -200,18 +201,23 @@ protected:
 	std::function<void()> m_outSignal;
 	std::function<void()> m_disconnectSignal;
 
-	virtual void processOut()
+	virtual bool processOut()
 	{
 		m_outWork([&](WorkQueue& q)
 		{
 			std::swap(m_tmpOutWork, q);
 		});
 
+		bool ok = true;
 		while (m_tmpOutWork.size())
 		{
-			m_tmpOutWork.front()();
+			// NOTE: If the transport fails while we still have outgoing work, we still process all of it,
+			// so the replies are properly setup and later cancelled.
+			ok = m_tmpOutWork.front()() && ok;
 			m_tmpOutWork.pop();
 		}
+
+		return ok;
 	}
 
 	virtual bool processIn()
@@ -222,10 +228,7 @@ protected:
 		while(true)
 		{
 			if (!m_transport->receive(data))
-			{
-				m_remotePrc.abortReplies();
 				return false;
-			}
 
 			// If we get an empty RPC, but "receive" returns true, it means the transport is still
 			// open, but there is no incoming RPC data
@@ -248,9 +251,9 @@ protected:
 	{
 		m_outWork([&](WorkQueue& q)
 		{
-			q.emplace([this, data=std::move(data), handler=std::move(handler)]() mutable
+			q.emplace([this, data=std::move(data), handler=std::move(handler)]() mutable -> bool
 			{
-				send<F>(std::move(data), std::move(handler));
+				return send<F>(std::move(data), std::move(handler));
 			});
 		});
 
@@ -259,13 +262,13 @@ protected:
 	}
 
 	template<typename F, typename H>
-	void send(Stream&& data, H&& handler)
+	bool send(Stream&& data, H&& handler)
 	{
 		Header* hdr = reinterpret_cast<Header*>(data.ptr(0));
 		hdr->bits.size = data.writeSize();
 		hdr->bits.counter = ++m_remotePrc.replyIdCounter;
 		m_remotePrc.template addReplyHandler<F>(hdr->key(), std::forward<H>(handler));
-		m_transport->send(data.extract());
+		return m_transport->send(data.extract());
 	}
 
 };
