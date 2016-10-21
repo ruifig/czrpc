@@ -1,5 +1,6 @@
 #include "testsPCH.h"
 
+#if 0 
 #pragma warning(disable:4996)
 #pragma warning(disable:4390)
 
@@ -731,3 +732,4 @@ TEST(Throughput)
 
 }
 
+#endif
