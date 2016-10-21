@@ -96,17 +96,16 @@ TEST(1)
 	std::shared_ptr<Connection<CalcTest, void>> serverCon;
 	acceptor.start(TEST_PORT, [&serverCon](std::shared_ptr<Connection<CalcTest, void>> con)
 	{
-		con->close();
 		printf("Accepted\n");
-		//serverCon = con;
+		serverCon = con;
 	});
 
 	auto conFt = TCPTransport<void, CalcTest>::create(io, "127.0.0.1", TEST_PORT);
 	auto con = conFt.get();
 	printf("Connected\n");
 
-	Sleep(1);
 	Semaphore sem;
+	/*
 	CZRPC_CALL(*con, add, 1, 2).async([&sem](Result<int> res)
 	{
 		CHECK(res.isAborted());
@@ -118,10 +117,17 @@ TEST(1)
 			assert(false);
 		}
 	});
+	*/
+	CZRPC_CALL(*con, add, 1, 2).async([&sem](Result<int> res)
+	{
+		CHECK_EQUAL(3, res.get());
+		sem.notify();
+	});
 
 	sem.wait();
 	printf("\n");
 
+	//con->close();
 	io.stop();
 	th.join();
 	}

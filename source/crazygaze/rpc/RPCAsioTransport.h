@@ -63,10 +63,10 @@ public:
 		return m_io;
 	}
 
-	virtual void send(std::vector<char> data) override
+	virtual bool send(std::vector<char> data) override
 	{
 		if (m_closed)
-			return;
+			return false;
 
 		auto trigger = m_out([&](Out& out)
 		{
@@ -86,6 +86,7 @@ public:
 
 		if (trigger)
 			triggerSend();
+		return true;
 	}
 
 	virtual bool receive(std::vector<char>& dst) override
