@@ -101,14 +101,21 @@ struct SingleThreadEnforcerLock
 	T& outer;
 };
 
-#define SINGLETHREAD_ENFORCE() \
-	auto threadEnforcerLock_ = SingleThreadEnforcerLock<decltype(threadEnforcer_)>(threadEnforcer_)
-#define DECLARE_THREADENFORCER_NONE \
-	cz::rpc::ThreadEnforcer::None threadEnforcer_
-#define DECLARE_THREADENFORCER_SERIALIZE \
-	cz::rpc::ThreadEnforcer::Serialize threadEnforcer_
-#define DECLARE_THREADENFORCER_AFFINITY \
-	cz::rpc::ThreadEnforcer::Affinity threadEnforcer_
+#ifndef NDEBUG
+	#define SINGLETHREAD_ENFORCE() \
+		auto threadEnforcerLock_ = SingleThreadEnforcerLock<decltype(threadEnforcer_)>(threadEnforcer_)
+	#define DECLARE_THREADENFORCER_NONE \
+		cz::rpc::ThreadEnforcer::None threadEnforcer_
+	#define DECLARE_THREADENFORCER_SERIALIZE \
+		cz::rpc::ThreadEnforcer::Serialize threadEnforcer_
+	#define DECLARE_THREADENFORCER_AFFINITY \
+		cz::rpc::ThreadEnforcer::Affinity threadEnforcer_
+#else
+	#define SINGLETHREAD_ENFORCE() (void(0))
+	#define DECLARE_THREADENFORCER_NONE
+	#define DECLARE_THREADENFORCER_SERIALIZE
+	#define DECLARE_THREADENFORCER_AFFINITY
+#endif
 
 class BaseTCPTransport : public Transport
 {
@@ -134,7 +141,7 @@ public:
 		TRPLOG("%p", this);
 		auto d = std::make_shared<std::vector<char>>(std::move(data));
 		m_sock.asyncWrite(
-			d->data(), d->size(),
+			d->data(), static_cast<int>(d->size()),
 			[d, this, con=m_rpcCon.lock()](const TCPError& ec, int bytesTransfered)
 		{
 			if (ec)
