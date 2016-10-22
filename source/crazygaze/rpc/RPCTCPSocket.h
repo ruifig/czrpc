@@ -46,8 +46,7 @@ struct TCPSocketDefaultLog
 	static void out(bool fatal, const char* type, const char* fmt, ...)
 	{
 		char buf[256];
-		strncpy(buf, type, sizeof(buf));
-		buf[sizeof(buf)-1] = 0;
+		copyStrToFixedBuffer(buf, type);
 		va_list args;
 		va_start(args, fmt);
 		vsnprintf(buf + strlen(buf), sizeof(buf) - strlen(buf) - 1, fmt, args);

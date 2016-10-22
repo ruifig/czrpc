@@ -42,7 +42,7 @@ namespace cz {
 				if (!ms_logEnabled)
 					return;
 				char buf[256];
-				strcpy(buf, type);
+				copyStrToFixedBuffer(buf, type);
 				va_list args;
 				va_start(args, fmt);
 				vsnprintf(buf + strlen(buf), sizeof(buf) - strlen(buf) - 1, fmt, args);

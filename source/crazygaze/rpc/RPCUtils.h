@@ -5,6 +5,16 @@ namespace cz
 namespace rpc
 {
 
+// To work around the Windows vs Linux shenanigans with strncpy/strcpy/strlcpy, etc.
+template<unsigned int N>
+inline void copyStrToFixedBuffer(char (&dst)[N], const char* src)
+{
+#if _WIN32
+	strncpy_s(dst, sizeof(dst), src, strlen(src));
+#else
+	strncpy(dst, src, strlen(src));
+#endif
+}
 
 //////////////////////////////////////////////////////////////////////////
 // Based on
