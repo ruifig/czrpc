@@ -13,7 +13,10 @@
 		printf(TRPLOG_CONCAT("TRPLOG th=%ld, %s:%d: ", fmt, "\n"), (long)syscall(SYS_gettid), __FUNCTION__, __LINE__, ##__VA_ARGS__)
 #endif
 
-#define TRPLOG_CONCAT(a,b,c) a # b # c
+#define TRPLOG_CONCAT(a,b,c) a ## b ## c
+
+#undef TRPLOG
+#define TRPLOG(...) (void(0))
 
 namespace cz
 {

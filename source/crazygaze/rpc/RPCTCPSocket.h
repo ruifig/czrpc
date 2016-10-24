@@ -863,6 +863,10 @@ protected:
 				else
 				{
 					TCPERROR(err.msg().c_str());
+					RecvOp o(std::move(op));
+					m_recvs.pop();
+					if (o.h)
+						o.h(TCPError(TCPError::Code::ConnectionClosed, err.msg()), o.bytesTransfered);
 				}
 			}
 			else if (len > 0)
@@ -1230,21 +1234,30 @@ public:
 		// put a marker on the callstack, so other code can detect when inside the tick function
 		typename details::Callstack<details::TCPServiceData>::Context ctx(this);
 
+		bool finished = false;
+
 		//
 		// Execute any pending commands
-		m_cmdQueue([&](CmdQueue& q)
+		auto getCmds = [this]()
 		{
-			std::swap(q, m_tmpQueue);
-		});
-		bool finished = false;
-		while (!finished && m_tmpQueue.size())
+			return m_cmdQueue([&](CmdQueue& q) -> bool
+			{
+				std::swap(q, m_tmpQueue);
+				return m_tmpQueue.size() > 0;
+			});
+		};
+
+		while (getCmds())
 		{
-			auto&& fn = m_tmpQueue.front();
-			if (fn)
-				fn();
-			else
-				finished = true;
-			m_tmpQueue.pop();
+			while (m_tmpQueue.size())
+			{
+				auto&& fn = m_tmpQueue.front();
+				if (fn)
+					fn();
+				else
+					finished = true;
+				m_tmpQueue.pop();
+			}
 		}
 
 		if (finished)

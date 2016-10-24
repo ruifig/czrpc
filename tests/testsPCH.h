@@ -15,6 +15,7 @@ namespace cz {
 
 		struct MyTCPLog
 		{
+			/*
 			struct DisableFatalAssert
 			{
 				DisableFatalAssert(const DisableFatalAssert&) = delete;
@@ -25,10 +26,11 @@ namespace cz {
 				~DisableFatalAssert() { ms_assertOnFatal = previous; }
 				bool previous;
 			};
+			*/
 			struct DisableLogging
 			{
-				DisableLogging(const DisableFatalAssert&) = delete;
-				DisableLogging& operator =(const DisableFatalAssert&) = delete;
+				DisableLogging(const DisableLogging&) = delete;
+				DisableLogging& operator =(const DisableLogging&) = delete;
 				DisableLogging() : previous(ms_logEnabled) {
 					ms_logEnabled = false;
 				}
@@ -58,7 +60,7 @@ namespace cz {
 //#define TCPINFO(fmt, ...) MyTCPLog::out(false, "Info: ", fmt, ##__VA_ARGS__)
 #define TCPINFO(...) ((void)0)
 #define TCPWARNING(fmt, ...) MyTCPLog::out(false, "Warning: ", fmt, ##__VA_ARGS__)
-#define TCPERROR(fmt, ...) MyTCPLog::out(true, "Error: ", fmt, ##__VA_ARGS__)
+#define TCPERROR(fmt, ...) MyTCPLog::out(false, "Error: ", fmt, ##__VA_ARGS__)
 }
 }
 
