@@ -28,6 +28,14 @@ TODO:
 	#include <WS2tcpip.h>
 	#include <strsafe.h>
 	#include <mstcpip.h>
+
+#ifdef __MINGW32__
+	// Bits and pieces missing in MingGW
+    #ifndef SIO_LOOPBACK_FAST_PATH
+        #define SIO_LOOPBACK_FAST_PATH              _WSAIOW(IOC_VENDOR,16)
+    #endif
+#endif
+
 #elif __linux__
 	#include <sys/socket.h>
 #endif
@@ -846,7 +854,7 @@ protected:
 						// whatever data we received, and discard the operation
 						RecvOp o(std::move(op));
 						m_recvs.pop();
-						o.h(TCPError(), op.bytesTransfered);
+						o.h(TCPError(), o.bytesTransfered);
 					}
 
 					// Done receiving, since the socket doesn't have more incoming data
@@ -864,7 +872,7 @@ protected:
 				{
 					RecvOp o(std::move(op));
 					m_recvs.pop();
-					o.h(TCPError(), op.bytesTransfered);
+					o.h(TCPError(), o.bytesTransfered);
 				}
 			}
 			else if (len == 0)
@@ -873,7 +881,7 @@ protected:
 				// can assert as the result of popping itself since the container is not empty.
 				RecvOp o(std::move(op));
 				m_recvs.pop();
-				o.h(TCPError(TCPError::Code::ConnectionClosed), op.bytesTransfered);
+				o.h(TCPError(TCPError::Code::ConnectionClosed), o.bytesTransfered);
 				break;
 			}
 			else
@@ -909,7 +917,7 @@ protected:
 					SendOp o(std::move(op));
 					m_sends.pop();
 					if (o.h)
-						o.h(TCPError(TCPError::Code::ConnectionClosed, err.msg()), op.bytesTransfered);
+						o.h(TCPError(TCPError::Code::ConnectionClosed, err.msg()), o.bytesTransfered);
 				}
 			}
 			else
@@ -920,7 +928,7 @@ protected:
 					SendOp o(std::move(op));
 					m_sends.pop();
 					if (o.h)
-						o.h(TCPError(), op.bytesTransfered);
+						o.h(TCPError(), o.bytesTransfered);
 				}
 			}
 		}
