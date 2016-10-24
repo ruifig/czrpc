@@ -2,7 +2,7 @@
 #include "Semaphore.h"
 #include "Foo.h"
 
-#if 0
+#if 1
 
 #define TEST_PORT 9000
 
@@ -83,7 +83,7 @@ TEST(1)
 {
 	while(true)
 	{
-	printf("-------------------START------------------\n");
+	//printf("-------------------START------------------\n");
 	TCPService io;
 	auto th = std::thread([&io]
 	{
@@ -96,17 +96,18 @@ TEST(1)
 	std::shared_ptr<Connection<CalcTest, void>> serverCon;
 	acceptor.start(TEST_PORT, [&serverCon](std::shared_ptr<Connection<CalcTest, void>> con)
 	{
-		//con->close();
-		printf("Accepted\n");
-		serverCon = con;
+		con->close();
+		//printf("Accepted\n");
+		//serverCon = con;
 	});
 
 	auto conFt = TCPTransport<void, CalcTest>::create(io, "127.0.0.1", TEST_PORT);
 	auto con = conFt.get();
-	printf("Connected\n");
+	//printf("Connected\n");
+	//Sleep(10);
 
+#if 1
 	Semaphore sem;
-	/*
 	CZRPC_CALL(*con, add, 1, 2).async([&sem](Result<int> res)
 	{
 		CHECK(res.isAborted());
@@ -118,19 +119,20 @@ TEST(1)
 			assert(false);
 		}
 	});
-	*/
+#else
 	CZRPC_CALL(*con, add, 1, 2).async([&sem](Result<int> res)
 	{
 		CHECK_EQUAL(3, res.get());
 		sem.notify();
 	});
+#endif
 
 	sem.wait();
 	printf("\n");
 
-	serverCon->close();
+	//serverCon->close();
 	con->close();
-	//Sleep(10); // #TODO: Removing this, it asserting
+	Sleep(10); // #TODO: Removing this, it asserting
 	io.stop();
 	th.join();
 	}
