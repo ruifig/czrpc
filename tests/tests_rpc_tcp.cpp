@@ -29,61 +29,11 @@ public:
 	REGISTERRPC(sub)
 #include "crazygaze/rpc/RPCGenerate.h"
 
-/*
-class SingleThreadEnforcerTest
-{
-public:
-	void func1()
-	{
-		SINGLETHREAD_ENFORCE();
-	}
-
-	void func2()
-	{
-		SINGLETHREAD_ENFORCE();
-		Sleep(100);
-	}
-
-	void func3()
-	{
-		Sleep(210);
-		SINGLETHREAD_ENFORCE();
-	}
-private:
-	DECLARE_SINGLETHREAD_ENFORCER_STRICT;
-};
-*/
-
 SUITE(RPCTCP)
 {
 
-/*
-TEST(SingleThreadEnforcer)
+void test_closeTiming(bool accept, int a, bool doclose)
 {
-	SingleThreadEnforcerTest test;
-	auto res1 = std::async(std::launch::async, [&]()
-	{
-		test.func1();
-		test.func2();
-	});
-
-	auto res2 = std::async(std::launch::async, [&]()
-	{
-		test.func3();
-	});
-	//auto res3 = std::async(std::launch::async, &SingleThreadEnforcerTest::func3, &test);
-
-	res1.get();
-	res2.get();
-	printf("\n");
-}
-*/
-
-TEST(1)
-{
-	while(true)
-	{
-	//printf("-------------------START------------------\n");
 	TCPService io;
 	auto th = std::thread([&io]
 	{
@@ -94,48 +44,56 @@ TEST(1)
 
 	TCPTransportAcceptor<CalcTest, void> acceptor(io, calc);
 	std::shared_ptr<Connection<CalcTest, void>> serverCon;
-	acceptor.start(TEST_PORT, [&serverCon](std::shared_ptr<Connection<CalcTest, void>> con)
+	acceptor.start(TEST_PORT, [&serverCon, accept](std::shared_ptr<Connection<CalcTest, void>> con)
 	{
-		con->close();
-		//printf("Accepted\n");
-		//serverCon = con;
+		if (accept)
+			serverCon = con;
+		else
+			con->close();
 	});
 
 	auto conFt = TCPTransport<void, CalcTest>::create(io, "127.0.0.1", TEST_PORT);
 	auto con = conFt.get();
-	//printf("Connected\n");
-	//Sleep(10);
+	if (a)
+		UnitTest::TimeHelpers::SleepMs(a);
 
-#if 1
 	Semaphore sem;
-	CZRPC_CALL(*con, add, 1, 2).async([&sem](Result<int> res)
+	CZRPC_CALL(*con, add, 1, 2).async([&sem, accept](Result<int> res)
 	{
-		CHECK(res.isAborted());
-		//printf("%d\n", res.get());
-		if (res.isAborted())
-			sem.notify();
+		if (accept)
+		{
+			CHECK_EQUAL(3, res.get());
+		}
 		else
 		{
-			assert(false);
+			CHECK(res.isAborted());
 		}
-	});
-#else
-	CZRPC_CALL(*con, add, 1, 2).async([&sem](Result<int> res)
-	{
-		CHECK_EQUAL(3, res.get());
 		sem.notify();
 	});
-#endif
-
 	sem.wait();
-	printf("\n");
 
-	//serverCon->close();
-	con->close();
-	Sleep(10); // #TODO: Removing this, it asserting
+	if (doclose)
+	{
+		if (accept)
+			serverCon->close();
+		con->close();
+		if (a)
+			UnitTest::TimeHelpers::SleepMs(a);
+	}
 	io.stop();
 	th.join();
-	}
+}
+
+TEST(1)
+{
+	test_closeTiming(false, 0, false);
+	test_closeTiming(false, 0, true);
+	test_closeTiming(false, 10, false);
+	test_closeTiming(false, 10, true);
+	test_closeTiming(true, 0, false);
+	test_closeTiming(true, 0, true);
+	test_closeTiming(true, 10, false);
+	test_closeTiming(true, 10, true);
 }
 
 }

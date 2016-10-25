@@ -1236,8 +1236,6 @@ public:
 
 		bool finished = false;
 
-		//
-		// Execute any pending commands
 		auto getCmds = [this]()
 		{
 			return m_cmdQueue([&](CmdQueue& q) -> bool
@@ -1247,6 +1245,7 @@ public:
 			});
 		};
 
+		// Continue executing commands until the queue is empty
 		while (getCmds())
 		{
 			while (m_tmpQueue.size())
@@ -1258,32 +1257,34 @@ public:
 					finished = true;
 				m_tmpQueue.pop();
 			}
+
+			if (finished)
+			{
+				// If we are finished, then there can't be any commands left
+				TCPASSERT(m_tmpQueue.size() == 0);
+
+				//
+				// Cancel all handlers in all the sockets we have at the moment
+				//
+				for (auto&& s : m_connects)
+					s.second.h(TCPError(TCPError::Code::Cancelled));
+				m_connects.clear();
+
+				auto cancel = [](auto&& container)
+				{
+					for (auto&& s : container)
+						s->doCancel();
+					container.clear();
+				};
+				cancel(m_accepts);
+				cancel(m_recvs);
+				cancel(m_sends);
+			}
 		}
 
 		if (finished)
-		{
-			// If we are finished, then there can't be any commands left
-			TCPASSERT(m_tmpQueue.size() == 0);
-
-			//
-			// Cancel all handlers in all the sockets we have at the moment
-			//
-			for (auto&& s : m_connects)
-				s.second.h(TCPError(TCPError::Code::Cancelled));
-			m_connects.clear();
-
-			auto cancel = [](auto&& container)
-			{
-				for (auto&& s : container)
-					s->doCancel();
-				container.clear();
-			};
-			cancel(m_accepts);
-			cancel(m_recvs);
-			cancel(m_sends);
-
 			return false;
-		}
+
 
 		if (m_connects.size() == 0 && m_accepts.size() == 0 && m_recvs.size() == 0 && m_sends.size() == 0)
 			return true;
