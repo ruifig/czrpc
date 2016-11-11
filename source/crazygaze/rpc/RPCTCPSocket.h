@@ -193,6 +193,19 @@ namespace details
 	template<typename H>
 	using IsSimpleHandler = std::enable_if_t<check_signature<H, void()>::value>;
 
+	template<typename F>
+	struct ScopeGuard
+	{
+		ScopeGuard(F f) : m_f(std::move(f)) {}
+		~ScopeGuard() { m_f(); }
+		F m_f;
+	};
+	template<typename F>
+	ScopeGuard<F> scopeGuard(F f)
+	{
+		return ScopeGuard<F>(std::move(f));
+	}
+
     class ErrorWrapper
 	{
 	public:
@@ -507,7 +520,8 @@ namespace details
 		std::unique_ptr<TCPBaseSocket> m_signalOut;
 
 		std::atomic<int> m_signalFlight;
-		std::atomic<bool> m_stopped;
+		std::atomic<bool> m_stopped; // A "stop" command was enqueued
+		bool m_finishing = false; // The stop command was found, and we are in the process of executing any remaining commands
 
 		struct ConnectOp
 		{
@@ -1218,6 +1232,21 @@ public:
 		return static_cast<TCPService&>(s.m_owner);
 	}
 
+
+	// Gets commands from the command queue into the temporary command queue for processing
+	bool prepareTmpQueue()
+	{
+		// The temporary queue might still have elements, so don't get more items if that's the case
+		if (m_tmpQueue.size() == 0)
+		{
+			m_cmdQueue([&](CmdQueue& q)
+			{
+				std::swap(q, m_tmpQueue);
+			});
+		}
+		return m_tmpQueue.size() > 0;
+	}
+
 	//! Processes whatever it needs
 	// \return
 	//		false : We are shutting down, and no need to call again
@@ -1227,31 +1256,22 @@ public:
 		// put a marker on the callstack, so other code can detect when inside the tick function
 		typename details::Callstack<details::TCPServiceData>::Context ctx(this);
 
-		bool finished = false;
-
-		auto getCmds = [this]()
-		{
-			return m_cmdQueue([&](CmdQueue& q) -> bool
-			{
-				std::swap(q, m_tmpQueue);
-				return m_tmpQueue.size() > 0;
-			});
-		};
-
 		// Continue executing commands until the queue is empty
-		while (getCmds())
+		while (prepareTmpQueue())
 		{
 			while (m_tmpQueue.size())
 			{
 				auto&& fn = m_tmpQueue.front();
+				// Since we are calling unknown code (the handler), which might throw an exception,
+				// we need to make sure we still remove the handler from the queue
+				auto guard = details::scopeGuard([this] { m_tmpQueue.pop(); });
 				if (fn)
 					fn();
 				else
-					finished = true;
-				m_tmpQueue.pop();
+					m_finishing = true;
 			}
 
-			if (finished)
+			if (m_finishing)
 			{
 				// If we are finished, then there can't be any commands left
 				TCPASSERT(m_tmpQueue.size() == 0);
@@ -1275,9 +1295,8 @@ public:
 			}
 		}
 
-		if (finished)
+		if (m_finishing)
 			return false;
-
 
 		if (m_connects.size() == 0 && m_accepts.size() == 0 && m_recvs.size() == 0 && m_sends.size() == 0)
 			return true;

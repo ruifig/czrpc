@@ -1,6 +1,7 @@
 #include "testsPCH.h"
 
-#if 1
+#if 0
+
 #pragma warning(disable:4996)
 #pragma warning(disable:4390)
 
