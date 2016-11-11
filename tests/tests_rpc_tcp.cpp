@@ -253,7 +253,6 @@ int Tester::testClientAddCall(int a, int b)
 	{
 		CHECK_EQUAL(r, res.get());
 		clientCallRes.set_value(res.get());
-
 	});
 
 	return a + b;
@@ -542,25 +541,19 @@ TEST(ExceptionThrowing)
 	expectedUnhandledExceptions.wait();
 }
 
-#if 0
-
-
-
 // Having the server call a function on the client
 TEST(ClientCall)
 {
 	using namespace cz::rpc;
 	ServerProcess<Tester, TesterClient> server(TEST_PORT);
-
-	ASIO::io_service io;
+	TCPService io;
 	std::thread iothread = std::thread([&io]
 	{
-		ASIO::io_service::work w(io);
 		io.run();
 	});
 
 	TesterClient clientObj;
-	auto clientCon = AsioTransport<TesterClient, Tester>::create(io, clientObj, "127.0.0.1", TEST_PORT).get();
+	auto clientCon = TCPTransport<TesterClient, Tester>::create(io, clientObj, "127.0.0.1", TEST_PORT).get();
 
 	ZeroSemaphore pending;
 
@@ -578,7 +571,6 @@ TEST(ClientCall)
 	iothread.join();
 }
 
-
 // The server is running a specialize TesterEx that overrides some virtuals,
 // and the client connects asking for the Tester interface
 TEST(Inheritance)
@@ -588,15 +580,14 @@ TEST(Inheritance)
 	// The server is running a TesterEx
 	ServerProcess<TesterEx, void> server(TEST_PORT);
 
-	ASIO::io_service io;
+	TCPService io;
 	std::thread iothread = std::thread([&io]
 	{
-		ASIO::io_service::work w(io);
 		io.run();
 	});
 
 	// The client connects as using Tester
-	auto clientCon = AsioTransport<void, Tester>::create(io, "127.0.0.1", TEST_PORT).get();
+	auto clientCon = TCPTransport<void, Tester>::create(io, "127.0.0.1", TEST_PORT).get();
 
 	ZeroSemaphore pending;
 	pending.increment();
@@ -619,14 +610,13 @@ TEST(Constructors)
 
 	ServerProcess<Tester, void> server(TEST_PORT);
 
-	ASIO::io_service io;
+	TCPService io;
 	std::thread iothread = std::thread([&io]
 	{
-		ASIO::io_service::work w(io);
 		io.run();
 	});
 
-	auto clientCon = AsioTransport<void, Tester>::create(io, "127.0.0.1", TEST_PORT).get();
+	auto clientCon = TCPTransport<void, Tester>::create(io, "127.0.0.1", TEST_PORT).get();
 
 	Foo foo(1);
 	Foo::resetCounters();
@@ -656,14 +646,13 @@ TEST(Any)
 
 	ServerProcess<Tester, void> server(TEST_PORT);
 
-	ASIO::io_service io;
+	TCPService io;
 	std::thread iothread = std::thread([&io]
 	{
-		ASIO::io_service::work w(io);
 		io.run();
 	});
 
-	auto clientCon = AsioTransport<void, Tester>::create(io, "127.0.0.1", TEST_PORT).get();
+	auto clientCon = TCPTransport<void, Tester>::create(io, "127.0.0.1", TEST_PORT).get();
 
 	{
 		auto res = CZRPC_CALL(*clientCon, testAny, Any()).ft().get();
@@ -711,16 +700,15 @@ TEST(Generic)
 
 	ServerProcess<Tester, void> server(TEST_PORT);
 
-	ASIO::io_service io;
+	TCPService io;
 	std::thread iothread = std::thread([&io]
 	{
-		ASIO::io_service::work w(io);
 		io.run();
 	});
 
 	// Note that since we only want to use generic RPCs from this client we don't need to know
 	// the server type. We can use "GenericServer"
-	auto clientCon = AsioTransport<void, GenericServer>::create(io, "127.0.0.1", TEST_PORT).get();
+	auto clientCon = TCPTransport<void, GenericServer>::create(io, "127.0.0.1", TEST_PORT).get();
 
 	// Calling a non existent generic function
 	{
@@ -733,6 +721,7 @@ TEST(Generic)
 		CHECK(res.isException());
 		CHECK(res.getException() == "Invalid parameters for generic RPC");
 	}
+
 	{
 		auto res = CZRPC_CALLGENERIC(*clientCon, "simple").ft().get().get();
 		CHECK(res.getType() == Any::Type::None);
@@ -762,16 +751,15 @@ TEST(VoidPeer)
 	// but if the client is using InProcessor<void>, it should still get a reply with an error
 	ServerProcess<Tester, TesterClient> server(TEST_PORT);
 
-	ASIO::io_service io;
+	TCPService io;
 	std::thread iothread = std::thread([&io]
 	{
-		ASIO::io_service::work w(io);
 		io.run();
 	});
 
 	// Instead of having a LOCAL of TesterClient, like the server expects, we
 	// use void, to test the behavior
-	auto clientCon = AsioTransport<void, Tester>::create(io, "127.0.0.1", TEST_PORT).get();
+	auto clientCon = TCPTransport<void, Tester>::create(io, "127.0.0.1", TEST_PORT).get();
 
 	// Call an RPC on the server, that in turn will try to call one on the client-side.
 	// Since the client is using InProcessor<void>, it cannot reply. It will just send back
@@ -793,15 +781,14 @@ TEST(ControlRPCs)
 		ObjectData(&server.obj()).setProperty("name", Any("Tester1"));
 	}
 
-	ASIO::io_service io;
+	TCPService io;
 	std::thread iothread = std::thread([&io]
 	{
-		ASIO::io_service::work w(io);
 		io.run();
 	});
 
 	// Specifying GenericServer as REMOTE type, since we only need to call generic RPCs
-	auto clientCon = AsioTransport<void, GenericServer>::create(io, "127.0.0.1", TEST_PORT).get();
+	auto clientCon = TCPTransport<void, GenericServer>::create(io, "127.0.0.1", TEST_PORT).get();
 
 	{
 		auto res = CZRPC_CALLGENERIC(*clientCon, "__getProperty", std::vector<Any>{Any("prop1")}).ft().get();
@@ -835,8 +822,6 @@ TEST(ControlRPCs)
 	io.stop();
 	iothread.join();
 }
-
-#endif
 
 }
 
