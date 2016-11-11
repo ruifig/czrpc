@@ -738,12 +738,12 @@ public:
 		SendOp op;
 		op.buf = buf;
 		op.bufLen = len;
-		op.h_ = std::move(h);
+		op.h = std::move(h);
 		m_owner.addCmd([this, op = std::move(op)]
 		{
 			if (!isValid())
 			{
-				op.h_(TCPError(TCPError::Code::Other, "asyncWrite called on a closed socket"), 0);
+				op.h(TCPError(TCPError::Code::Other, "asyncWrite called on a closed socket"), 0);
 				return;
 			}
 			m_sends.push(std::move(op));
@@ -830,7 +830,7 @@ protected:
 		const char* buf = nullptr;
 		int bufLen = 0;
 		int bytesTransfered = 0;
-		TransferHandler h_;
+		TransferHandler h;
 	};
 
 	friend TCPService;
@@ -934,7 +934,7 @@ protected:
 					TCPERROR(err.msg().c_str());
 					m_owner.addCmd([op=std::move(op), err]
 					{
-						op.h_(TCPError(TCPError::Code::ConnectionClosed, err.msg()), op.bytesTransfered);
+						op.h(TCPError(TCPError::Code::ConnectionClosed, err.msg()), op.bytesTransfered);
 					});
 					m_sends.pop();
 				}
@@ -946,7 +946,7 @@ protected:
 				{
 					m_owner.addCmd([op=std::move(op)]
 					{
-						op.h_(TCPError(), op.bytesTransfered);
+						op.h(TCPError(), op.bytesTransfered);
 					});
 					m_sends.pop();
 				}
@@ -971,7 +971,7 @@ protected:
 		{
 			m_owner.addCmd([op=std::move(m_sends.front())]
 			{
-				op.h_(TCPError::Code::Cancelled, op.bytesTransfered);
+				op.h(TCPError::Code::Cancelled, op.bytesTransfered);
 			});
 			m_sends.pop();
 		}
