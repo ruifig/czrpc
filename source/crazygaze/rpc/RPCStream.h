@@ -32,6 +32,23 @@ public:
 		m_readpos += size;
 	}
 
+	// To allow for faster reading of (for example) std::string and std::vector<T>, where T is arithmetic,
+	// we can do a fake read that returns a range.
+	// This is to allow passing a range to initialize std::string/std::vector
+	template<typename T>
+	std::pair<T*,T*> readRange(int count)
+	{
+		static_assert(std::is_arithmetic<T>::value, "T needs to be arithmetic");
+		int  size = sizeof(T)*count;
+		assert(static_cast<int>(m_buf.size()) - m_readpos >= size);
+		auto res = std::make_pair(
+			reinterpret_cast<T*>(m_buf.data() + m_readpos),
+			reinterpret_cast<T*>(m_buf.data() + m_readpos) + count);
+		m_readpos += size;
+		return res;
+	}
+
+
 	int readSize() const
 	{
 		return static_cast<int>(m_buf.size()) - m_readpos;

@@ -31,7 +31,7 @@ public:
 	REGISTERRPC(sub)
 #include "crazygaze/rpc/RPCGenerate.h"
 
-#if 0
+#if 1
 
 SUITE(RPCTCP)
 {
@@ -945,8 +945,8 @@ TEST(Throughput)
 	{
 		const int size = 1024 * 1024 / 4;
 
-		std::vector<char> data(size, 'a');
-		//std::string data(size, 'a');
+		//std::vector<char> data(size, 'a');
+		std::string data(size, 'a');
 
 		start = timer.GetTimeInMs();
 		int id = 0;
@@ -960,7 +960,7 @@ TEST(Throughput)
 				server.obj().m_throughputSem.wait();
 
 			++flying;
-			CZRPC_CALL(*clientCon, testThroughput2, data, id).async(
+			CZRPC_CALL(*clientCon, testThroughput1, data, id).async(
 				[&sem, &flying, id, &totalBytes, s=data.size()](Result<int> res)
 			{
 				totalBytes += s;
