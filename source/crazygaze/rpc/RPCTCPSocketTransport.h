@@ -136,7 +136,9 @@ public:
 
 	virtual bool send(std::vector<char> data) override
 	{
-		SINGLETHREAD_ENFORCE();
+		// #TODO : This is not completely thread safe.
+		// Send can be called from different threads, because of the way we handle RPCs that return std::future
+		//SINGLETHREAD_ENFORCE();
 
 		if (m_closing)
 			return false;

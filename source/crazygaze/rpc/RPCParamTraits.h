@@ -115,7 +115,7 @@ struct ParamTraits<void> {
 // arithmetic types
 template <typename T>
 struct ParamTraits<T,
-                   typename std::enable_if<std::is_arithmetic<T>::value>::type>
+                   typename std::enable_if_t<std::is_arithmetic<T>::value> >
     : DefaultParamTraits<T> {
     using store_type = typename std::decay<T>::type;
     static constexpr bool valid = true;
@@ -154,13 +154,9 @@ struct StringTraits {
     static void read(S& s, std::string& v) {
         int len;
         s.read(&len, sizeof(len));
-        v.clear();
+		v = std::string(len, 0);
 		if (len)
-		{
-			v.reserve(len);
-			v.append(len, 0);
 			s.read(&v[0], len);
-		}
     }
 };
 }
@@ -195,7 +191,9 @@ struct ParamTraits<const char (&)[N]> : ParamTraits<const char*> {};
 
 // std::string
 template <>
-struct ParamTraits<std::string> : ParamTraits<const char*> {
+struct ParamTraits<std::string> {
+	using store_type = std::string;
+	static constexpr bool valid = true;
     template <typename S>
     static void write(S& s, const char* v) {
         details::StringTraits::write(s, v);
@@ -210,13 +208,21 @@ struct ParamTraits<std::string> : ParamTraits<const char*> {
     static void read(S& s, std::string& v) {
         details::StringTraits::read(s, v);
     }
+
+	static std::string&& get(std::string&& v)
+	{
+		return std::move(v);
+	}
 };
 
 //
 // std::vector
 //
 template <typename T>
-struct ParamTraits<std::vector<T>>
+struct ParamTraits<
+	std::vector<T>,
+	typename std::enable_if_t<std::is_arithmetic<T>::value==false>
+	>
 {
 	using store_type = std::vector<T>;
 	static constexpr bool valid = ParamTraits<T>::valid;
@@ -247,6 +253,45 @@ struct ParamTraits<std::vector<T>>
 
 	static std::vector<T>&& get(std::vector<T>&& v) { return std::move(v); }
 };
+
+//
+// Optimization for std::vector where T is an arithmetic
+//
+#if 1
+template <typename T>
+struct ParamTraits<
+	std::vector<T>,
+	typename std::enable_if_t<std::is_arithmetic<T>::value>
+	>
+{
+	using store_type = std::vector<T>;
+	static constexpr bool valid = ParamTraits<T>::valid;
+	static_assert(ParamTraits<T>::valid == true, "T is not valid RPC parameter type.");
+
+	// std::vector serialization is done by writing the vector size, followed by  each element
+	template <typename S>
+	static void write(S& s, const std::vector<T>& v)
+	{
+		int len = static_cast<int>(v.size());
+		s.write(&len, sizeof(len));
+		if (len)
+			s.write(&v[0], len*sizeof(T));
+	}
+
+	template <typename S>
+	static void read(S& s, std::vector<T>& v)
+	{
+		int len;
+		s.read(&len, sizeof(len));
+		v = std::vector<T>(len, T());
+		if (len)
+			s.read(&v[0], len * sizeof(T));
+	}
+
+	static std::vector<T>&& get(std::vector<T>&& v) { return std::move(v); }
+};
+
+#endif
 
 //
 // Validate if all parameter types in a parameter pack can be used for RPC

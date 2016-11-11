@@ -616,13 +616,13 @@ TEST(Latency)
 
 struct ThroughputData
 {
-	TCPBuffer buf;
 	uint64_t done = 0;
 	TCPSocket sock;
+	TCPBuffer buf;
 	Semaphore finished;
 	ThroughputData(TCPService& io)
-		: buf(1 * 1024 * 1024)
-		, sock(io)
+		: sock(io)
+		, buf(1 * 1024 * 1024/4)
 	{}
 
 	void setupSend()

@@ -71,10 +71,18 @@ TEST(Stream)
 		s << 100;
 		s << "Hello";
 		s << std::string("World!");
+
+		// Test the vector of arithmetic optimization
+		s << std::vector<int>(); // empty vector
+		s << std::vector<int>{ 1, 2 };
+		s << std::vector<int>{ 3, 4 };
+
 		std::vector<std::string> v;
+		s << v; //
 		v.push_back("A");
 		v.push_back("BB");
 		s << v;
+		s << std::vector<std::string>{"CC", "DD"};
 		Foo foo(200);
 		s << foo;
 	}
@@ -92,11 +100,33 @@ TEST(Stream)
 		CHECK_EQUAL("Hello", str);
 		s >> str;
 		CHECK_EQUAL("World!", str);
+
+		std::vector<int> intv1{ 1,2 };
+		std::vector<int> intv2{ 3,4 };
+		std::vector<int> intv;
+		s >> intv;
+		CHECK_EQUAL(0, intv.size());
+		s >> intv;
+		CHECK_EQUAL(2, intv.size());
+		CHECK_ARRAY_EQUAL(intv1, intv, 2);
+		s >> intv;
+		CHECK_EQUAL(2, intv.size());
+		CHECK_ARRAY_EQUAL(intv2, intv, 2);
+
+		// Test reading two std::vector into the same variable to check if the stream
+		// clears a variable before unserializing something into it
+		std::vector<std::string> vv1{ "A", "BB" };
+		std::vector<std::string> vv2{ "CC", "DD" };
 		std::vector<std::string> v;
 		s >> v;
+		CHECK_EQUAL(0, v.size());
+		s >> v;
 		CHECK_EQUAL(2, v.size());
-		CHECK_EQUAL("A", v[0]);
-		CHECK_EQUAL("BB", v[1]);
+		CHECK_ARRAY_EQUAL(vv1, v, 2);
+		s >> v;
+		CHECK_EQUAL(2, v.size());
+		CHECK_ARRAY_EQUAL(vv2, v, 2);
+
 		Foo foo;
 		s >> foo;
 		CHECK_EQUAL(200, foo.val);

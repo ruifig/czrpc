@@ -70,6 +70,12 @@ public:
 			return false;
 	}
 
+	int count()
+	{
+		std::unique_lock<std::mutex> lock(m_mtx);
+		return m_count;
+	}
+
 private:
 	std::mutex m_mtx;
 	std::condition_variable m_cv;

@@ -6,6 +6,8 @@
 
 #define TEST_PORT 9000
 
+#define LONGTEST 0
+
 using namespace cz;
 using namespace cz::rpc;
 
@@ -28,6 +30,8 @@ public:
 	REGISTERRPC(add) \
 	REGISTERRPC(sub)
 #include "crazygaze/rpc/RPCGenerate.h"
+
+#if 0
 
 SUITE(RPCTCP)
 {
@@ -98,6 +102,8 @@ TEST(1)
 
 }
 
+#endif
+
 // Forward declaration, so the server side can use it
 class TesterClient;
 
@@ -153,6 +159,17 @@ public:
 		return v;
 	}
 
+	Semaphore m_throughputSem;
+	int testThroughput1(std::string v, int id)
+	{
+		m_throughputSem.notify();
+		return id;
+	}
+	int testThroughput2(std::vector<char> v, int id)
+	{
+		m_throughputSem.notify();
+		return id;
+	}
 	std::tuple<int, std::string> testTuple(std::tuple<int, std::string> v)
 	{
 		return v;
@@ -181,6 +198,8 @@ public:
 	{
 		return v;
 	}
+
+
 
 	std::promise<int> clientCallRes; // So the unit test can wait on the future to make sure the server got the reply from the server
 };
@@ -220,6 +239,8 @@ public:
 	REGISTERRPC(intTestException) \
 	REGISTERRPC(testVector1) \
 	REGISTERRPC(testVector2) \
+	REGISTERRPC(testThroughput1) \
+	REGISTERRPC(testThroughput2) \
 	REGISTERRPC(testTuple) \
 	REGISTERRPC(testFoo1) \
 	REGISTERRPC(testFoo2) \
@@ -330,6 +351,7 @@ private:
 SUITE(RPCTraits)
 {
 
+#if 1
 TEST(NotAuth)
 {
 	using namespace cz::rpc;
@@ -477,6 +499,38 @@ TEST(WithParams)
 	auto tp = std::make_tuple(1, std::string("Test"));
 	tp = CZRPC_CALL(*clientCon, testTuple, tp).ft().get().get();
 	CHECK(std::get<0>(tp) == 1 && std::get<1>(tp) == "Test");
+
+	sem.wait();
+	io.stop();
+	iothread.join();
+}
+
+TEST(Future)
+{
+	using namespace cz::rpc;
+	ServerProcess<Tester, void> server(TEST_PORT);
+
+	TCPService io;
+	std::thread iothread = std::thread([&io]
+	{
+		io.run();
+	});
+
+	auto clientCon = TCPTransport<void, Tester>::create(io, "127.0.0.1", TEST_PORT).get();
+
+	const int count = 1;
+	ZeroSemaphore sem;
+	for (int i = 0;i < count; i++)
+	{
+		sem.increment();
+		auto p = std::to_string(i);
+		CZRPC_CALL(*clientCon, testFuture, p.c_str()).async(
+			[&sem, p](Result<std::string> res)
+		{
+			CHECK_EQUAL(p, res.get());
+			sem.decrement();
+		});
+	}
 
 	sem.wait();
 	io.stop();
@@ -821,6 +875,118 @@ TEST(ControlRPCs)
 
 	io.stop();
 	iothread.join();
+}
+
+
+TEST(Latency)
+{
+	using namespace cz::rpc;
+
+	ServerProcess<Tester, void> server(TEST_PORT);
+
+	TCPService io;
+	std::thread iothread = std::thread([&io]
+	{
+		io.run();
+	});
+
+	UnitTest::Timer timer;
+	auto clientCon = TCPTransport<void, Tester>::create(io, "127.0.0.1", TEST_PORT).get();
+
+	const int count = (LONGTEST) ? 200 : 20;
+	std::vector<double> times(count, 0.0f);
+	for(int i=0; i<count; i++)
+	{
+		auto start = timer.GetTimeInMs();
+		auto res = CZRPC_CALL(*clientCon, noParams).ft().get();
+		times[i] = timer.GetTimeInMs() - start;
+		CHECK_EQUAL(128, res.get());
+	}
+
+	double low = std::numeric_limits<double>::max();
+	double high = std::numeric_limits<double>::min();
+	double total = 0;
+	for (auto&& t : times)
+	{
+		low = std::min(low, t);
+		high = std::max(high, t);
+		total += t;
+	}
+	printf("RPC latency (int func(), %d calls)\n", count);
+	printf("        min=%0.4fms\n", low);
+	printf("        max=%0.4fms\n", high);
+	printf("        avg=%0.4fms\n", total/count);
+
+	io.stop();
+	iothread.join();
+}
+
+#endif
+
+TEST(Throughput)
+{
+	using namespace cz::rpc;
+
+	ServerProcess<Tester, void> server(TEST_PORT);
+
+	TCPService io;
+	std::thread iothread = std::thread([&io]
+	{
+		io.run();
+	});
+
+	UnitTest::Timer timer;
+	auto clientCon = TCPTransport<void, Tester>::create(io, "127.0.0.1", TEST_PORT).get();
+
+	std::atomic<bool> finish(false);
+	double start, end;
+	auto test = std::async(std::launch::async,
+		[&timer, &finish, &clientCon, &start, &end, &server]
+	{
+		const int size = 1024 * 1024 / 4;
+
+		std::vector<char> data(size, 'a');
+		//std::string data(size, 'a');
+
+		start = timer.GetTimeInMs();
+		int id = 0;
+		ZeroSemaphore sem;
+		uint64_t totalBytes = 0;
+		std::atomic<int> flying(0);
+		while(!finish)
+		{
+			sem.increment();
+			if (flying.load() > 5)
+				server.obj().m_throughputSem.wait();
+
+			++flying;
+			CZRPC_CALL(*clientCon, testThroughput2, data, id).async(
+				[&sem, &flying, id, &totalBytes, s=data.size()](Result<int> res)
+			{
+				totalBytes += s;
+				CHECK_EQUAL(id, res.get());
+				--flying;
+				sem.decrement();
+			});
+			id++;
+		}
+		sem.wait();
+		end = timer.GetTimeInMs();
+		return std::make_pair(
+			(end - start) / 1000, // seconds
+			totalBytes // data sent
+		);
+	});
+
+	UnitTest::TimeHelpers::SleepMs((LONGTEST) ? 30000 : 4000);
+	finish = true;
+	auto res = test.get();
+	io.stop();
+	iothread.join();
+
+	auto seconds = res.first;
+	auto mb = (double)res.second/(1000*1000);
+	printf("RPC throughput: %0.2f Mbit/s (%0.2f MB/s)\n", (mb*8)/seconds, mb/seconds);
 }
 
 }
