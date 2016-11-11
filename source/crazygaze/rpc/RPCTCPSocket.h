@@ -526,7 +526,7 @@ namespace details
 		struct ConnectOp
 		{
 			std::chrono::time_point<std::chrono::high_resolution_clock> timeoutPoint;
-			ConnectHandler h_;
+			ConnectHandler h;
 		};
 
 		std::unordered_map<TCPSocket*, ConnectOp> m_connects;  // Pending connects
@@ -642,7 +642,7 @@ public:
 		return TCPError();
 	}
 
-	void asyncConnect(const char* ip, int port, ConnectHandler h_, int timeoutMs = 200)
+	void asyncConnect(const char* ip, int port, ConnectHandler h, int timeoutMs = 200)
 	{
 		TCPASSERT(m_s == CZRPC_INVALID_SOCKET);
 		TCPASSERT(!m_owner.m_stopped);
@@ -652,9 +652,9 @@ public:
 		if (m_s == CZRPC_INVALID_SOCKET)
 		{
 			TCPError ec = details::ErrorWrapper().getError();
-			m_owner.addCmd([ec = std::move(ec), h_ = std::move(h_)]
+			m_owner.addCmd([ec = std::move(ec), h = std::move(h)]
 			{
-				h_(ec);
+				h(ec);
 			});
 			return;
 		}
@@ -677,30 +677,30 @@ public:
 			if (err.isBlockError())
 			{
 				// Normal behavior, so setup the connect detection with select
-				m_owner.addCmd([this, h_ = std::move(h_), timeoutMs]
+				m_owner.addCmd([this, h = std::move(h), timeoutMs]
 				{
 					details::TCPServiceData::ConnectOp op;
 					op.timeoutPoint = std::chrono::high_resolution_clock::now() + std::chrono::milliseconds(timeoutMs);
-					op.h_ = std::move(h_);
+					op.h = std::move(h);
 					m_owner.m_connects[this] = std::move(op);
 				});
 			}
 			else
 			{
 				// Anything else than a blocking error is a real error
-				m_owner.addCmd([this, ec = err.getError(), h_ = std::move(h_)]
+				m_owner.addCmd([this, ec = err.getError(), h = std::move(h)]
 				{
 					releaseHandle();
-					h_(ec);
+					h(ec);
 				});
 			}
 		}
 		else
 		{
 			// It may happen that the connect succeeds right away.
-			m_owner.addCmd([h_ = std::move(h_)]
+			m_owner.addCmd([h = std::move(h)]
 			{
-				h_(TCPError());
+				h(TCPError());
 			});
 		}
 	}
@@ -1304,9 +1304,9 @@ public:
 				//
 				for (auto&& s : m_connects)
 				{
-					addCmd([h_=std::move(s.second.h_)]
+					addCmd([h=std::move(s.second.h)]
 					{
-						h_(TCPError(TCPError::Code::Cancelled));
+						h(TCPError(TCPError::Code::Cancelled));
 					});
 				}
 				m_connects.clear();
@@ -1450,7 +1450,7 @@ public:
 					TCPINFO("Socket %d connected to %s:%d", (int)sock->m_s, sock->m_peerAddr.first.c_str(), sock->m_peerAddr.second);
 					addCmd([op=std::move(it->second)]
 					{
-						op.h_(TCPError());
+						op.h(TCPError());
 					});
 				}
 				else
@@ -1460,7 +1460,7 @@ public:
 					addCmd([sock=it->first, op=std::move(it->second), ec]
 					{
 						sock->releaseHandle();
-						op.h_(ec);
+						op.h(ec);
 					});
 				}
 
@@ -1478,7 +1478,7 @@ public:
 				addCmd([sock=it->first, op=std::move(it->second)]
 				{
 					sock->releaseHandle();
-					op.h_(TCPError::Code::ConnectFailed);
+					op.h(TCPError::Code::ConnectFailed);
 				});
 				it = m_connects.erase(it);
 			}
