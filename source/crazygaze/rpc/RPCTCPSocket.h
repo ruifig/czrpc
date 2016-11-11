@@ -526,7 +526,7 @@ namespace details
 		struct ConnectOp
 		{
 			std::chrono::time_point<std::chrono::high_resolution_clock> timeoutPoint;
-			ConnectHandler h;
+			ConnectHandler h_;
 		};
 
 		std::unordered_map<TCPSocket*, ConnectOp> m_connects;  // Pending connects
@@ -642,7 +642,7 @@ public:
 		return TCPError();
 	}
 
-	void asyncConnect(const char* ip, int port, ConnectHandler h, int timeoutMs = 200)
+	void asyncConnect(const char* ip, int port, ConnectHandler h_, int timeoutMs = 200)
 	{
 		TCPASSERT(m_s == CZRPC_INVALID_SOCKET);
 		TCPASSERT(!m_owner.m_stopped);
@@ -652,9 +652,9 @@ public:
 		if (m_s == CZRPC_INVALID_SOCKET)
 		{
 			TCPError ec = details::ErrorWrapper().getError();
-			m_owner.addCmd([ec = std::move(ec), h = std::move(h)]
+			m_owner.addCmd([ec = std::move(ec), h_ = std::move(h_)]
 			{
-				h(ec);
+				h_(ec);
 			});
 			return;
 		}
@@ -677,30 +677,30 @@ public:
 			if (err.isBlockError())
 			{
 				// Normal behavior, so setup the connect detection with select
-				m_owner.addCmd([this, h = std::move(h), timeoutMs]
+				m_owner.addCmd([this, h_ = std::move(h_), timeoutMs]
 				{
 					details::TCPServiceData::ConnectOp op;
 					op.timeoutPoint = std::chrono::high_resolution_clock::now() + std::chrono::milliseconds(timeoutMs);
-					op.h = std::move(h);
+					op.h_ = std::move(h_);
 					m_owner.m_connects[this] = std::move(op);
 				});
 			}
 			else
 			{
 				// Anything else than a blocking error is a real error
-				m_owner.addCmd([this, ec = err.getError(), h = std::move(h)]
+				m_owner.addCmd([this, ec = err.getError(), h_ = std::move(h_)]
 				{
 					releaseHandle();
-					h(ec);
+					h_(ec);
 				});
 			}
 		}
 		else
 		{
 			// It may happen that the connect succeeds right away.
-			m_owner.addCmd([h = std::move(h)]
+			m_owner.addCmd([h_ = std::move(h_)]
 			{
-				h(TCPError());
+				h_(TCPError());
 			});
 		}
 	}
@@ -738,12 +738,12 @@ public:
 		SendOp op;
 		op.buf = buf;
 		op.bufLen = len;
-		op.h = std::move(h);
+		op.h_ = std::move(h);
 		m_owner.addCmd([this, op = std::move(op)]
 		{
 			if (!isValid())
 			{
-				op.h(TCPError(TCPError::Code::Other, "asyncWrite called on a closed socket"), 0);
+				op.h_(TCPError(TCPError::Code::Other, "asyncWrite called on a closed socket"), 0);
 				return;
 			}
 			m_sends.push(std::move(op));
@@ -799,12 +799,12 @@ protected:
 		op.buf = buf;
 		op.bufLen = len;
 		op.fill = fill;
-		op.h = std::move(h);
+		op.h_ = std::move(h);
 		m_owner.addCmd([this, op = std::move(op)]
 		{
 			if (!isValid())
 			{
-				op.h(TCPError(TCPError::Code::Other, "asyncRead/asyncReadSome called on a closed socket"), 0);
+				op.h_(TCPError(TCPError::Code::Other, "asyncRead/asyncReadSome called on a closed socket"), 0);
 				return;
 			}
 
@@ -823,14 +823,14 @@ protected:
 		// buffer size, and the operation discarded;
 		bool fill = false;
 		int bytesTransfered = 0;
-		TransferHandler h;
+		TransferHandler h_;
 	};
 	struct SendOp
 	{
 		const char* buf = nullptr;
 		int bufLen = 0;
 		int bytesTransfered = 0;
-		TransferHandler h;
+		TransferHandler h_;
 	};
 
 	friend TCPService;
@@ -859,9 +859,11 @@ protected:
 					{
 						// If this operation doesn't require a full buffer, we call the handler with
 						// whatever data we received, and discard the operation
-						RecvOp o(std::move(op));
+						m_owner.addCmd([op = std::move(op)]
+						{
+							op.h_(TCPError(), op.bytesTransfered);
+						});
 						m_recvs.pop();
-						o.h(TCPError(), o.bytesTransfered);
 					}
 
 					// Done receiving, since the socket doesn't have more incoming data
@@ -870,10 +872,11 @@ protected:
 				else
 				{
 					TCPERROR(err.msg().c_str());
-					RecvOp o(std::move(op));
+					m_owner.addCmd([op=std::move(op), err]
+					{
+						op.h_(TCPError(TCPError::Code::ConnectionClosed, err.msg()), op.bytesTransfered);
+					});
 					m_recvs.pop();
-					if (o.h)
-						o.h(TCPError(TCPError::Code::ConnectionClosed, err.msg()), o.bytesTransfered);
 				}
 			}
 			else if (len > 0)
@@ -881,18 +884,22 @@ protected:
 				op.bytesTransfered += len;
 				if (op.bufLen == op.bytesTransfered)
 				{
-					RecvOp o(std::move(op));
+					m_owner.addCmd([op=std::move(op)]
+					{
+						op.h_(TCPError(), op.bytesTransfered);
+					});
 					m_recvs.pop();
-					o.h(TCPError(), o.bytesTransfered);
 				}
 			}
 			else if (len == 0)
 			{
 				// Move to a local variable and pop before calling, otherwise TCPSocket destructor
 				// can assert as the result of popping itself since the container is not empty.
-				RecvOp o(std::move(op));
+				m_owner.addCmd([op=std::move(op)]
+				{
+					op.h_(TCPError(TCPError::Code::ConnectionClosed), op.bytesTransfered);
+				});
 				m_recvs.pop();
-				o.h(TCPError(TCPError::Code::ConnectionClosed), o.bytesTransfered);
 				break;
 			}
 			else
@@ -925,10 +932,11 @@ protected:
 				else
 				{
 					TCPERROR(err.msg().c_str());
-					SendOp o(std::move(op));
+					m_owner.addCmd([op=std::move(op), err]
+					{
+						op.h_(TCPError(TCPError::Code::ConnectionClosed, err.msg()), op.bytesTransfered);
+					});
 					m_sends.pop();
-					if (o.h)
-						o.h(TCPError(TCPError::Code::ConnectionClosed, err.msg()), o.bytesTransfered);
 				}
 			}
 			else
@@ -936,10 +944,11 @@ protected:
 				op.bytesTransfered += res;
 				if (op.bufLen == op.bytesTransfered)
 				{
-					SendOp o(std::move(op));
+					m_owner.addCmd([op=std::move(op)]
+					{
+						op.h_(TCPError(), op.bytesTransfered);
+					});
 					m_sends.pop();
-					if (o.h)
-						o.h(TCPError(), o.bytesTransfered);
 				}
 			}
 		}
@@ -951,13 +960,19 @@ protected:
 	{
 		while (m_recvs.size())
 		{
-			m_recvs.front().h(TCPError::Code::Cancelled, m_recvs.front().bytesTransfered);
+			m_owner.addCmd([op=std::move(m_recvs.front())]
+			{
+				op.h_(TCPError::Code::Cancelled, op.bytesTransfered);
+			});
 			m_recvs.pop();
 		}
 
 		while (m_sends.size())
 		{
-			m_sends.front().h(TCPError::Code::Cancelled, m_sends.front().bytesTransfered);
+			m_owner.addCmd([op=std::move(m_sends.front())]
+			{
+				op.h_(TCPError::Code::Cancelled, op.bytesTransfered);
+			});
 			m_sends.pop();
 		}
 	}
@@ -1102,7 +1117,7 @@ protected:
 	struct AcceptOp
 	{
 		TCPSocket& sock;
-		AcceptHandler h;
+		AcceptHandler h_;
 	};
 
 	// Called from TCPSocketSet
@@ -1122,7 +1137,10 @@ protected:
 		{
 			auto ec = details::ErrorWrapper().getError();
 			TCPERROR(ec.msg());
-			op.h(ec);
+			m_owner.addCmd([op=std::move(op), ec]
+			{
+				op.h_(ec);
+			});
 			return m_accepts.size() > 0;
 		}
 		op.sock.m_localAddr = details::utils::getLocalAddr(op.sock.m_s);
@@ -1131,7 +1149,10 @@ protected:
 		TCPINFO("Server side socket %d connected to %s:%d, socket %d",
 			(int)op.sock.m_s, op.sock.m_peerAddr.first.c_str(), op.sock.m_peerAddr.second,
 			(int)m_s);
-		op.h(TCPError());
+		m_owner.addCmd([op=std::move(op)]
+		{
+			op.h_(TCPError());
+		});
 
 		return m_accepts.size() > 0;
 	}
@@ -1140,9 +1161,11 @@ protected:
 	{
 		while (m_accepts.size())
 		{
-			AcceptOp op(std::move(m_accepts.front()));
+			m_owner.addCmd([op=std::move(m_accepts.front())]
+			{
+				op.h_(TCPError::Code::Cancelled);
+			});
 			m_accepts.pop();
-			op.h(TCPError::Code::Cancelled);
 		}
 	}
 
@@ -1280,7 +1303,12 @@ public:
 				// Cancel all handlers in all the sockets we have at the moment
 				//
 				for (auto&& s : m_connects)
-					s.second.h(TCPError(TCPError::Code::Cancelled));
+				{
+					addCmd([h_=std::move(s.second.h_)]
+					{
+						h_(TCPError(TCPError::Code::Cancelled));
+					});
+				}
 				m_connects.clear();
 
 				auto cancel = [](auto&& container)
@@ -1420,14 +1448,20 @@ public:
 					sock->m_peerAddr = details::utils::getRemoteAddr(sock->m_s);
 					sock->m_localAddr = details::utils::getLocalAddr(sock->m_s);
 					TCPINFO("Socket %d connected to %s:%d", (int)sock->m_s, sock->m_peerAddr.first.c_str(), sock->m_peerAddr.second);
-					it->second.h(TCPError());
+					addCmd([op=std::move(it->second)]
+					{
+						op.h_(TCPError());
+					});
 				}
 				else
 				{
-					it->first->releaseHandle();
 					auto ec = details::ErrorWrapper().getError();
 					ec.code = TCPError::Code::ConnectFailed;
-					it->second.h(ec);
+					addCmd([sock=it->first, op=std::move(it->second), ec]
+					{
+						sock->releaseHandle();
+						op.h_(ec);
+					});
 				}
 
 				it = m_connects.erase(it);
@@ -1441,8 +1475,11 @@ public:
 		{
 			if (it->second.timeoutPoint < end)
 			{
-				it->first->releaseHandle();
-				it->second.h(TCPError::Code::ConnectFailed);
+				addCmd([sock=it->first, op=std::move(it->second)]
+				{
+					sock->releaseHandle();
+					op.h_(TCPError::Code::ConnectFailed);
+				});
 				it = m_connects.erase(it);
 			}
 			else
@@ -1497,7 +1534,7 @@ protected:
 		op.buf = m_signalInBuf;
 		op.bufLen = sizeof(m_signalInBuf);
 		op.fill = true;
-		op.h = [this](const TCPError& ec, int bytesTransfered)
+		op.h_ = [this](const TCPError& ec, int bytesTransfered)
 		{
 			if (ec)
 				return;
