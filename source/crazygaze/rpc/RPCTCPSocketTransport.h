@@ -166,17 +166,16 @@ public:
 		if (m_closing)
 			return false;
 
-		if (!m_incomingReady)
+		if (m_inQueue.size()==0)
 		{
 			TRPLOG("%p: Not ready", this);
 			dst.clear();
 			return true;
 		}
 
-		TRPLOG("%p: Ready. %d bytes", this, (int)m_incoming.size());
-		assert(m_incoming.size());
-		dst = std::move(m_incoming);
-		m_incomingReady = false;
+		dst = std::move(m_inQueue.front());
+		m_inQueue.pop();
+		TRPLOG("%p: Ready. %d bytes", this, (int)dst.size());
 		return true;
 	}
 
@@ -190,17 +189,27 @@ public:
 
 protected:
 
-	void triggerConProcessing()
+	void triggerConProcessing(bool allowDispatch)
 	{
-		SINGLETHREAD_ENFORCE();
-		if (m_conProcessingPending)
+		// If the previous value is true, it means there is a pending processing already
+		if (m_conProcessPending.test_and_set())
 			return;
-		m_conProcessingPending = true;
-		TCPService::getFrom(m_sock).post([this, con = m_rpcCon.lock()]()
+
+		auto& io = TCPService::getFrom(m_sock);
+		if (allowDispatch && io.tickingInThisThread())
 		{
-			con->process();
-			m_conProcessingPending = false;
-		});
+			SINGLETHREAD_ENFORCE();
+			auto guard = scopeGuard([this] { m_conProcessPending.clear();});
+			m_rpcCon.lock()->process();
+		}
+		else
+		{
+			io.post([this, con = m_rpcCon.lock()]()
+			{
+				auto guard = scopeGuard([this] { m_conProcessPending.clear();});
+				con->process();
+			});
+		}
 	}
 
 	void doClose()
@@ -214,9 +223,9 @@ protected:
 		}
 		TRPLOG("%p : Close: closing...", this);
 		m_closing = true;
-		m_sock.asyncClose([con = m_rpcCon.lock()]()
+		m_sock.asyncClose([this, con = m_rpcCon.lock()]()
 		{
-			con->process();
+			triggerConProcessing(true);
 		});
 	}
 
@@ -230,10 +239,8 @@ protected:
 		SINGLETHREAD_ENFORCE();
 
 		assert(m_incoming.size() == 0);
-		const auto headerSize = sizeof(uint32_t);
-		m_incoming.insert(m_incoming.end(), headerSize, 0);
 		m_sock.asyncRead(
-			m_incoming.data(), headerSize,
+			reinterpret_cast<char*>(&m_incomingSize), sizeof(m_incomingSize),
 			[this, con=m_rpcCon.lock()](const TCPError& ec, int bytesTransfered)
 		{
 			if (ec)
@@ -243,7 +250,7 @@ protected:
 				return;
 			}
 
-			assert((size_t)bytesTransfered == sizeof(uint32_t));
+			assert((size_t)bytesTransfered == sizeof(m_incomingSize));
 			startReadData();
 		});
 	}
@@ -252,12 +259,12 @@ protected:
 	{
 		SINGLETHREAD_ENFORCE();
 
-		const int rpcSize = *reinterpret_cast<uint32_t*>(m_incoming.data());
+		assert(m_incomingSize > sizeof(uint32_t));
+		m_incoming.insert(m_incoming.end(), m_incomingSize, 0);
+		*reinterpret_cast<uint32_t*>(m_incoming.data()) = m_incomingSize;
 		// To received "rpcSize" is the total size of the data, so the remaining iss rpcSize - sizeof(uint32_t)
-		const int remaining = rpcSize - sizeof(uint32_t);
-		m_incoming.insert(m_incoming.end(), remaining, 0);
 		m_sock.asyncRead(
-			m_incoming.data() + sizeof(uint32_t), remaining,
+			m_incoming.data() + sizeof(uint32_t), m_incomingSize - sizeof(uint32_t),
 			[this, con=m_rpcCon.lock()](const TCPError& ec, int bytesTransfered)
 		{
 			if (ec)
@@ -268,9 +275,9 @@ protected:
 			}
 
 			assert(bytesTransfered == m_incoming.size() - sizeof(uint32_t));
-			m_incomingReady = true;
-			con->process(BaseConnection::Direction::In);
+			m_inQueue.push(std::move(m_incoming));
 			startReadSize();
+			triggerConProcessing(false);
 		});
 	}
 
@@ -294,12 +301,7 @@ protected:
 			TRPLOG("Connected: trp<->con : %p <-> %p", trp.get(), con.get());
 			con->setOutSignal([trp=trp.get()]()
 			{
-				// Connection will call our outSignal handler from any thread calling CZRPC_CALL,
-				// but we need to make sure the Connection processing will only happen in our io thread.
-				TCPService::getFrom(trp->m_sock).post([con=trp->m_rpcCon.lock()]()
-				{
-					con->process(BaseConnection::Direction::Out);
-				});
+				trp->triggerConProcessing(false);
 			});
 			trp->startReadSize();
 			pr->set_value(std::move(con));
@@ -312,10 +314,24 @@ protected:
 	std::weak_ptr<BaseConnection> m_rpcCon;
 
 	// Holds the currently incoming RPC data
+	uint32_t m_incomingSize = 0;
 	std::vector<char> m_incoming;
-	bool m_incomingReady = false;
+	std::queue<std::vector<char>> m_inQueue;
 	bool m_closing = false;
-	bool m_conProcessingPending = false;
+	std::atomic_flag m_conProcessPending = ATOMIC_FLAG_INIT;
+
+	template<typename F>
+	struct ScopeGuard
+	{
+		ScopeGuard(F f) : m_f(std::move(f)) {}
+		~ScopeGuard() { m_f(); }
+		F m_f;
+	};
+	template<typename F>
+	ScopeGuard<F> scopeGuard(F f)
+	{
+		return ScopeGuard<F>(std::move(f));
+	}
 };
 
 
