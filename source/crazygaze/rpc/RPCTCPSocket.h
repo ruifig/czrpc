@@ -13,14 +13,7 @@
 // Windows loopback fast path:
 // https://blogs.technet.microsoft.com/wincat/2012/12/05/fast-tcp-loopback-performance-and-low-latency-with-windows-server-2012-tcp-loopback-fast-path/
 
-/*
-
-TODO:
-	- Revise TCPService to match asio's io_service more closely
-		- put a "post" method, so the user can add custom commands to execute by the service, similar to what asio does. ??
-*/
 #pragma once
-
 
 #ifdef _WIN32
 	#define CZRPC_WINSOCK 1
@@ -1440,6 +1433,13 @@ public:
 		}
 
 		return true;
+	}
+
+	void run()
+	{
+		while (tick())
+		{
+		}
 	}
 
 

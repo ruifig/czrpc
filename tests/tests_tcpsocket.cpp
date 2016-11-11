@@ -541,7 +541,7 @@ TEST(Latency)
 	UnitTest::Timer timer;
 	timer.Start();
 
-	const int count = 20;
+	const int count = 200;
 	const int waitMs = 5;
 	std::vector<std::pair<double, char>> times(count, std::make_pair(double(0), char(0)));
 
@@ -692,7 +692,7 @@ TEST(Throughput)
 	auto start = timer.GetTimeInMs();
 	rcv.setupReceive();
 	snd.setupSend();
-	UnitTest::TimeHelpers::SleepMs(4000);
+	UnitTest::TimeHelpers::SleepMs(30000);
 	snd.sock.asyncClose([] {});
 	rcv.finished.wait();
 	auto end = timer.GetTimeInMs();

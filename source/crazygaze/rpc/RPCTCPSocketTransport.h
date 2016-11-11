@@ -190,6 +190,19 @@ public:
 
 protected:
 
+	void triggerConProcessing()
+	{
+		SINGLETHREAD_ENFORCE();
+		if (m_conProcessingPending)
+			return;
+		m_conProcessingPending = true;
+		TCPService::getFrom(m_sock).post([this, con = m_rpcCon.lock()]()
+		{
+			con->process();
+			m_conProcessingPending = false;
+		});
+	}
+
 	void doClose()
 	{
 		SINGLETHREAD_ENFORCE();
@@ -302,6 +315,7 @@ protected:
 	std::vector<char> m_incoming;
 	bool m_incomingReady = false;
 	bool m_closing = false;
+	bool m_conProcessingPending = false;
 };
 
 
