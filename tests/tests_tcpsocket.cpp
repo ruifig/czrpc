@@ -1,6 +1,8 @@
 #include "testsPCH.h"
 
-#if 0
+#if 1
+
+#define LONGTEST 1
 
 #pragma warning(disable:4996)
 #pragma warning(disable:4390)
@@ -542,7 +544,7 @@ TEST(Latency)
 	UnitTest::Timer timer;
 	timer.Start();
 
-	const int count = 200;
+	const int count = (LONGTEST) ? 200 : 20;
 	const int waitMs = 5;
 	std::vector<std::pair<double, char>> times(count, std::make_pair(double(0), char(0)));
 
@@ -693,7 +695,7 @@ TEST(Throughput)
 	auto start = timer.GetTimeInMs();
 	rcv.setupReceive();
 	snd.setupSend();
-	UnitTest::TimeHelpers::SleepMs(30000);
+	UnitTest::TimeHelpers::SleepMs((LONGTEST) ? 30000 : 4000);
 	snd.sock.asyncClose([] {});
 	rcv.finished.wait();
 	auto end = timer.GetTimeInMs();
