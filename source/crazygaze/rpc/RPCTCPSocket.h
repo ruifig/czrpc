@@ -799,12 +799,12 @@ protected:
 		op.buf = buf;
 		op.bufLen = len;
 		op.fill = fill;
-		op.h_ = std::move(h);
+		op.h = std::move(h);
 		m_owner.addCmd([this, op = std::move(op)]
 		{
 			if (!isValid())
 			{
-				op.h_(TCPError(TCPError::Code::Other, "asyncRead/asyncReadSome called on a closed socket"), 0);
+				op.h(TCPError(TCPError::Code::Other, "asyncRead/asyncReadSome called on a closed socket"), 0);
 				return;
 			}
 
@@ -823,7 +823,7 @@ protected:
 		// buffer size, and the operation discarded;
 		bool fill = false;
 		int bytesTransfered = 0;
-		TransferHandler h_;
+		TransferHandler h;
 	};
 	struct SendOp
 	{
@@ -861,7 +861,7 @@ protected:
 						// whatever data we received, and discard the operation
 						m_owner.addCmd([op = std::move(op)]
 						{
-							op.h_(TCPError(), op.bytesTransfered);
+							op.h(TCPError(), op.bytesTransfered);
 						});
 						m_recvs.pop();
 					}
@@ -874,7 +874,7 @@ protected:
 					TCPERROR(err.msg().c_str());
 					m_owner.addCmd([op=std::move(op), err]
 					{
-						op.h_(TCPError(TCPError::Code::ConnectionClosed, err.msg()), op.bytesTransfered);
+						op.h(TCPError(TCPError::Code::ConnectionClosed, err.msg()), op.bytesTransfered);
 					});
 					m_recvs.pop();
 				}
@@ -886,7 +886,7 @@ protected:
 				{
 					m_owner.addCmd([op=std::move(op)]
 					{
-						op.h_(TCPError(), op.bytesTransfered);
+						op.h(TCPError(), op.bytesTransfered);
 					});
 					m_recvs.pop();
 				}
@@ -897,7 +897,7 @@ protected:
 				// can assert as the result of popping itself since the container is not empty.
 				m_owner.addCmd([op=std::move(op)]
 				{
-					op.h_(TCPError(TCPError::Code::ConnectionClosed), op.bytesTransfered);
+					op.h(TCPError(TCPError::Code::ConnectionClosed), op.bytesTransfered);
 				});
 				m_recvs.pop();
 				break;
@@ -962,7 +962,7 @@ protected:
 		{
 			m_owner.addCmd([op=std::move(m_recvs.front())]
 			{
-				op.h_(TCPError::Code::Cancelled, op.bytesTransfered);
+				op.h(TCPError::Code::Cancelled, op.bytesTransfered);
 			});
 			m_recvs.pop();
 		}
@@ -1534,7 +1534,7 @@ protected:
 		op.buf = m_signalInBuf;
 		op.bufLen = sizeof(m_signalInBuf);
 		op.fill = true;
-		op.h_ = [this](const TCPError& ec, int bytesTransfered)
+		op.h = [this](const TCPError& ec, int bytesTransfered)
 		{
 			if (ec)
 				return;
