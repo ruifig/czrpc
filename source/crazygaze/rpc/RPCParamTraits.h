@@ -154,9 +154,15 @@ struct StringTraits {
     static void read(S& s, std::string& v) {
         int len;
         s.read(&len, sizeof(len));
+
+		auto r = s.readRange<char>(len);
+		v = std::string(r.first, r.second);
+
+		/*
 		v = std::string(len, 0);
 		if (len)
 			s.read(&v[0], len);
+			*/
     }
 };
 }
@@ -243,6 +249,7 @@ struct ParamTraits<
 		int len;
 		s.read(&len, sizeof(len));
 		v.clear();
+		v.reserve(len);
 		while (len--)
 		{
 			T i;
@@ -283,9 +290,8 @@ struct ParamTraits<
 	{
 		int len;
 		s.read(&len, sizeof(len));
-		v = std::vector<T>(len, T());
-		if (len)
-			s.read(&v[0], len * sizeof(T));
+		auto r = s.readRange<T>(len);
+		v = std::vector<T>(r.first, r.second);
 	}
 
 	static std::vector<T>&& get(std::vector<T>&& v) { return std::move(v); }
