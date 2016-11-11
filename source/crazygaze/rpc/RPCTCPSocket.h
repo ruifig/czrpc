@@ -1117,7 +1117,7 @@ protected:
 	struct AcceptOp
 	{
 		TCPSocket& sock;
-		AcceptHandler h_;
+		AcceptHandler h;
 	};
 
 	// Called from TCPSocketSet
@@ -1139,7 +1139,7 @@ protected:
 			TCPERROR(ec.msg());
 			m_owner.addCmd([op=std::move(op), ec]
 			{
-				op.h_(ec);
+				op.h(ec);
 			});
 			return m_accepts.size() > 0;
 		}
@@ -1151,7 +1151,7 @@ protected:
 			(int)m_s);
 		m_owner.addCmd([op=std::move(op)]
 		{
-			op.h_(TCPError());
+			op.h(TCPError());
 		});
 
 		return m_accepts.size() > 0;
@@ -1163,7 +1163,7 @@ protected:
 		{
 			m_owner.addCmd([op=std::move(m_accepts.front())]
 			{
-				op.h_(TCPError::Code::Cancelled);
+				op.h(TCPError::Code::Cancelled);
 			});
 			m_accepts.pop();
 		}
