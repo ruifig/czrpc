@@ -485,7 +485,6 @@ TEST(WithParams)
 }
 
 // Test RPCs throwing exceptions
-/*
 TEST(ExceptionThrowing)
 {
 	using namespace cz::rpc;
@@ -500,6 +499,7 @@ TEST(ExceptionThrowing)
 			try
 			{
 				io.run();
+				return;
 			}
 			catch (const Exception&)
 			{
@@ -541,7 +541,6 @@ TEST(ExceptionThrowing)
 	iothread.join();
 	expectedUnhandledExceptions.wait();
 }
-*/
 
 #if 0
 

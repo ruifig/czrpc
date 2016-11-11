@@ -199,14 +199,14 @@ protected:
 		if (allowDispatch && io.tickingInThisThread())
 		{
 			SINGLETHREAD_ENFORCE();
-			auto guard = scopeGuard([this] { m_conProcessPending.clear();});
+			auto guard = details::scopeGuard([this] { m_conProcessPending.clear();});
 			m_rpcCon.lock()->process();
 		}
 		else
 		{
 			io.post([this, con = m_rpcCon.lock()]()
 			{
-				auto guard = scopeGuard([this] { m_conProcessPending.clear();});
+				auto guard = details::scopeGuard([this] { m_conProcessPending.clear();});
 				con->process();
 			});
 		}
@@ -319,19 +319,6 @@ protected:
 	std::queue<std::vector<char>> m_inQueue;
 	bool m_closing = false;
 	std::atomic_flag m_conProcessPending = ATOMIC_FLAG_INIT;
-
-	template<typename F>
-	struct ScopeGuard
-	{
-		ScopeGuard(F f) : m_f(std::move(f)) {}
-		~ScopeGuard() { m_f(); }
-		F m_f;
-	};
-	template<typename F>
-	ScopeGuard<F> scopeGuard(F f)
-	{
-		return ScopeGuard<F>(std::move(f));
-	}
 };
 
 
