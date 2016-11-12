@@ -264,7 +264,6 @@ struct ParamTraits<
 //
 // Optimization for std::vector where T is an arithmetic
 //
-#if 1
 template <typename T>
 struct ParamTraits<
 	std::vector<T>,
@@ -296,8 +295,6 @@ struct ParamTraits<
 
 	static std::vector<T>&& get(std::vector<T>&& v) { return std::move(v); }
 };
-
-#endif
 
 //
 // Validate if all parameter types in a parameter pack can be used for RPC

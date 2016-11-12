@@ -1,7 +1,5 @@
 #include "testsPCH.h"
 
-#if 1
-
 #define LONGTEST 0
 
 #pragma warning(disable:4996)
@@ -710,5 +708,3 @@ TEST(Throughput)
 }
 
 }
-
-#endif
