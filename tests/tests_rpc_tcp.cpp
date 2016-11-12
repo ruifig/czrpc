@@ -2,8 +2,6 @@
 #include "Semaphore.h"
 #include "Foo.h"
 
-#if 1
-
 #define TEST_PORT 9000
 
 #define LONGTEST 0
@@ -30,8 +28,6 @@ public:
 	REGISTERRPC(add) \
 	REGISTERRPC(sub)
 #include "crazygaze/rpc/RPCGenerate.h"
-
-#if 1
 
 SUITE(RPCTCP)
 {
@@ -101,8 +97,6 @@ TEST(1)
 }
 
 }
-
-#endif
 
 // Forward declaration, so the server side can use it
 class TesterClient;
@@ -351,7 +345,6 @@ private:
 SUITE(RPCTraits)
 {
 
-#if 1
 TEST(NotAuth)
 {
 	using namespace cz::rpc;
@@ -921,8 +914,6 @@ TEST(Latency)
 	iothread.join();
 }
 
-#endif
-
 TEST(Throughput)
 {
 	using namespace cz::rpc;
@@ -991,6 +982,3 @@ TEST(Throughput)
 
 }
 
-
-
-#endif

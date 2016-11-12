@@ -1,5 +1,6 @@
 #include "testsPCH.h"
-//#include "crazygaze/rpc/RPCTCPSocket.h"
+
+#define LOOP_TESTS 1
 
 namespace cz
 {
@@ -18,7 +19,7 @@ void RunDocTest_ParamTraits();
 int main()
 {
 	//RunDocTest_ParamTraits();
-#if 1
+#if LOOP_TESTS
 	int res;
 	int counter = 0;
 	while (true)
