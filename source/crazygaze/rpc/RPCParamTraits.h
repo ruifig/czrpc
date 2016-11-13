@@ -155,7 +155,7 @@ struct StringTraits {
         int len;
         s.read(&len, sizeof(len));
 
-		auto r = s.readRange<char>(len);
+		auto r = s.template readRange<char>(len);
 		v = std::string(r.first, r.second);
 
 		/*
@@ -289,7 +289,7 @@ struct ParamTraits<
 	{
 		int len;
 		s.read(&len, sizeof(len));
-		auto r = s.readRange<T>(len);
+		auto r = s.template readRange<T>(len);
 		v = std::vector<T>(r.first, r.second);
 	}
 
