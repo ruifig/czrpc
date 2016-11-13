@@ -6,6 +6,12 @@
 
 #pragma warning(disable:4996)
 
+#ifdef _WIN32
+	#define my_vsnprintf _vsnprintf
+#else
+	#define my_vsnprintf vsnprintf
+#endif
+
 namespace cz
 {
 
@@ -13,8 +19,8 @@ char* getTemporaryString()
 {
 	// Use several static strings, and keep picking the next one, so that callers can hold the string for a while without risk of it
 	// being changed by another call.
-	__declspec( thread ) static char bufs[CZ_TEMPORARY_STRING_MAX_NESTING][CZ_TEMPORARY_STRING_MAX_SIZE];
-	__declspec( thread ) static int nBufIndex=0;
+	thread_local static char bufs[CZ_TEMPORARY_STRING_MAX_NESTING][CZ_TEMPORARY_STRING_MAX_SIZE];
+	thread_local static int nBufIndex=0;
 
 	char* buf = bufs[nBufIndex];
 	nBufIndex++;
@@ -27,7 +33,7 @@ char* getTemporaryString()
 char* formatStringVA(const char* format, va_list argptr)
 {
 	char* buf = getTemporaryString();
-	if (_vsnprintf(buf, CZ_TEMPORARY_STRING_MAX_SIZE, format, argptr) == CZ_TEMPORARY_STRING_MAX_SIZE)
+	if (my_vsnprintf(buf, CZ_TEMPORARY_STRING_MAX_SIZE, format, argptr) == CZ_TEMPORARY_STRING_MAX_SIZE)
 		buf[CZ_TEMPORARY_STRING_MAX_SIZE-1] = 0;
 	return buf;
 }

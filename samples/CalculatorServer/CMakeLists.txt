@@ -28,6 +28,7 @@ add_executable(${PROJECT_NAME} ${SOURCE_FILES})
 set_postfix()
 set_property(TARGET ${PROJECT_NAME} PROPERTY FOLDER "samples")
 target_link_libraries(${PROJECT_NAME} SamplesCommon)
+add_commonlibs()
 
 
 
