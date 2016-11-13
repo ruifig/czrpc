@@ -21,3 +21,4 @@ add_library(${PROJECT_NAME} STATIC ${SOURCE_FILES})
 set_postfix()
 set(${PROJECT_NAME}_INCLUDE_DIRS ${PROJECT_SOURCE_DIR}
     CACHE INTERNAL "${PROJECT_NAME}: Include Directories" FORCE)
+
