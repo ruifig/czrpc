@@ -5,14 +5,19 @@
 
 #pragma once
 
+#ifdef _WIN32
 #include "targetver.h"
-
-#include <stdio.h>
 #include <tchar.h>
 #include <conio.h>
+#endif
+
+#include <stdio.h>
+#include <cmath>
 
 #include "crazygaze/rpc/RPC.h"
 #include "crazygaze/rpc/RPCAsioTransport.h"
 
 #include "../SamplesCommon/Parameters.h"
 #include "../SamplesCommon/SimpleServer.h"
+#include "../SamplesCommon/Misc.h"
+

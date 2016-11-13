@@ -9,6 +9,8 @@ SET(SOURCE_FILES
 		"SimpleServer.h"
 		"StringUtil.h"
 		"StringUtil.cpp"
+		"Misc.h"
+		"Misc.cpp"
 		"targetver.h"
 		)
 

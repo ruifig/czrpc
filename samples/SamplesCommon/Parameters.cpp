@@ -28,15 +28,15 @@ void Parameters::set(int argc, char* argv[])
 		if (*arg == '-')
 			arg++;
 
-		const char *seperator = strchr(arg, '=');
-		if (seperator==nullptr)
+		const char *separator = strchr(arg, '=');
+		if (separator==nullptr)
 		{
 			m_args.emplace_back(arg, "");
 		}
 		else
 		{
-			std::string name(arg, seperator);
-			std::string value(++seperator);
+			std::string name(arg, separator);
+			std::string value(++separator);
 			m_args.emplace_back(std::move(name), std::move(value));
 		}
 	}

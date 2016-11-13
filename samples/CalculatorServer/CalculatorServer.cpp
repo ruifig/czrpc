@@ -60,7 +60,7 @@ int main(int argc, char* argv[])
 		server.objData().setProperty("name", "calc");
 		while (true)
 		{
-			if (getch())
+			if (my_getch())
 				break;
 		}
 	}
