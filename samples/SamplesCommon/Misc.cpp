@@ -45,6 +45,11 @@ char my_getch()
 	return _getch();
 }
 
+int my_kbhit()
+{
+	return _kbhit();
+}
+
 #endif
 
 

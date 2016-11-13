@@ -24,7 +24,7 @@ int main()
 	bool quit = false;
 	while(!quit)
 	{
-		while(!kbhit())
+		while(!my_kbhit())
 		{
 			std::this_thread::sleep_for(std::chrono::milliseconds(5));
 

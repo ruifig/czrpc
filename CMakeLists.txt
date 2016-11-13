@@ -13,7 +13,5 @@ add_subdirectory(tests)
 
 add_subdirectory(samples/SamplesCommon)
 add_subdirectory(samples/CalculatorServer)
+add_subdirectory(samples/ServerConsole)
 
-
-
-#set_property(TARGET ${SAMPLE} PROPERTY FOLDER "${VIRTUAL_FOLDER}")

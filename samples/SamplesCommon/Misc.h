@@ -7,3 +7,7 @@
 // still need to press Enter
 char my_getch();
 
+
+int my_kbhit();
+
+
