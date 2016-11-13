@@ -3,6 +3,7 @@
 #include <stdarg.h>
 #include <utility>
 #include <string>
+#include <algorithm>
 
 namespace cz
 {
