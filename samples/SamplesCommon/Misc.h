@@ -7,7 +7,6 @@
 // still need to press Enter
 char my_getch();
 
-
 int my_kbhit();
-
+bool try_getline(std::string& str);
 
