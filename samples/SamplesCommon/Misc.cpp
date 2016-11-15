@@ -6,8 +6,11 @@
 #include <sys/select.h>
 #include <sys/types.h>
 #include <sys/time.h>
+#include <sys/ioctl.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <stropts.h>
 
 static struct termios old, new_;
 
@@ -58,9 +61,98 @@ void changemode(int dir)
     tcsetattr( STDIN_FILENO, TCSANOW, &oldt);
 }
 
+#if 0
+int my_kbhit(void)
+{
+  struct termios oldt, newt;
+  int ch;
+  int oldf;
+
+  tcgetattr(STDIN_FILENO, &oldt);
+  newt = oldt;
+  newt.c_lflag &= ~(ICANON | ECHO);
+  tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+  oldf = fcntl(STDIN_FILENO, F_GETFL, 0);
+  fcntl(STDIN_FILENO, F_SETFL, oldf | O_NONBLOCK);
+
+  ch = getchar();
+
+  tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+  fcntl(STDIN_FILENO, F_SETFL, oldf);
+
+  if(ch != EOF)
+  {
+    //ungetc(ch, stdin);
+    return 1;
+  }
+
+  return 0;
+}
+#endif
+
+static const int STDIN = 0;
+int my_kbhit() {
+    static bool initialized = false;
+
+    if (! initialized) {
+        // Use termios to turn off line buffering
+        termios term;
+        tcgetattr(STDIN, &term);
+        term.c_lflag &= ~(ICANON);
+        tcsetattr(STDIN, TCSANOW, &term);
+        setbuf(stdin, NULL);
+        initialized = true;
+    }
+
+    int bytesWaiting;
+    ioctl(STDIN, FIONREAD, &bytesWaiting);
+	 if (bytesWaiting)
+		 my_getch();
+    return bytesWaiting;
+}
+
+bool try_getline(std::string& str)
+{
+	termios oldt, newt;
+	tcgetattr(STDIN, &oldt);
+
+	// Disable echo
+	newt = oldt;
+	newt.c_lflag &= ~(ICANON | ECHO);
+	tcsetattr(STDIN, TCSANOW, &newt);
+
+	// check if there are any keys pending
+	int bytesWaiting;
+	ioctl(STDIN, FIONREAD, &bytesWaiting);
+
+	if (bytesWaiting)
+	{
+		str = "";
+		while(bytesWaiting--)
+			str += getchar();
+
+		// enable echo
+		oldt.c_lflag &= ~ECHO;
+		tcsetattr(STDIN, TCSANOW, &oldt);
+		//newt.c_lflag |= ECHO;
+		//tcsetattr(STDIN, TCSANOW, &newt);
+
+		std::cout << "COMMAND> " << str;
+		std::string tmp;
+		std::getline(std::cin, tmp);
+		str += tmp;
+		printf("*%s\n", str.c_str());
+	}
+
+	oldt.c_lflag &= ~ECHO;
+	tcsetattr(STDIN, TCSANOW, &oldt);
+	return str!="";
+}
+
+#if 0
 int my_kbhit (void)
 {
-	changemode(1);
+	//changemode(1);
   struct timeval tv;
   fd_set rdfs;
 
@@ -71,10 +163,12 @@ int my_kbhit (void)
   FD_SET (STDIN_FILENO, &rdfs);
 
   select(STDIN_FILENO+1, &rdfs, NULL, NULL, &tv);
-	changemode(0);
+	//changemode(0);
   return FD_ISSET(STDIN_FILENO, &rdfs);
 
 }
+#endif
+
 #if 0
 // From http://www.flipcode.com/archives/_kbhit_for_Linux.shtml
 int my_kbhit() {

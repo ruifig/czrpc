@@ -24,6 +24,7 @@ int main()
 	bool quit = false;
 	while(!quit)
 	{
+#ifdef _WIN32
 		while(!my_kbhit())
 		{
 			std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -43,11 +44,36 @@ int main()
 			}
 		}
 
-		std::cout << "COMMAND> ";
+		std::cout << ">COMMAND> " << std::flush;
+		//printf("COMMAND> ");
 		std::string cmdstr;
 		std::getline(std::cin, cmdstr);
 		if (!processCommand(cmdstr))
 			quit = true;
+#else
+		std::string cmdstr;
+		while(!try_getline(cmdstr))
+		{
+			std::this_thread::sleep_for(std::chrono::milliseconds(5));
+
+			// Delete any closed connections
+			for(auto it = gCons.begin(); it!=gCons.end();)
+			{
+				if (it->second->closed)
+				{
+					std::cout << "Connection '" << it->second->name << "' closed.\n";
+					it = gCons.erase(it);
+				}
+				else
+				{
+					it++;
+				}
+			}
+		}
+
+		if (!processCommand(cmdstr))
+			quit = true;
+#endif
 	}
 
 	gIOService->stop();
