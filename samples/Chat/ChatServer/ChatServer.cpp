@@ -9,7 +9,7 @@ using namespace cz::rpc;
 Parameters gParams;
 
 
-#define LOG(fmt, ...) printf("LOG: " fmt "\n", __VA_ARGS__)
+#define LOG(fmt, ...) printf("LOG: " fmt "\n", ##__VA_ARGS__);
 
 #define BROADCAST_RPC(excludedClient, func, ...)             \
 	{                                                        \
@@ -211,7 +211,7 @@ int main(int argc, char* argv[])
 		ChatServer server(port);
 		while (true)
 		{
-			if (getch())
+			if (my_getch())
 				break;
 		}
 	}
