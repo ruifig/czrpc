@@ -18,14 +18,13 @@ int main()
 		gIOService->run();
 	});
 
-	//auto clientCon = AsioTransport<void, GenericServer>::create(io, "127.0.0.1", 9000).get();
-
 	std::cout << "Type :h for help\n";
 	bool quit = false;
+	CommandLineReader cmdReader("COMMAND> ");
 	while(!quit)
 	{
-#ifdef _WIN32
-		while(!my_kbhit())
+		std::string cmd;
+		while(!cmdReader.tryGet(cmd))
 		{
 			std::this_thread::sleep_for(std::chrono::milliseconds(5));
 
@@ -44,36 +43,8 @@ int main()
 			}
 		}
 
-		std::cout << ">COMMAND> " << std::flush;
-		//printf("COMMAND> ");
-		std::string cmdstr;
-		std::getline(std::cin, cmdstr);
-		if (!processCommand(cmdstr))
+		if (!processCommand(cmd))
 			quit = true;
-#else
-		std::string cmdstr;
-		while(!try_getline(cmdstr))
-		{
-			std::this_thread::sleep_for(std::chrono::milliseconds(5));
-
-			// Delete any closed connections
-			for(auto it = gCons.begin(); it!=gCons.end();)
-			{
-				if (it->second->closed)
-				{
-					std::cout << "Connection '" << it->second->name << "' closed.\n";
-					it = gCons.erase(it);
-				}
-				else
-				{
-					it++;
-				}
-			}
-		}
-
-		if (!processCommand(cmdstr))
-			quit = true;
-#endif
 	}
 
 	gIOService->stop();
