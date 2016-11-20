@@ -22,6 +22,50 @@ transports you want to use
     #define CZRPC_DEBUG_BREAK __builtin_trap
 #endif
 
+#ifdef NDEBUG
+	#define CZRPC_ASSERT(expr) ((void)0)
+#else
+	#define CZRPC_ASSERT(expr) \
+		if (!(expr)) CZRPC_DEBUG_BREAK();
+#endif
+
+//
+// CZRPC_LOGGING
+// If set to 1, it will log detailed RPC information
+#ifdef NDEBUG
+	#define CZRPC_LOGGING 0
+#else
+	#define CZRPC_LOGGING 1
+#endif
+
+//
+// CZRPC_FORCE_CALL_DBG
+// If set to 1 AND CZRPC_LOGGING is also 1, it will implicitly add debug information to all
+// calls
+#ifdef NDEBUG
+	#define CZRPC_FORCE_CALL_DBG 0
+#else
+	#define CZRPC_FORCE_CALL_DBG 0
+#endif
+ 
+
+#if CZRPC_LOGGING
+	#include "crazygaze/rpc/RPCLogger.h"
+	extern cz::Logger g_rpcLogger;
+	#define CZRPC_LOG(verbosity, fmt, ...) \
+		g_rpcLogger.log(__FILE__, __LINE__, cz::Logger::Verbosity::verbosity, fmt, ##__VA_ARGS__)
+#else
+	#define CZRPC_LOG(verbosity, fmt, ...) ((void)0)
+#endif
+
+#define CZRPC_LOGSTR_CREATE  "N%010u:Create  : "
+#define CZRPC_LOGSTR_COMMIT  "N%010u:Commit  : "
+#define CZRPC_LOGSTR_SEND    "N%010u:Send    : "
+#define CZRPC_LOGSTR_ABORT   "N%010u:Abort   : "
+#define CZRPC_LOGSTR_RESULT  "N%010u:Result  : "
+#define CZRPC_LOGSTR_RECEIVE "N%010u:Receive : "
+#define CZRPC_LOGSTR_REPLY   "N%010u:Reply   : "
+
 #include <string>
 #include <vector>
 #include <memory>
@@ -51,3 +95,4 @@ transports you want to use
 #include "crazygaze/rpc/RPCProcessor.h"
 #include "crazygaze/rpc/RPCConnection.h"
 #include "crazygaze/rpc/RPCGenericServer.h"
+

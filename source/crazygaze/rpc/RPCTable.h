@@ -11,7 +11,7 @@ struct Header
 	enum
 	{
 		kSizeBits = 32,
-		kRPCIdBits = 8,
+		kRPCIdBits = 7,
 		kCounterBits = 22,
 	};
 	explicit Header()
@@ -25,6 +25,7 @@ struct Header
 		unsigned size : kSizeBits;
 		unsigned counter : kCounterBits;
 		unsigned rpcid : kRPCIdBits;
+		unsigned hasDbg : 1;   // Does this have a debug section before the payload ?
 		unsigned isReply : 1;  // Is it a reply to a RPC call ?
 		unsigned success : 1;  // Was the RPC call a success ?
 	};
@@ -49,6 +50,37 @@ inline Stream& operator>>(Stream& s, Header& v)
 	s >> v.all_;
 	return s;
 }
+
+struct DebugInfo
+{
+	unsigned num;
+	int line;
+	char file[256];
+	DebugInfo() {}
+	DebugInfo(const char* file_, int line_)
+	{
+		static_assert(
+			sizeof(*this) == (sizeof(num)+sizeof(line)+sizeof(file)),
+			"Cannot have padding");
+		static std::atomic<unsigned> counter(0);
+		num = counter.fetch_add(1);
+		line = line_;
+		copyStrToFixedBuffer(file, file_);
+	}
+};
+
+inline Stream& operator<<(Stream& s, const DebugInfo& v)
+{
+	s.write(&v, sizeof(v));
+	return s;
+}
+
+inline Stream& operator>>(Stream& s, DebugInfo& v)
+{
+	s.read(&v, sizeof(v));
+	return s;
+}
+
 
 struct InProcessorData
 {
@@ -93,24 +125,36 @@ namespace details
 
 struct Send
 {
-	static void error(Transport& trp, Header hdr, const char* what)
+	static void error(Transport& trp, Header hdr, const char* what, DebugInfo* dbg)
 	{
 		Stream o;
 		o << hdr; // reserve space for the header
 		o << what;
+		hdr.bits.hasDbg = false;
 		hdr.bits.isReply = true;
 		hdr.bits.success = false;
 		hdr.bits.size = o.writeSize();
 		*reinterpret_cast<Header*>(o.ptr(0)) = hdr;
+		if (dbg)
+		{
+			CZRPC_LOG(Log, CZRPC_LOGSTR_REPLY"size=%u, exception=%s",
+				dbg->num, o.writeSize(),what);
+		}
 		trp.send(o.extract());
 	}
 
-	static void result(Transport& trp, Header hdr, Stream& o)
+	static void result(Transport& trp, Header hdr, Stream& o, DebugInfo* dbg)
 	{
+		hdr.bits.hasDbg = false;
 		hdr.bits.isReply = true;
 		hdr.bits.success = true;
 		hdr.bits.size = o.writeSize();
 		*reinterpret_cast<Header*>(o.ptr(0)) = hdr;
+		if (dbg)
+		{
+			CZRPC_LOG(Log, CZRPC_LOGSTR_REPLY"size=%u, success",
+				dbg->num, o.writeSize());
+		}
 		trp.send(o.extract());
 	}
 };
@@ -150,7 +194,7 @@ template <typename R>
 struct Dispatcher<false, R>
 {
 	template <typename OBJ, typename F, typename P>
-	static void impl(OBJ& obj, F f, P&& params, InProcessorData& out, Transport& trp, Header hdr)
+	static void impl(OBJ& obj, F f, P&& params, InProcessorData& out, Transport& trp, Header hdr, DebugInfo* dbg)
 	{
 #if CZRPC_CATCH_EXCEPTIONS
 		try {
@@ -158,12 +202,12 @@ struct Dispatcher<false, R>
 			Stream o;
 			o << hdr; // Reserve space for the header
 			Caller<R>::doCall(obj, std::move(f), std::move(params), o, hdr);
-			Send::result(trp, hdr, o);
+			Send::result(trp, hdr, o, dbg);
 #if CZRPC_CATCH_EXCEPTIONS
 		}
 		catch (std::exception& e)
 		{
-			Send::error(trp, hdr, e.what());
+			Send::error(trp, hdr, e.what(), dbg);
 		}
 #endif
 	}
@@ -174,16 +218,19 @@ template <typename R>
 struct Dispatcher<true, R>
 {
 	template <typename OBJ, typename F, typename P>
-	static void impl(OBJ& obj, F f, P&& params, InProcessorData& out, Transport& trp, Header hdr)
+	static void impl(OBJ& obj, F f, P&& params, InProcessorData& out, Transport& trp, Header hdr, DebugInfo* dbg)
 	{
 		using Traits = FunctionTraits<F>;
 		auto resFt = callMethod(obj, f, std::move(params));
 		out.pending([&](InProcessorData::PendingFutures& pending)
 		{
 			unsigned counter = pending.counter++;
-			auto ft = then(std::move(resFt), [&out, &trp, hdr, counter](std::future<typename Traits::return_type> ft)
+			std::unique_ptr<DebugInfo> dbgptr;
+			if (dbg)
+				dbgptr = std::make_unique<DebugInfo>(*dbg);
+			auto ft = then(std::move(resFt), [&out, &trp, hdr, counter, dbg=std::move(dbgptr)](std::future<typename Traits::return_type> ft)
 			{
-				processReady(out, trp, counter, hdr, std::move(ft));
+				processReady(out, trp, counter, hdr, std::move(ft), dbg.get());
 			});
 
 			pending.futures.insert(std::make_pair(counter, std::move(ft)));
@@ -191,7 +238,7 @@ struct Dispatcher<true, R>
 	}
 
 	template<typename T>
-	static void processReady(InProcessorData& out, Transport& trp, unsigned counter, Header hdr, std::future<T> ft)
+	static void processReady(InProcessorData& out, Transport& trp, unsigned counter, Header hdr, std::future<T> ft, DebugInfo* dbg)
 	{
 		try
 		{
@@ -202,11 +249,11 @@ struct Dispatcher<true, R>
 				o << Any(r);
 			else
 				o << r;
-			Send::result(trp, hdr, o);
+			Send::result(trp, hdr, o, dbg);
 		}
 		catch (const std::exception& e)
 		{
-			Send::error(trp, hdr, e.what());
+			Send::error(trp, hdr, e.what(), dbg);
 		}
 
 		// Delete previously finished futures, and prepare to delete this one.
@@ -235,10 +282,11 @@ struct BaseInfo
 class BaseTable
 {
   public:
-	BaseTable() {}
+	explicit BaseTable(const char* name) : m_name(name) {}
 	virtual ~BaseTable() {}
 	bool isValid(uint32_t rpcid) const { return rpcid < m_rpcs.size(); }
   protected:
+	std::string m_name;
 	std::vector<std::unique_ptr<BaseInfo>> m_rpcs;
 	std::vector<std::unique_ptr<BaseInfo>> m_controlrpcs;
 };
@@ -251,9 +299,10 @@ class TableImpl : public BaseTable
 
 	struct Info : public BaseInfo
 	{
-		std::function<void(Type&, Stream& in, InProcessorData& out, Transport& trp, Header hdr)> dispatcher;
+		std::function<void(Type&, Stream& in, InProcessorData& out, Transport& trp, Header hdr, DebugInfo* dbg)> dispatcher;
 	};
 
+	explicit TableImpl(const char* name) : BaseTable(name) {}
 
 	Info* getByName(const std::string& name)
 	{
@@ -281,7 +330,7 @@ class TableImpl : public BaseTable
 		assert(m_rpcs.size() == 0);
 		auto info = std::make_unique<Info>();
 		info->name = "genericRPC";
-		info->dispatcher = [this](Type& obj, Stream& in, InProcessorData& out, Transport& trp, Header hdr) {
+		info->dispatcher = [this](Type& obj, Stream& in, InProcessorData& out, Transport& trp, Header hdr, DebugInfo* dbg) {
 			assert(hdr.isGenericRPC());
 			std::string name;
 			in >> name;
@@ -293,11 +342,11 @@ class TableImpl : public BaseTable
 
 			if (!info)
 			{
-				details::Send::error(trp, hdr, "Generic RPC not found");
+				details::Send::error(trp, hdr, "Generic RPC not found", dbg);
 				return;
 			}
 
-			info->dispatcher(obj, in, out, trp, hdr);
+			info->dispatcher(obj, in, out, trp, hdr, dbg);
 		};
 		m_rpcs.push_back(std::move(info));
 
@@ -322,12 +371,21 @@ class TableImpl : public BaseTable
 
 		auto info = std::make_unique<Info>();
 		info->name = name;
-		info->dispatcher = [f](Type& obj, Stream& in, InProcessorData& out, Transport& trp, Header hdr) {
+		info->dispatcher = [this,f,info=info.get()](Type& obj, Stream& in, InProcessorData& out, Transport& trp, Header hdr, DebugInfo* dbg) {
 			using Traits = FunctionTraits<F>;
 			typename Traits::param_tuple params;
 
+			if(dbg && hdr.isGenericRPC())
+			{
+				CZRPC_LOG(Log, CZRPC_LOGSTR_RECEIVE"genericRPC->%s::%s", dbg->num, m_name.c_str(), info->name.c_str());
+			}
+
 			if (!out.authPassed)
 			{
+				if (dbg)
+				{
+					CZRPC_LOG(Log, CZRPC_LOGSTR_RECEIVE"No authentication. Closing.", dbg->num);
+				}
 				trp.close();
 				return;
 			}
@@ -340,7 +398,7 @@ class TableImpl : public BaseTable
 				{
 					// Invalid parameters supplied, or the RPC function signature itself can't be used for
 					// generic RPCs, since the parameter types it uses can't be converted to/from cz::rpc::Any
-					details::Send::error(trp, hdr, "Invalid parameters for generic RPC");
+					details::Send::error(trp, hdr, "Invalid parameters for generic RPC", dbg);
 					return;
 				}
 			}
@@ -350,7 +408,7 @@ class TableImpl : public BaseTable
 			}
 
 			using R = typename Traits::return_type;
-			details::Dispatcher<Traits::isasync, R>::impl(obj, f, std::move(params), out, trp, hdr);
+			details::Dispatcher<Traits::isasync, R>::impl(obj, f, std::move(params), out, trp, hdr, dbg);
 		};
 		m_rpcs.push_back(std::move(info));
 	}
@@ -363,14 +421,23 @@ class TableImpl : public BaseTable
 
 		auto info = std::make_unique<Info>();
 		info->name = name;
-		info->dispatcher = [f, info=info.get()](Type& obj, Stream& in, InProcessorData& out, Transport& trp, Header hdr) {
+		info->dispatcher = [this, f, info=info.get()](Type& obj, Stream& in, InProcessorData& out, Transport& trp, Header hdr, DebugInfo* dbg) {
 			using Traits = FunctionTraits<F>;
 			typename Traits::param_tuple params;
 			// All control RPCs are generic (and only generic)
 			assert(hdr.isGenericRPC());
+			
+			if(dbg)
+			{
+				CZRPC_LOG(Log, CZRPC_LOGSTR_RECEIVE"genericRPC->%s::%s", dbg->num, m_name.c_str(), info->name.c_str());
+			}
 
 			if (!out.authPassed && info->name!="__auth")
 			{
+				if (dbg)
+				{
+					CZRPC_LOG(Log, CZRPC_LOGSTR_RECEIVE"No authentication. Closing.", dbg->num);
+				}
 				trp.close();
 				return;
 			}
@@ -379,7 +446,7 @@ class TableImpl : public BaseTable
 			in >> a;
 			if (!toTuple(a, params))
 			{
-				details::Send::error(trp, hdr, "Invalid parameters for generic RPC");
+				details::Send::error(trp, hdr, "Invalid parameters for generic RPC", dbg);
 				return;
 			}
 
@@ -390,7 +457,7 @@ class TableImpl : public BaseTable
 			Stream o;
 			o << hdr; // reserve space for header
 			o << callMethod(out, f, std::move(params));
-			details::Send::result(trp, hdr, o);
+			details::Send::result(trp, hdr, o, dbg);
 		};
 		m_controlrpcs.push_back(std::move(info));
 	}
@@ -399,7 +466,10 @@ class TableImpl : public BaseTable
 template <typename T>
 class Table : public TableImpl<T>
 {
-	static_assert(sizeof(T) == 0, "RPC Table not specified for the type.");
+public:
+	// Using std::is_pointer has a hack to cause this assert to always fail if we try to instantiate
+	// an instace of a non specialized Table
+	static_assert(std::is_pointer<T>::value, "RPC Table not specified for the type.");
 };
 
 }  // namespace rpc
