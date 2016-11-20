@@ -2,7 +2,7 @@
 
 #define LOOP_TESTS 1
 
-#if CZRPC_LOGRPCS
+#if CZRPC_LOGGING
 cz::Logger g_rpcLogger("czrpc.log");
 #endif
 

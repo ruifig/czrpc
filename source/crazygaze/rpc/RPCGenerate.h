@@ -10,6 +10,9 @@
 #define RPCTABLE_TOOMANYRPCS_STRINGIFY(arg) #arg
 #define RPCTABLE_TOOMANYRPCS(arg) RPCTABLE_TOOMANYRPCS_STRINGIFY(arg)
 
+#define RPCTABLE_STRINGIFY(exp) RPCTABLE_STRINGIFY2(exp)
+#define RPCTABLE_STRINGIFY2(exp) #exp
+
 namespace cz { namespace rpc {
 
 template<> class Table<RPCTABLE_CLASS> : TableImpl<RPCTABLE_CLASS>
@@ -23,7 +26,7 @@ public:
 		NUMRPCS
 	};
 
-	Table()
+	Table() : TableImpl(RPCTABLE_STRINGIFY(RPCTABLE_CLASS))
 	{
 		registerGenericRPC();
 		static_assert((unsigned)((int)RPCId::NUMRPCS-1)<(1<<Header::kRPCIdBits),
@@ -33,9 +36,20 @@ public:
 		RPCTABLE_CONTENTS
 	}
 
-	static const Info* get(uint32_t rpcid)
+	static const Table<RPCTABLE_CLASS>& getTbl()
 	{
 		static Table<RPCTABLE_CLASS> tbl;
+		return tbl;
+	}
+
+	static const std::string& getName()
+	{
+		return getTbl().m_name;
+	}
+
+	static const Info* get(uint32_t rpcid)
+	{
+		auto& tbl = getTbl();
 		assert(tbl.isValid(rpcid));
 		return static_cast<Info*>(tbl.m_rpcs[rpcid].get());
 	}

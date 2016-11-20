@@ -1,6 +1,6 @@
 /*
 Simple asynchronous logging.
-Not meant to be production ready. Just useful for development
+Not meant to be production ready. Just useful for debugging during development
 */
 #pragma once
 
@@ -55,7 +55,13 @@ public:
 		Error,
 		Warning,
 		Log,
+		Verbose
 	};
+
+	void setLevel(Verbosity v)
+	{
+		m_level = v;
+	}
 
 	static const char* verbosityStr(Verbosity v)
 	{
@@ -65,6 +71,7 @@ public:
 		case Verbosity::Error: return "ERR";
 		case Verbosity::Warning: return "WRN";
 		case Verbosity::Log: return "LOG";
+		case Verbosity::Verbose: return "VRB";
 		default:
 			assert(0);
 			return "";
@@ -95,6 +102,9 @@ public:
 
 	void log(const char* file, int line, Verbosity verbosity, const char* fmt, ...)
 	{
+		if ((int)verbosity > (int)m_level)
+			return;
+
 		char buf[1024];
 		// format the log entry string
 		va_list args;
@@ -126,6 +136,7 @@ public:
 	}
 
 private:
+	Verbosity m_level = Verbosity::Verbose;
 	std::thread m_iothread;
 	std::string m_filename;
 	std::ofstream m_file;

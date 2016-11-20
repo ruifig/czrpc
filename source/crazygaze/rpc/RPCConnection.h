@@ -1,12 +1,5 @@
 #pragma once
-#define CZRPC_LOGRPCS 1
 
-#if CZRPC_LOGRPCS
-#include "crazygaze/rpc/RPCLogger.h"
-extern cz::Logger g_rpcLogger;
-#define CZRPC_LOG_RPC(verbosity, fmt, ...) \
-	g_rpcLogger.log(__FILE__, __LINE__, cz::Logger::Verbosity::verbosity, fmt, ##__VA_ARGS__)
-#endif
 
 namespace cz
 {
@@ -96,6 +89,17 @@ protected:
 		hdr.bits.rpcid = rpcid;
 		m_data << hdr; // reserve space for the header
 	}
+	
+	unsigned addDebugInfo(const char* file, int line)
+	{
+		// debug info needs to be right after the header
+		CZRPC_ASSERT(m_data.writeSize() == sizeof(Header));
+		auto hdr = reinterpret_cast<Header*>(m_data.ptr(0));
+		hdr->bits.hasDbg = true;
+		DebugInfo dbg(file, line);
+		m_data << dbg;
+		return dbg.num;
+	}
 
 	template<typename... Args>
 	void serializeParams(Args&&... args)
@@ -142,10 +146,41 @@ public:
 		return std::move(c);
 	}
 
+	template<typename F, typename... Args>
+	auto call(const char* file, int line, uint32_t rpcid, Args&&... args)
+	{
+		using Traits = FunctionTraits<F>;
+		static_assert(
+			std::is_member_function_pointer<F>::value &&
+			std::is_base_of<typename Traits::class_type, Remote>::value,
+			"Function is not a member function of the specified remote side class");
+		Call<F, ThisType> c(*this, rpcid);
+		auto dbgnum = c.addDebugInfo(file, line);
+		c.serializeParams(std::forward<Args>(args)...);
+		CZRPC_LOG(Log, CZRPC_LOGSTR_CREATE"%u:%s::%s (%s,%d)",
+			dbgnum,
+			rpcid, Table<Remote>::getName().c_str(), Table<Remote>::get(rpcid)->name.c_str(),
+			file, line);
+		return std::move(c);
+	}
+
 	auto callGeneric(const std::string& name, const std::vector<Any>& args = std::vector<Any>())
 	{
-		Call<details::GenericRPCFunc, ThisType> c(*this, (int)Table<Remote>::RPCId::genericRPC);
+		uint32_t rpcid = (uint32_t)Table<Remote>::RPCId::genericRPC;
+		Call<details::GenericRPCFunc, ThisType> c(*this, rpcid);
 		c.serializeParams(name, args);
+		return std::move(c);
+	}
+	auto callGeneric(const char* file, int line, const std::string& name, const std::vector<Any>& args = std::vector<Any>())
+	{
+		uint32_t rpcid = (uint32_t)Table<Remote>::RPCId::genericRPC;
+		Call<details::GenericRPCFunc, ThisType> c(*this, rpcid);
+		auto dbgnum = c.addDebugInfo(file, line);
+		c.serializeParams(name, args);
+		CZRPC_LOG(Log, CZRPC_LOGSTR_CREATE"%u:%s::%s(%s) (%s,%d)",
+			dbgnum,
+			rpcid, Table<Remote>::getName().c_str(), Table<Remote>::get(rpcid)->name.c_str(), name.c_str(),
+			file, line);
 		return std::move(c);
 	}
 
@@ -205,36 +240,7 @@ public:
 
 protected:
 
-	struct WorkItem
-	{
-		template<typename H>
-		WorkItem(H&& h)
-			: h(std::forward<H>(h))
-		{
-#if CZRPC_LOGRPCS
-			static std::atomic<unsigned> counter(0);
-			id = counter.fetch_add(1);
-			CZRPC_LOG_RPC(Log, "Work item %d created", id);
-#endif
-		}
-
-		unsigned id; // For debugging only
-
-		std::function<bool()> h;
-		bool operator()()
-		{
-#if CZRPC_LOGRPCS
-			CZRPC_LOG_RPC(Log, "Work item %d executing....", id);
-#endif
-			auto res =  h();
-#if CZRPC_LOGRPCS
-			CZRPC_LOG_RPC(Log, "Work item %d finished with '%s'", id, res ? "true" : "false");
-#endif
-			return res;
-		}
-	};
-
-	using WorkQueue = std::queue<WorkItem>;
+	using WorkQueue = std::queue<std::function<bool()>>;
 	std::shared_ptr<Transport> m_transport;
 	InProcessor<Local> m_localPrc;
 	OutProcessor<Remote> m_remotePrc;
@@ -281,17 +287,43 @@ protected:
 			Header hdr;
 			Stream in(std::move(data));
 			in >> hdr;
-
+			std::unique_ptr<DebugInfo> dbg;
+			if (hdr.bits.hasDbg)
+			{
+				dbg = std::make_unique<DebugInfo>();
+				in >> *dbg;
+			}
+				
 			if (hdr.bits.isReply)
 				m_remotePrc.processReply(in, hdr);
 			else
-				m_localPrc.processCall(*m_transport, in, hdr);
+				m_localPrc.processCall(*m_transport, in, hdr, dbg.get());
 		}
+	}
+	
+	static Header* getHeader(Stream& data)
+	{
+		return reinterpret_cast<Header*>(data.ptr(0));
+	}
+	static DebugInfo* getDbgInfo(Stream& data)
+	{
+		auto hdr = getHeader(data);
+		if (hdr->bits.hasDbg)
+			return reinterpret_cast<DebugInfo*>(hdr + 1);
+		else
+			return nullptr;
 	}
 
 	template<typename F, typename H>
 	void commit(Stream&& data, H&& handler)
 	{
+		auto dbg = getDbgInfo(data);
+		if (dbg)
+		{
+			auto hdr = getHeader(data);
+			CZRPC_LOG(Log, CZRPC_LOGSTR_COMMIT"", dbg->num);
+		}
+		
 		m_outWork([&](WorkQueue& q)
 		{
 			q.emplace([this, data=std::move(data), handler=std::move(handler)]() mutable -> bool
@@ -307,10 +339,16 @@ protected:
 	template<typename F, typename H>
 	bool send(Stream&& data, H&& handler)
 	{
-		Header* hdr = reinterpret_cast<Header*>(data.ptr(0));
+		auto hdr = getHeader(data);
 		hdr->bits.size = data.writeSize();
 		hdr->bits.counter = ++m_remotePrc.replyIdCounter;
-		m_remotePrc.template addReplyHandler<F>(hdr->key(), std::forward<H>(handler));
+		auto dbg = getDbgInfo(data);
+		if (dbg)
+		{
+			CZRPC_LOG(Log, CZRPC_LOGSTR_SEND"hdr=(size=%u, counter=%u",
+				dbg->num, hdr->bits.size, hdr->bits.counter);
+		}
+		m_remotePrc.template addReplyHandler<F>(hdr->key(), std::forward<H>(handler), dbg);
 		return m_transport->send(data.extract());
 	}
 
