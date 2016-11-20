@@ -9,9 +9,11 @@ Not meant to be production ready. Just useful for debugging during development
 #include <thread>
 #include <queue>
 #include <mutex>
+#include <condition_variable>
 #include <cstdarg>
 #include <assert.h>
 #include <time.h>
+#include <string.h>
 
 namespace cz
 {
@@ -120,14 +122,6 @@ public:
 		snprintf(buf, sizeof(buf) - 1, "%04d-%02d-%02d %02d:%02d:%02d: %s: ",
 			1900+d.tm_year, d.tm_mon+1, d.tm_mday,
 			d.tm_hour, d.tm_min, d.tm_sec, verbosityStr(verbosity));
-		/*
-		time_t timer;
-		struct tm* tm_info;
-		time(&timer);
-		tm_info = localtime(&timer);
-		strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S: ", tm_info);
-		*/
-
 		auto l = strlen(buf);
 		vsnprintf(buf+l, sizeof(buf) - l - 1, fmt, args);
 		va_end(args);

@@ -405,7 +405,7 @@ TEST(Simple)
 	CHECK(authRes == true);
 
 	// Test with async
-	CZRPC_CALL_DBG(*clientCon, simple).async(
+	CZRPC_CALL(*clientCon, simple).async(
 		[&](auto)
 	{
 		sem.decrement();
