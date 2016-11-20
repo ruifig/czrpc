@@ -4,6 +4,8 @@
 #include "targetver.h"
 #endif
 
+#define SHORT_TESTS 1
+
 //
 // czrpc
 //
@@ -79,4 +81,3 @@ namespace cz {
 #include "UnitTest++/CurrentTest.h"
 
 #include "Semaphore.h"
-
