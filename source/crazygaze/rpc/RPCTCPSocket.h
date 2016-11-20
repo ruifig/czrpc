@@ -573,6 +573,17 @@ namespace details
 			signal();
 		}
 
+		// Used only for debugging, so the TCPSocket/TCPAcceptor can execute thread safe asserts with the owner
+		template< typename H>
+		auto execSafe(H&& h)
+		{
+			return m_cmdQueue([&](CmdQueue& q)
+			{
+				return h();
+			});
+		}
+
+
 	};
 } // namespace details
 
@@ -610,8 +621,13 @@ public:
 		//printf("%p : releaseHandle()\n", this);
 		TCPASSERT(m_recvs.size() == 0);
 		TCPASSERT(m_sends.size() == 0);
-		TCPASSERT(m_owner.m_sends.find(this) == m_owner.m_sends.end());
-		TCPASSERT(m_owner.m_recvs.find(this) == m_owner.m_recvs.end());
+		TCPASSERT(m_owner.execSafe([this]
+		{
+			return
+				m_owner.m_sends.find(this) == m_owner.m_sends.end() &&
+				m_owner.m_recvs.find(this) == m_owner.m_recvs.end();
+		}));
+
 		details::utils::closeSocket(m_s);
 		m_s = CZRPC_INVALID_SOCKET;
 	}
@@ -1021,7 +1037,10 @@ public:
 	void releaseHandle()
 	{
 		TCPASSERT(m_accepts.size() == 0);
-		TCPASSERT(m_owner.m_accepts.find(this) == m_owner.m_accepts.end());
+		TCPASSERT(m_owner.execSafe([this]
+		{
+			return m_owner.m_accepts.find(this) == m_owner.m_accepts.end();
+		}));
 		details::utils::closeSocket(m_s);
 		m_s = CZRPC_INVALID_SOCKET;
 	}

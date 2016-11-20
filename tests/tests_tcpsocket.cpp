@@ -184,17 +184,19 @@ TEST(TCPService_Connect_Failure)
 	// Test synchronous connect failure
 	//
 	{
+#if !SHORT_TESTS
 		TCPSocket sock(io);
 		TCPError ec = sock.connect("127.0.0.1", SERVER_PORT);
 		CHECK_EQUAL((int)TCPError::Code::Other, (int)ec.code);
 		CHECK(!sock.isValid());
+#endif
 	}
 
 	Semaphore sem;
 	//
 	// Test asynchronous connect failure, with different timeouts
 	//
-	const int count = 10;
+	const int count = (SHORT_TESTS) ? 4 : 10;
 	double times[count];
 	double expectedTimes[count];
 	UnitTest::Timer timer;
@@ -202,6 +204,8 @@ TEST(TCPService_Connect_Failure)
 	for (int i = 0; i < count ; i++)
 	{
 		expectedTimes[i] = i * 100;
+		if (SHORT_TESTS)
+			expectedTimes[i] /= 10;
 		times[i] = timer.GetTimeInMs();
 		// Initially I was using "127.0.0.1" to test the asynchronous connect timeout, but it seems that on linux
 		// it fails right away. Probably the kernel treats connections to the localhost in a different way, detecting
@@ -542,8 +546,13 @@ TEST(Latency)
 	UnitTest::Timer timer;
 	timer.Start();
 
-	const int count = (LONGTEST) ? 200 : 20;
-	const int waitMs = 5;
+	int count = (LONGTEST) ? 200 : 20;
+	int waitMs = 5;
+	if (SHORT_TESTS)
+	{
+		count /= 4;
+		waitMs = 1;
+	}
 	std::vector<std::pair<double, char>> times(count, std::make_pair(double(0), char(0)));
 
 	TCPAcceptor acceptor(io);
@@ -620,7 +629,11 @@ struct ThroughputData
 	Semaphore finished;
 	ThroughputData(TCPService& io)
 		: sock(io)
+#if SHORT_TESTS
+		, buf(1 * 1024 * 1024/8)
+#else
 		, buf(1 * 1024 * 1024/4)
+#endif
 	{}
 
 	void setupSend()
@@ -693,7 +706,10 @@ TEST(Throughput)
 	auto start = timer.GetTimeInMs();
 	rcv.setupReceive();
 	snd.setupSend();
-	UnitTest::TimeHelpers::SleepMs((LONGTEST) ? 30000 : 4000);
+	int sleepms = LONGTEST ? 30000 : 4000;
+	if (SHORT_TESTS)
+		sleepms /= 8;
+	UnitTest::TimeHelpers::SleepMs(sleepms);
 	snd.sock.asyncClose([] {});
 	rcv.finished.wait();
 	auto end = timer.GetTimeInMs();

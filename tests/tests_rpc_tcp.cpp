@@ -934,7 +934,9 @@ TEST(Throughput)
 	auto test = std::async(std::launch::async,
 		[&timer, &finish, &clientCon, &start, &end, &server]
 	{
-		const int size = 1024 * 1024 / 4;
+		int size = 1024 * 1024 / 4;
+		if (SHORT_TESTS)
+			size /= 4;
 
 		//std::vector<char> data(size, 'a');
 		std::string data(size, 'a');
@@ -969,7 +971,11 @@ TEST(Throughput)
 		);
 	});
 
-	UnitTest::TimeHelpers::SleepMs((LONGTEST) ? 30000 : 4000);
+	unsigned sleepms = LONGTEST ? 300000 : 4000;
+	if (SHORT_TESTS)
+		sleepms /= 8;
+	UnitTest::TimeHelpers::SleepMs(sleepms);
+
 	finish = true;
 	auto res = test.get();
 	io.stop();
