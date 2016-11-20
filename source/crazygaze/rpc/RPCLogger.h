@@ -11,6 +11,7 @@ Not meant to be production ready. Just useful for development
 #include <mutex>
 #include <cstdarg>
 #include <assert.h>
+#include <time.h>
 
 namespace cz
 {
@@ -101,7 +102,11 @@ public:
 
 		time_t t = time(nullptr);
 		struct tm d;
+#ifdef _WIN32
 		localtime_s(&d, &t);
+#else
+		localtime_r(&t, &d);
+#endif
 		snprintf(buf, sizeof(buf) - 1, "%04d-%02d-%02d %02d:%02d:%02d: %s: ",
 			1900+d.tm_year, d.tm_mon+1, d.tm_mday,
 			d.tm_hour, d.tm_min, d.tm_sec, verbosityStr(verbosity));
