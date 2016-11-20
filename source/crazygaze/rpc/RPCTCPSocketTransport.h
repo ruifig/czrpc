@@ -193,6 +193,15 @@ protected:
 
 	void triggerConProcessing(bool allowDispatch)
 	{
+		// NOTE:
+		// m_conProcessPending.clear() needs to be called BEFORE calling con->process()
+		// Initially I was trying to be smart and call it after to make sure there were no unnecessary extra calls to
+		// process().
+		// But there is a small window inside process() where the processing done already, and failing to queue another
+		// process() call will indefinetly block everything. 
+		// By clearing the flag BEFORE calling process(), we make sure this doesn't happen, at the cost of having
+		// sporadic extra calls to process() queued.
+
 		// If the previous value is true, it means there is a pending processing already
 		if (m_conProcessPending.test_and_set())
 			return;
@@ -201,14 +210,14 @@ protected:
 		if (allowDispatch && io.tickingInThisThread())
 		{
 			SINGLETHREAD_ENFORCE();
-			auto guard = details::scopeGuard([this] { m_conProcessPending.clear();});
+			m_conProcessPending.clear();
 			m_rpcCon.lock()->process();
 		}
 		else
 		{
 			io.post([this, con = m_rpcCon.lock()]()
 			{
-				auto guard = details::scopeGuard([this] { m_conProcessPending.clear();});
+				m_conProcessPending.clear();
 				con->process();
 			});
 		}
