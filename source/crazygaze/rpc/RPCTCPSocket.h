@@ -21,6 +21,7 @@
 	#include <WS2tcpip.h>
 	#include <strsafe.h>
 	#include <mstcpip.h>
+	#pragma comment(lib, "Ws2_32.lib")
 
 #ifdef __MINGW32__
 	// Bits and pieces missing in MingGW
@@ -31,11 +32,23 @@
 
 #elif __linux__
 	#include <sys/socket.h>
+	#include <netinet/in.h>
+	#include <netinet/ip.h>
+	#include <netinet/tcp.h>
+	#include <arpa/inet.h>
+	#include <unistd.h>
+	#include <fcntl.h>
 #endif
 
 #include <set>
 #include <stdio.h>
 #include <cstdarg>
+
+// Windows defines a min/max macro, interferes with STL
+#ifdef max
+	#undef max
+	#undef min
+#endif
 
 namespace cz
 {
