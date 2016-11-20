@@ -1,4 +1,12 @@
 #pragma once
+#define CZRPC_LOGRPCS 1
+
+#if CZRPC_LOGRPCS
+#include "crazygaze/rpc/RPCLogger.h"
+extern cz::Logger g_rpcLogger;
+#define CZRPC_LOG_RPC(verbosity, fmt, ...) \
+	g_rpcLogger.log(__FILE__, __LINE__, cz::Logger::Verbosity::verbosity, fmt, ##__VA_ARGS__)
+#endif
 
 namespace cz
 {
@@ -197,7 +205,36 @@ public:
 
 protected:
 
-	using WorkQueue = std::queue<std::function<bool()>>;
+	struct WorkItem
+	{
+		template<typename H>
+		WorkItem(H&& h)
+			: h(std::forward<H>(h))
+		{
+#if CZRPC_LOGRPCS
+			static std::atomic<unsigned> counter(0);
+			id = counter.fetch_add(1);
+			CZRPC_LOG_RPC(Log, "Work item %d created", id);
+#endif
+		}
+
+		unsigned id; // For debugging only
+
+		std::function<bool()> h;
+		bool operator()()
+		{
+#if CZRPC_LOGRPCS
+			CZRPC_LOG_RPC(Log, "Work item %d executing....", id);
+#endif
+			auto res =  h();
+#if CZRPC_LOGRPCS
+			CZRPC_LOG_RPC(Log, "Work item %d finished with '%s'", id, res ? "true" : "false");
+#endif
+			return res;
+		}
+	};
+
+	using WorkQueue = std::queue<WorkItem>;
 	std::shared_ptr<Transport> m_transport;
 	InProcessor<Local> m_localPrc;
 	OutProcessor<Remote> m_remotePrc;
