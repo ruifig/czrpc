@@ -8,7 +8,8 @@
 // czrpc
 //
 #include "crazygaze/rpc/RPC.h"
-#include "crazygaze/rpc/RPCAsioTransport.h"
+//#include "crazygaze/rpc/RPCAsioTransport.h"
+#include <cstdarg>
 
 namespace cz {
 	namespace rpc {
@@ -70,7 +71,6 @@ namespace cz {
 #include <vector>
 #include <string>
 #include <queue>
-#include <cstdarg>
 
 //
 // UnitTest++
