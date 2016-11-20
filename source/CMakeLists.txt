@@ -9,6 +9,7 @@ SET(SOURCE_FILES
 	"crazygaze/rpc/RPCConnection.h"
 	"crazygaze/rpc/RPCGenerate.h"
 	"crazygaze/rpc/RPCGenericServer.h"
+	"crazygaze/rpc/RPCLogger.h"
 	"crazygaze/rpc/RPCObjectData.h"
 	"crazygaze/rpc/RPCParamTraits.h"
 	"crazygaze/rpc/RPCProcessor.h"
