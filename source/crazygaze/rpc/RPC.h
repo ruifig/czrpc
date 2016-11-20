@@ -35,7 +35,7 @@ transports you want to use
 #ifdef NDEBUG
 	#define CZRPC_LOGGING 0
 #else
-	#define CZRPC_LOGGING 1
+	#define CZRPC_LOGGING 0
 #endif
 
 //
