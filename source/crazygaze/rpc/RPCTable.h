@@ -81,7 +81,6 @@ inline Stream& operator>>(Stream& s, DebugInfo& v)
 	return s;
 }
 
-
 struct InProcessorData
 {
 	InProcessorData(void* owner)
@@ -106,13 +105,6 @@ struct InProcessorData
 			pending.done.clear();
 			CZRPC_ASSERT(pending.futures.size() == 0);
 		});
-
-		CZRPC_ASSERT(
-			pending([&](PendingFutures& pending) -> bool
-			{
-				return pending.done.size() || pending.futures.size();
-			}) == false
-		);
 	}
 
 	struct PendingFutures
