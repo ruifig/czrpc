@@ -334,6 +334,8 @@ namespace details
 
 		static void closeSocket(SocketHandle s)
 		{
+			if (s == CZRPC_INVALID_SOCKET)
+				return;
 #if _WIN32
 			::shutdown(s, SD_BOTH);
 			::closesocket(s);
