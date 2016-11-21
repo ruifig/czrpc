@@ -4,13 +4,12 @@
 #include "targetver.h"
 #endif
 
-#define SHORT_TESTS 1
+#define SHORT_TESTS 0
 
 //
 // czrpc
 //
 #include "crazygaze/rpc/RPC.h"
-//#include "crazygaze/rpc/RPCAsioTransport.h"
 #include <cstdarg>
 
 namespace cz {
@@ -18,18 +17,6 @@ namespace cz {
 
 		struct MyTCPLog
 		{
-			/*
-			struct DisableFatalAssert
-			{
-				DisableFatalAssert(const DisableFatalAssert&) = delete;
-				DisableFatalAssert& operator =(const DisableFatalAssert&) = delete;
-				DisableFatalAssert() : previous(ms_assertOnFatal) {
-					ms_assertOnFatal = false;
-				}
-				~DisableFatalAssert() { ms_assertOnFatal = previous; }
-				bool previous;
-			};
-			*/
 			struct DisableLogging
 			{
 				DisableLogging(const DisableLogging&) = delete;
