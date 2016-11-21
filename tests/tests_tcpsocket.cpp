@@ -480,21 +480,35 @@ TEST(TCPAcceptor_backlog)
 		sem.notify();
 	});
 
-	TCPSocket sock1(io);
-	ec = sock1.connect("127.0.0.1", SERVER_PORT);
-	CHECK(!ec); CHECK(sock1.isValid()); // First connect should work, since the server accepts it
-	TCPSocket sock2(io);
-	ec = sock2.connect("127.0.0.1", SERVER_PORT);
-	CHECK(!ec); CHECK(sock2.isValid()); // Second should work, because of the backlog
-	TCPSocket sock3(io);
-	ec = sock3.connect("127.0.0.1", SERVER_PORT);
+	std::vector<std::unique_ptr<TCPSocket>> clients;
+	// First connect should work, since the server accepts it
+	// Second connect should still work because of the backlog
+	while(clients.size()!=2)
+	{
+		clients.emplace_back(new TCPSocket(io));
+		ec = clients.back()->connect("127.0.0.1", SERVER_PORT);
+		CHECK(!ec); CHECK(clients.back()->isValid()); // First connect should work, since the server accepts it
+	}
+
 	// Third should fail because the backlog is not big enough.
 	// This might not work properly on all Operating Systems, since the backlog setting
 	// is just an hint to the OS.
 	// It seems to work as I expect on Windows, but not Linux:
 	// See: http://veithen.github.io/2014/01/01/how-tcp-backlog-works-in-linux.html
+	// So, to test this, we try a couple of connects instead of just the 3rd one, since it should fail with relatively few
+	// tries
+	const int maxConnects = 10;
+	while(clients.size()<maxConnects)
+	{
+		auto s = std::make_unique<TCPSocket>(io);
+		ec = s->connect("127.0.0.1", SERVER_PORT);
+		if (ec && !s->isValid())
+			break;
+		clients.push_back(std::move(s));
+	}
+
 #if _WIN32
-	CHECK(ec); CHECK(!sock3.isValid());
+	CHECK(clients.size()<maxConnects);
 #endif
 
 	sem.wait(); // Wait for 1 accept to run
@@ -510,7 +524,7 @@ TEST(TCPAcceptor_backlog)
 	sem.wait(); // wait for the close to finish
 
 	// This send should fail because although we connected, the acceptor never accepted the connection
-	sock2.asyncWrite("ABC", 4, [&sem](const TCPError& ec, int bytesTransfered)
+	clients[1]->asyncWrite("ABC", 4, [&sem](const TCPError& ec, int bytesTransfered)
 	{
 		CHECK_EQUAL((int)TCPError::Code::ConnectionClosed, (int)ec.code);
 		CHECK_EQUAL(0, bytesTransfered);

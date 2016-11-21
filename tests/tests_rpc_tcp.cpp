@@ -104,6 +104,10 @@ class TesterClient;
 class Tester
 {
 public:
+	
+	~Tester()
+	{
+	}
 
 	void simple()
 	{
@@ -188,13 +192,21 @@ public:
 		});
 	}
 
+	std::future<std::string> testFutureFailure(const char* str)
+	{
+		testFuturePending.decrement();
+		return std::async(std::launch::async, [s=std::string(str)]
+		{
+			UnitTest::TimeHelpers::SleepMs(100);
+			return s;
+		});
+	}
 	Any testAny(Any v)
 	{
 		return v;
 	}
 
-
-
+	ZeroSemaphore testFuturePending;
 	std::promise<int> clientCallRes; // So the unit test can wait on the future to make sure the server got the reply from the server
 };
 
@@ -239,6 +251,7 @@ public:
 	REGISTERRPC(testFoo1) \
 	REGISTERRPC(testFoo2) \
 	REGISTERRPC(testFuture) \
+	REGISTERRPC(testFutureFailure) \
 	REGISTERRPC(testAny)
 
 #define RPCTABLE_CLASS Tester
@@ -501,7 +514,7 @@ TEST(WithParams)
 TEST(Future)
 {
 	using namespace cz::rpc;
-	ServerProcess<Tester, void> server(TEST_PORT);
+	auto server = std::make_unique<ServerProcess<Tester, void>>(TEST_PORT);
 
 	TCPService io;
 	std::thread iothread = std::thread([&io]
@@ -511,7 +524,7 @@ TEST(Future)
 
 	auto clientCon = TCPTransport<void, Tester>::create(io, "127.0.0.1", TEST_PORT).get();
 
-	const int count = 1;
+	const int count = 2;
 	ZeroSemaphore sem;
 	for (int i = 0;i < count; i++)
 	{
@@ -524,8 +537,23 @@ TEST(Future)
 			sem.decrement();
 		});
 	}
-
 	sem.wait();
+
+	// Test destroying the server while there is still a future pending
+	// To test this, we need to wait for the server to get the RPC call, then kill it before it sets the future as ready
+	sem.increment();
+	server->obj().testFuturePending.increment();
+	CZRPC_CALL(*clientCon, testFutureFailure, "test").async(
+		[&sem](Result<std::string> res)
+	{
+		CHECK(res.isAborted());
+		sem.decrement();
+	});
+	server->obj().testFuturePending.wait(); // wait for the server to get the call
+	server.reset(); // destroy the server before it sets the future as ready
+	sem.wait(); // wait for the rpc call result (aborted)
+
+
 	io.stop();
 	iothread.join();
 }

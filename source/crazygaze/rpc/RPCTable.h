@@ -89,6 +89,32 @@ struct InProcessorData
 	{
 	}
 
+	~InProcessorData()
+	{
+		auto tmp = pending([&](PendingFutures& pending)
+		{
+			decltype(pending.futures) tmp;
+			pending.futures.swap(tmp);
+			return tmp;
+		});
+
+		// this will cause all futures to block in the destructor, so all continuations can finish
+		tmp.clear();
+
+		pending([&](PendingFutures& pending)
+		{
+			pending.done.clear();
+			CZRPC_ASSERT(pending.futures.size() == 0);
+		});
+
+		CZRPC_ASSERT(
+			pending([&](PendingFutures& pending) -> bool
+			{
+				return pending.done.size() || pending.futures.size();
+			}) == false
+		);
+	}
+
 	struct PendingFutures
 	{
 		unsigned counter = 0;
@@ -262,7 +288,9 @@ struct Dispatcher<true, R>
 		{
 			pending.done.clear();
 			auto it = pending.futures.find(counter);
-			assert(it != pending.futures.end());
+			if (it == pending.futures.end()) 
+				return; // If the future is not found, it means we are shutting down
+			//assert(it != pending.futures.end());
 			pending.done.push_back(std::move(it->second));
 			pending.futures.erase(it);
 		});
