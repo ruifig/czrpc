@@ -257,7 +257,7 @@ namespace details
 			while (ret.size() && ret.back() < ' ')
 				ret.pop_back();
 
-			return std::move(ret);
+			return ret;
 		}
 
 		ErrorWrapper() { err = WSAGetLastError(); }

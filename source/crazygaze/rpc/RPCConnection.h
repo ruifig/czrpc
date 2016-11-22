@@ -143,7 +143,7 @@ public:
 			"Function is not a member function of the specified remote side class");
 		Call<F, ThisType> c(*this, rpcid);
 		c.serializeParams(std::forward<Args>(args)...);
-		return std::move(c);
+		return c;
 	}
 
 	template<typename F, typename... Args>
@@ -161,7 +161,7 @@ public:
 			dbgnum,
 			rpcid, Table<Remote>::getName().c_str(), Table<Remote>::get(rpcid)->name.c_str(),
 			file, line);
-		return std::move(c);
+		return c;
 	}
 
 	auto callGeneric(const std::string& name, const std::vector<Any>& args = std::vector<Any>())
@@ -169,7 +169,7 @@ public:
 		uint32_t rpcid = (uint32_t)Table<Remote>::RPCId::genericRPC;
 		Call<details::GenericRPCFunc, ThisType> c(*this, rpcid);
 		c.serializeParams(name, args);
-		return std::move(c);
+		return c;
 	}
 	auto callGeneric(const char* file, int line, const std::string& name, const std::vector<Any>& args = std::vector<Any>())
 	{
@@ -181,7 +181,7 @@ public:
 			dbgnum,
 			rpcid, Table<Remote>::getName().c_str(), Table<Remote>::get(rpcid)->name.c_str(), name.c_str(),
 			file, line);
-		return std::move(c);
+		return c;
 	}
 
 	static ThisType* getCurrent()

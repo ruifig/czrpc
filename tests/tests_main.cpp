@@ -22,7 +22,7 @@ void RunDocTest_ParamTraits();
 
 int main()
 {
-#if defined(_WIN32) && !defined(NDEBUG)
+#if defined(_WIN32) && !defined(NDEBUG) && ENABLE_MEM_DEBUG
 	_CrtSetDbgFlag(
 		_CRTDBG_ALLOC_MEM_DF
 		//| _CRTDBG_DELAY_FREE_MEM_DF

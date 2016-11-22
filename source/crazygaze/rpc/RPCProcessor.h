@@ -72,7 +72,7 @@ struct OutProcessor
 	void abortReplies()
 	{
 		decltype(replies) tmp;
-		tmp = std::move(replies);
+		replies.swap(tmp);
 
 		for (auto&& r : tmp)
 		{
