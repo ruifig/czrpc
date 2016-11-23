@@ -17,12 +17,11 @@ public:
 	{
 		m_th = std::thread([this]
 		{
-			ASIO::io_service::work w(m_io);
 			m_io.run();
 		});
 
 		printf("SYSTEM: Connecting to Chat Server at %s:%d\n", ip.c_str(), port);
-		m_con = AsioTransport<ChatClientInterface, ChatServerInterface>::create(m_io, *this, ip.c_str(), port).get();
+		m_con = TCPTransport<ChatClientInterface, ChatServerInterface>::create(m_io, *this, ip.c_str(), port).get();
 		if (!m_con)
 		{
 			printf("Failed to connect to %s:%d\n", ip.c_str(), port);
@@ -91,7 +90,7 @@ private:
 		printf("%s: %s\n", name=="" ? "SYSTEM" : name.c_str(), msg.c_str());
 	}
 
-	ASIO::io_service m_io;
+	TCPService m_io;
 	std::thread m_th;
 	std::shared_ptr<ConType> m_con;
 };

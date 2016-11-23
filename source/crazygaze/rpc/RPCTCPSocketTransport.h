@@ -189,6 +189,11 @@ public:
 		});
 	}
 
+	const std::pair<std::string,int>& getPeerAddress() const
+	{
+		return m_sock.getPeerAddress();
+	}
+
 protected:
 
 	void triggerConProcessing(bool allowDispatch)
@@ -378,6 +383,7 @@ public:
 	using LocalType = LOCAL;
 	using RemoteType = REMOTE;
 	using ConnectionType = Connection<LocalType, RemoteType>;
+	using AcceptHandler = std::function<bool(std::shared_ptr<ConnectionType>)>;
 
 	TCPTransportAcceptor(TCPService& service, LocalType& localObj)
 		: BaseTCPTransportAcceptor(service)
@@ -385,46 +391,41 @@ public:
 	{
 	}
 
-	bool start(int port, std::function<void(std::shared_ptr<ConnectionType>)> newConnectionCallback)
+	bool start(int port, AcceptHandler handler)
 	{
 		assert(!m_acceptor.isValid());
+		assert(handler);
 		auto ec = m_acceptor.listen(port, 200);
 		if (ec)
 			return false;
-		m_newConnectionCallback = std::move(newConnectionCallback);
-		setupAccept();
+		setupAccept(std::move(handler));
 		return true;
 	}
 
 private:
 
-	void setupAccept()
+	void setupAccept(AcceptHandler handler)
 	{
 		auto trp = std::make_shared<BaseTCPTransport>(TCPService::getFrom(m_acceptor));
-		m_acceptor.asyncAccept(trp->m_sock, [this, trp](const TCPError& ec)
+		m_acceptor.asyncAccept(trp->m_sock, [this, trp, handler=std::move(handler)](const TCPError& ec)
 		{
-			doAccept(ec, std::move(trp));
+			SINGLETHREAD_ENFORCE();
+
+			if (ec)
+				return;
+
+			auto con = std::make_shared<ConnectionType>(&m_localObj, trp);
+			trp->m_rpcCon = con;
+			TRPLOG("Accepted: trp<->con : %p <-> %p", trp.get(), con.get());
+			con->setOutSignal([con=con.get()]
+			{
+				con->process(BaseConnection::Direction::Out);
+			});
+
+			trp->startReadSize();
+			if (handler(std::move(con)))
+				setupAccept(std::move(handler));
 		});
-	}
-
-	void doAccept(const TCPError& ec, std::shared_ptr<BaseTCPTransport> trp)
-	{
-		SINGLETHREAD_ENFORCE();
-
-		if (ec)
-			return;
-
-		auto con = std::make_shared<ConnectionType>(&m_localObj, trp);
-		trp->m_rpcCon = con;
-		TRPLOG("Accepted: trp<->con : %p <-> %p", trp.get(), con.get());
-		con->setOutSignal([con=con.get()]
-		{
-			con->process(BaseConnection::Direction::Out);
-		});
-
-		trp->startReadSize();
-		if (m_newConnectionCallback)
-			m_newConnectionCallback(std::move(con));
 	}
 
 	DECLARE_THREADENFORCER_AFFINITY;

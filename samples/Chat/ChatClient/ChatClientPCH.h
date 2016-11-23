@@ -9,7 +9,7 @@
 #include <iostream>
 
 #include "crazygaze/rpc/RPC.h"
-#include "crazygaze/rpc/RPCAsioTransport.h"
+#include "crazygaze/rpc/RPCTCPSocketTransport.h"
 #include "../ChatCommon/ChatInterface.h"
 #include "../../SamplesCommon/StringUtil.h"
 #include "../../SamplesCommon/Parameters.h"

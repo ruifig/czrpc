@@ -13,6 +13,15 @@
 // Windows loopback fast path:
 // https://blogs.technet.microsoft.com/wincat/2012/12/05/fast-tcp-loopback-performance-and-low-latency-with-windows-server-2012-tcp-loopback-fast-path/
 
+// #TODO
+// - Instead of using SO_REUSEADDR, consider:
+//		- Server should set SO_LINGER to 0
+//			See:
+//			http://stackoverflow.com/questions/3757289/tcp-option-so-linger-zero-when-its-required
+//			http://www.serverframework.com/asynchronousevents/2011/01/time-wait-and-its-design-implications-for-protocols-and-scalable-servers.html
+//		- Well behaved clients are the ones closing the connection
+//
+
 #pragma once
 
 #ifdef _WIN32
