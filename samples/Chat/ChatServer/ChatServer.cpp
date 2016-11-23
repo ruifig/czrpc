@@ -37,17 +37,16 @@ public:
 
 	ChatServer(int port)
 		: m_objData(this)
+		, m_acceptor(m_io, *this)
 	{
 		m_th = std::thread([this]
 		{
-			ASIO::io_service::work w(m_io);
 			m_io.run();
 		});
 
 		m_objData.setProperty("name", Any("chat"));
 
-		m_acceptor = AsioTransportAcceptor<ChatServerInterface, ChatClientInterface>::create(m_io, *this);
-		m_acceptor->start(port, [&](std::shared_ptr<ConType> con)
+		m_acceptor.start(port, [&](std::shared_ptr<ConType> con)
 		{
 			LOG("Client connected.");
 			auto info = std::make_shared<ClientInfo>();
@@ -58,6 +57,7 @@ public:
 			});
 
 			m_clients.insert(std::make_pair(con.get(), info));
+			return true;
 		});
 
 	}
@@ -189,9 +189,9 @@ private:
 		return users;
 	}
 
-	ASIO::io_service m_io;
+	TCPService m_io;
 	std::thread m_th;
-	std::shared_ptr<AsioTransportAcceptor<ChatServerInterface, ChatClientInterface>> m_acceptor;
+	TCPTransportAcceptor<ChatServerInterface, ChatClientInterface> m_acceptor;
 	std::unordered_map<ConType*, std::shared_ptr<ClientInfo>> m_clients;
 	ObjectData m_objData;
 };

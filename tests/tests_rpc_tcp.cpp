@@ -50,6 +50,7 @@ void test_closeTiming(bool accept, int a, bool doclose)
 			serverCon = con;
 		else
 			con->close();
+		return false;
 	});
 
 	auto conFt = TCPTransport<void, CalcTest>::create(io, "127.0.0.1", TEST_PORT);
@@ -336,6 +337,7 @@ public:
 		m_acceptor.start(TEST_PORT, [this](std::shared_ptr<Connection<Local, Remote>> con)
 		{
 			m_cons.push_back(std::move(con));
+			return true;
 		});
 	}
 

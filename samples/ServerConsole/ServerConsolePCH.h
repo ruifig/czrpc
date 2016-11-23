@@ -8,9 +8,10 @@
 #include <stdio.h>
 #include <fstream>
 #include <iostream>
+#include <sstream>
 
 #include "crazygaze/rpc/RPC.h"
-#include "crazygaze/rpc/RPCAsioTransport.h"
+#include "crazygaze/rpc/RPCTCPSocketTransport.h"
 #include "../SamplesCommon/StringUtil.h"
 #include "../SamplesCommon/Misc.h"
 

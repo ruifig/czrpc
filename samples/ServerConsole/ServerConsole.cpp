@@ -7,14 +7,13 @@
 using namespace cz::rpc;
 
 std::unordered_map<std::string, std::shared_ptr<ConInfo>> gCons;
-std::shared_ptr<ASIO::io_service> gIOService;
+std::shared_ptr<TCPService> gIOService;
 
 int main()
 {
-	gIOService = std::make_shared<ASIO::io_service>();
+	gIOService = std::make_shared<TCPService>();
 	std::thread iothread = std::thread([&]
 	{
-		ASIO::io_service::work w(*gIOService);
 		gIOService->run();
 	});
 
@@ -49,6 +48,7 @@ int main()
 
 	gIOService->stop();
 	iothread.join();
+	gCons.clear(); // No connections can outlive the io service they use
 
     return 0;
 }

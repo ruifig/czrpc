@@ -12,31 +12,36 @@ public:
 	using Local = LOCAL;
 	using Remote = REMOTE;
 
-	explicit SimpleServer(Local& obj, int port, std::string authToken="")
+	explicit SimpleServer(Local& obj, int port, std::string authToken = "")
 		: m_obj(obj)
 		, m_objData(&m_obj)
+		, m_acceptor(m_io, m_obj)
 	{
 		m_th = std::thread([this]
 		{
-			ASIO::io_service::work w(m_io);
 			m_io.run();
 		});
 
 		printf("Starting server on port %d, with token '%s'\n", port, authToken.c_str());
 		m_objData.setAuthToken(std::move(authToken));
 
-		m_acceptor = AsioTransportAcceptor<Local, Remote>::create(m_io, m_obj);
-		m_acceptor->start(port, [&](std::shared_ptr<Connection<Local, Remote>> con)
+		auto res = m_acceptor.start(port, [&](std::shared_ptr<Connection<Local, Remote>> con)
 		{
-			auto point = static_cast<BaseAsioTransport*>(con->getTransport().get())->getRemoteEndpoint();
-			printf("Client %s:%d connected.\n", point.address().to_string().c_str(), point.port());
-			con->setDisconnectSignal([point]
+			auto addr = static_cast<BaseTCPTransport*>(con->getTransport().get())->getPeerAddress();
+			printf("Client %s:%d connected.\n", addr.first.c_str(), addr.second);
+			con->setDisconnectSignal([addr]
 			{
-				printf("Client %s:%d disconnected.\n", point.address().to_string().c_str(), point.port());
+				printf("Client %s:%d disconnected.\n", addr.first.c_str(), addr.second);
 			});
 
 			m_cons.push_back(std::move(con));
+			return true;
 		});
+
+		if (!res)
+		{
+			throw std::runtime_error("Could not start listening on the specified port.");
+		}
 	}
 
 	~SimpleServer()
@@ -48,11 +53,11 @@ public:
 	Local& obj() { return m_obj;   }
 	ObjectData& objData() { return m_objData; };
 private:
-	ASIO::io_service m_io;
+	TCPService m_io;
 	std::thread m_th;
 	Local& m_obj;
 	ObjectData m_objData;
-	std::shared_ptr<AsioTransportAcceptor<Local, Remote>> m_acceptor;
+	TCPTransportAcceptor<Local, Remote> m_acceptor;
 	std::vector<std::shared_ptr<Connection<Local, Remote>>> m_cons;
 };
 
