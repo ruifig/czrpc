@@ -4,7 +4,6 @@ project(czrpc)
 SET(SOURCE_FILES 
 	"crazygaze/rpc/RPC.h"
 	"crazygaze/rpc/RPCAny.h"
-	"crazygaze/rpc/RPCAsioTransport.h"
 	"crazygaze/rpc/RPCCallstack.h"
 	"crazygaze/rpc/RPCConnection.h"
 	"crazygaze/rpc/RPCGenerate.h"

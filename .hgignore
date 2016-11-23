@@ -21,8 +21,6 @@ syntax: glob
 syntax: regexp
 
 #^bin/[^/]*\.(exe|ilk|iobj|ipdb|exp|lib)$
-^asio/
-^boost/
 ^build/
 ^buildlinux/
 ^doc/themes/purehugo/.git
