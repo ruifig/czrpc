@@ -16,6 +16,20 @@ inline void copyStrToFixedBuffer(char (&dst)[N], const char* src)
 #endif
 }
 
+template<typename T>
+std::shared_ptr<T> getSharedData()
+{
+    static std::mutex mtx;
+    static std::weak_ptr<T> ptr;
+    std::lock_guard<std::mutex> lk(mtx);
+    auto p = ptr.lock();
+    if (p)
+        return p;
+    p = std::make_shared<T>();
+    ptr = p;
+    return p;
+}
+
 //////////////////////////////////////////////////////////////////////////
 // Based on
 // https://functionalcpp.wordpress.com/2013/08/05/function-traits/
