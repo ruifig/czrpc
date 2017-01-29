@@ -14,6 +14,10 @@ int main()
 	std::cout << "Type :h for help\n";
 	bool quit = false;
 	CommandLineReader cmdReader("COMMAND> ");
+
+	if (!processCommand(":c \"127.0.0.1:9000\""))
+		quit = true;
+
 	while(!quit)
 	{
 		std::string cmd;
@@ -40,6 +44,7 @@ int main()
 			quit = true;
 	}
 
+	getSharedData<TCPServiceThread>()->stop();
 	gCons.clear(); // No connections can outlive the io service they use
 
     return 0;

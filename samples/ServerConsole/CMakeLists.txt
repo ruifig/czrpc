@@ -22,7 +22,6 @@ message( "CMAKE_CXX_FLAGS_RELWITHDEBINFO = " ${CMAKE_CXX_FLAGS_RELWITHDEBINFO})
 
 include_directories(
 		${czrpc_INCLUDE_DIRS}
-		${CMAKE_SOURCE_DIR}/asio/asio/include
 		)
 
 add_executable(${PROJECT_NAME} ${SOURCE_FILES})

@@ -12,6 +12,7 @@ add_subdirectory(source)
 add_subdirectory(tests)
 
 add_subdirectory(samples/SamplesCommon)
+add_subdirectory(samples/Minimal)
 add_subdirectory(samples/CalculatorServer)
 add_subdirectory(samples/ServerConsole)
 add_subdirectory(samples/Chat/ChatCommon)

@@ -379,7 +379,7 @@ public:
 		return createImpl<LOCAL,REMOTE>(service, &localObj, ip, port, nullptr);
 	}
 	static std::future<std::shared_ptr<Connection<LOCAL,REMOTE>>>
-		create(std::shared_ptr<TCPServiceThread> iothread, LOCAL& localObj, const char* ip, int port)
+		create(LOCAL& localObj, const char* ip, int port, std::shared_ptr<TCPServiceThread> iothread = getSharedData<TCPServiceThread>())
 	{
 		return createImpl<LOCAL,REMOTE>(iothread->io, &localObj, ip, port, iothread);
 	}
@@ -395,12 +395,11 @@ public:
 		return createImpl<void,REMOTE>(service, nullptr, ip, port, nullptr);
 	}
 	static std::future<std::shared_ptr<Connection<void, REMOTE>>>
-		create(std::shared_ptr<TCPServiceThread> iothread, const char* ip, int port)
+		create(const char* ip, int port, std::shared_ptr<TCPServiceThread> iothread = getSharedData<TCPServiceThread>())
 	{
 		return createImpl<void,REMOTE>(iothread->io, nullptr, ip, port, iothread);
 	}
 };
-
 
 class BaseTCPTransportAcceptor
 {
@@ -436,7 +435,7 @@ public:
 	{
 	}
 
-	TCPTransportAcceptor(std::shared_ptr<TCPServiceThread> iothread, LocalType& localObj)
+	TCPTransportAcceptor(LocalType& localObj, std::shared_ptr<TCPServiceThread> iothread = getSharedData<TCPServiceThread>())
 		: BaseTCPTransportAcceptor(iothread->io, iothread)
 		, m_localObj(localObj)
 	{
@@ -453,6 +452,10 @@ public:
 		return true;
 	}
 
+	void stop()
+	{
+		m_acceptor.asyncCancel([] {});
+	}
 private:
 
 	void setupAccept(AcceptHandler handler)
@@ -463,7 +466,10 @@ private:
 			SINGLETHREAD_ENFORCE();
 
 			if (ec)
+			{
+				handler(nullptr);
 				return;
+			}
 
 			auto con = std::make_shared<ConnectionType>(&m_localObj, trp);
 			trp->m_rpcCon = con;
