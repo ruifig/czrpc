@@ -7,10 +7,11 @@
 using namespace cz::rpc;
 
 std::unordered_map<std::string, std::shared_ptr<ConInfo>> gCons;
-
+std::unique_ptr<TCPServiceThread> gIOThread;
 
 int main()
 {
+	gIOThread = std::make_unique<TCPServiceThread>();
 	std::cout << "Type :h for help\n";
 	bool quit = false;
 	CommandLineReader cmdReader("COMMAND> ");
@@ -44,7 +45,7 @@ int main()
 			quit = true;
 	}
 
-	getSharedData<TCPServiceThread>()->stop();
+	gIOThread->stop();
 	gCons.clear(); // No connections can outlive the io service they use
 
     return 0;

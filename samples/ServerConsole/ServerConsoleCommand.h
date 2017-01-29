@@ -35,5 +35,6 @@ struct GenericCommand
 };
 
 extern std::unordered_map<std::string, std::shared_ptr<ConInfo>> gCons;
+extern std::unique_ptr<cz::rpc::TCPServiceThread> gIOThread;
 
 bool processCommand(const std::string& str);

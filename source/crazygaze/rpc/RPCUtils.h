@@ -70,7 +70,6 @@ struct FunctionTraits<R(*)(Args...)> : public FunctionTraits<R(Args...)>
 {
 };
 
-
 template<class R, class C, class... Args>
 struct FunctionTraits<R(C::*)(Args...)> : public FunctionTraits<R(Args...)>
 {
