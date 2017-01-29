@@ -1,7 +1,5 @@
 #pragma once
 
-#include "Semaphore.h"
-
 namespace cz
 {
 namespace rpc
@@ -15,21 +13,23 @@ public:
 	using Remote = REMOTE;
 
 	explicit SimpleServer(
-		Local& obj, int port, std::string authToken = "", std::shared_ptr<TCPServiceThread> iothread = getSharedData<TCPServiceThread>())
+		Local& obj, int port, std::string authToken = "")
 		: m_obj(obj)
 		, m_objData(&m_obj)
-		, m_acceptor(m_obj, iothread)
+		, m_acceptor(m_io, m_obj)
 	{
+		m_th = std::thread([this]
+		{
+			m_io.run();
+		});
+
 		printf("Starting server on port %d, with token '%s'\n", port, authToken.c_str());
 		m_objData.setAuthToken(std::move(authToken));
 
 		auto res = m_acceptor.start(port, [&](std::shared_ptr<Connection<Local, Remote>> con)
 		{
 			if (!con)
-			{
-				m_done.notify();
 				return false;
-			}
 
 			auto addr = static_cast<BaseTCPTransport*>(con->getTransport().get())->getPeerAddress();
 			printf("Client %s:%d connected.\n", addr.first.c_str(), addr.second);
@@ -50,19 +50,18 @@ public:
 
 	~SimpleServer()
 	{
-		m_acceptor.stop();
-		m_done.wait();
-		for (auto&& c : m_cons)
-			c->close();
+		m_io.stop();
+		m_th.join();
 	}
 
 	Local& obj() { return m_obj; }
 	ObjectData& objData() { return m_objData; };
 private:
+	TCPService m_io;
+	std::thread m_th;
 	Local& m_obj;
 	ObjectData m_objData;
 	TCPTransportAcceptor<Local, Remote> m_acceptor;
-	Semaphore m_done;
 	std::vector<std::shared_ptr<Connection<Local, Remote>>> m_cons;
 };
 

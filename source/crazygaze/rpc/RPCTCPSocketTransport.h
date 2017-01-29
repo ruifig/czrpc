@@ -23,6 +23,8 @@ namespace cz
 namespace rpc
 {
 
+
+// #TODO : Remove this if not needed
 struct TCPServiceThread
 {
 	TCPServiceThread()
@@ -150,12 +152,9 @@ struct SingleThreadEnforcerLock
 class BaseTCPTransport : public Transport
 {
 public:
-	BaseTCPTransport(TCPService& service, std::shared_ptr<TCPServiceThread> iothread=nullptr)
+	BaseTCPTransport(TCPService& service)
 		: m_sock(service)
-		, m_iothread(iothread)
-
 	{
-		CZRPC_ASSERT(m_iothread==nullptr || (&m_iothread->io == &service));
 		TRPLOG("%p", this);
 	}
 
@@ -327,12 +326,11 @@ protected:
 		});
 	}
 
-
 	template<typename LOCAL, typename REMOTE>
 	static std::future<std::shared_ptr<Connection<LOCAL,REMOTE>>>
-		createImpl(TCPService& service, LOCAL* localObj, const char* ip, int port, std::shared_ptr<TCPServiceThread> iothread)
+		createImpl(TCPService& service, LOCAL* localObj, const char* ip, int port)
 	{
-		auto trp = std::make_shared<BaseTCPTransport>(service, iothread);
+		auto trp = std::make_shared<BaseTCPTransport>(service);
 		auto pr = std::make_shared<std::promise<std::shared_ptr<Connection<LOCAL,REMOTE>>>>();
 		trp->m_sock.asyncConnect(ip, port, [pr, trp, localObj](const TCPError& ec)
 		{
@@ -356,7 +354,6 @@ protected:
 		return pr->get_future();
 	}
 
-	std::shared_ptr<TCPServiceThread> m_iothread; // this needs to be before m_sock
 	TCPSocket m_sock;
 	std::weak_ptr<BaseConnection> m_rpcCon;
 
@@ -376,12 +373,7 @@ public:
 	static std::future<std::shared_ptr<Connection<LOCAL,REMOTE>>>
 		create(TCPService& service, LOCAL& localObj, const char* ip, int port)
 	{
-		return createImpl<LOCAL,REMOTE>(service, &localObj, ip, port, nullptr);
-	}
-	static std::future<std::shared_ptr<Connection<LOCAL,REMOTE>>>
-		create(LOCAL& localObj, const char* ip, int port, std::shared_ptr<TCPServiceThread> iothread = getSharedData<TCPServiceThread>())
-	{
-		return createImpl<LOCAL,REMOTE>(iothread->io, &localObj, ip, port, iothread);
+		return createImpl<LOCAL,REMOTE>(service, &localObj, ip, port);
 	}
 };
 
@@ -392,23 +384,16 @@ public:
 	static std::future<std::shared_ptr<Connection<void, REMOTE>>>
 		create(TCPService& service, const char* ip, int port)
 	{
-		return createImpl<void,REMOTE>(service, nullptr, ip, port, nullptr);
-	}
-	static std::future<std::shared_ptr<Connection<void, REMOTE>>>
-		create(const char* ip, int port, std::shared_ptr<TCPServiceThread> iothread = getSharedData<TCPServiceThread>())
-	{
-		return createImpl<void,REMOTE>(iothread->io, nullptr, ip, port, iothread);
+		return createImpl<void,REMOTE>(service, nullptr, ip, port);
 	}
 };
 
 class BaseTCPTransportAcceptor
 {
 public:
-	BaseTCPTransportAcceptor(TCPService& service, std::shared_ptr<TCPServiceThread> iothread=nullptr)
+	BaseTCPTransportAcceptor(TCPService& service)
 		: m_acceptor(service)
-		, m_iothread(iothread)
 	{
-		CZRPC_ASSERT(m_iothread==nullptr || (&m_iothread->io == &service));
 	}
 
 	virtual ~BaseTCPTransportAcceptor()
@@ -416,7 +401,6 @@ public:
 	}
 
 protected:
-	std::shared_ptr<TCPServiceThread> m_iothread; // this needs to be before m_acceptor
 	TCPAcceptor m_acceptor;
 };
 
@@ -430,13 +414,7 @@ public:
 	using AcceptHandler = std::function<bool(std::shared_ptr<ConnectionType>)>;
 
 	TCPTransportAcceptor(TCPService& service, LocalType& localObj)
-		: BaseTCPTransportAcceptor(service, nullptr)
-		, m_localObj(localObj)
-	{
-	}
-
-	TCPTransportAcceptor(LocalType& localObj, std::shared_ptr<TCPServiceThread> iothread = getSharedData<TCPServiceThread>())
-		: BaseTCPTransportAcceptor(iothread->io, iothread)
+		: BaseTCPTransportAcceptor(service)
 		, m_localObj(localObj)
 	{
 	}
@@ -460,7 +438,7 @@ private:
 
 	void setupAccept(AcceptHandler handler)
 	{
-		auto trp = std::make_shared<BaseTCPTransport>(TCPService::getFrom(m_acceptor), m_iothread);
+		auto trp = std::make_shared<BaseTCPTransport>(TCPService::getFrom(m_acceptor));
 		m_acceptor.asyncAccept(trp->m_sock, [this, trp, handler=std::move(handler)](const TCPError& ec)
 		{
 			SINGLETHREAD_ENFORCE();
