@@ -18,6 +18,11 @@ struct ConInfo
 			return ip == other.ip && port == other.port;
 		}
 	} addr;
+
+	~ConInfo()
+	{
+		con.reset(); // the connection needs to be destroyed before the IO service
+	}
 	std::shared_ptr<Connection<void, GenericServer>> con;
 	bool closed = false;
 };
@@ -30,6 +35,5 @@ struct GenericCommand
 };
 
 extern std::unordered_map<std::string, std::shared_ptr<ConInfo>> gCons;
-extern std::shared_ptr<cz::rpc::TCPService> gIOService;
 
 bool processCommand(const std::string& str);

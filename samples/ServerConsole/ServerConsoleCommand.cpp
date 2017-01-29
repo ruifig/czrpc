@@ -143,7 +143,7 @@ bool cmd_Connect(const std::vector<cz::rpc::Any>& params)
 	}
 
 	auto con = TCPTransport<void, GenericServer>::create(
-		*gIOService, addr.ip.c_str(), addr.port).get();
+		getSharedData<TCPServiceThread>(), addr.ip.c_str(), addr.port).get();
 
 	if (!con)
 	{

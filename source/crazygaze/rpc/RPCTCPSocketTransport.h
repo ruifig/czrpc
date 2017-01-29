@@ -23,6 +23,33 @@ namespace cz
 namespace rpc
 {
 
+struct TCPServiceThread
+{
+	TCPServiceThread()
+	{
+		th = std::thread([this]
+		{
+			io.run();
+		});
+	}
+
+	~TCPServiceThread()
+	{
+		stop();
+	}
+
+	void stop()
+	{
+		if (th.joinable())
+		{
+			io.stop();
+			th.join();
+		}
+	}
+
+	cz::rpc::TCPService io;
+	std::thread th;
+};
 
 namespace ThreadEnforcer
 {
@@ -123,9 +150,12 @@ struct SingleThreadEnforcerLock
 class BaseTCPTransport : public Transport
 {
 public:
-	BaseTCPTransport(TCPService& service)
+	BaseTCPTransport(TCPService& service, std::shared_ptr<TCPServiceThread> iothread=nullptr)
 		: m_sock(service)
+		, m_iothread(iothread)
+
 	{
+		CZRPC_ASSERT(m_iothread==nullptr || (&m_iothread->io == &service));
 		TRPLOG("%p", this);
 	}
 
@@ -300,9 +330,9 @@ protected:
 
 	template<typename LOCAL, typename REMOTE>
 	static std::future<std::shared_ptr<Connection<LOCAL,REMOTE>>>
-		createImpl(TCPService& service, LOCAL* localObj, const char* ip, int port)
+		createImpl(TCPService& service, LOCAL* localObj, const char* ip, int port, std::shared_ptr<TCPServiceThread> iothread)
 	{
-		auto trp = std::make_shared<BaseTCPTransport>(service);
+		auto trp = std::make_shared<BaseTCPTransport>(service, iothread);
 		auto pr = std::make_shared<std::promise<std::shared_ptr<Connection<LOCAL,REMOTE>>>>();
 		trp->m_sock.asyncConnect(ip, port, [pr, trp, localObj](const TCPError& ec)
 		{
@@ -326,6 +356,7 @@ protected:
 		return pr->get_future();
 	}
 
+	std::shared_ptr<TCPServiceThread> m_iothread; // this needs to be before m_sock
 	TCPSocket m_sock;
 	std::weak_ptr<BaseConnection> m_rpcCon;
 
@@ -345,7 +376,12 @@ public:
 	static std::future<std::shared_ptr<Connection<LOCAL,REMOTE>>>
 		create(TCPService& service, LOCAL& localObj, const char* ip, int port)
 	{
-		return createImpl<LOCAL,REMOTE>(service, &localObj, ip, port);
+		return createImpl<LOCAL,REMOTE>(service, &localObj, ip, port, nullptr);
+	}
+	static std::future<std::shared_ptr<Connection<LOCAL,REMOTE>>>
+		create(std::shared_ptr<TCPServiceThread> iothread, LOCAL& localObj, const char* ip, int port)
+	{
+		return createImpl<LOCAL,REMOTE>(iothread->io, &localObj, ip, port, iothread);
 	}
 };
 
@@ -356,7 +392,12 @@ public:
 	static std::future<std::shared_ptr<Connection<void, REMOTE>>>
 		create(TCPService& service, const char* ip, int port)
 	{
-		return createImpl<void,REMOTE>(service, nullptr, ip, port);
+		return createImpl<void,REMOTE>(service, nullptr, ip, port, nullptr);
+	}
+	static std::future<std::shared_ptr<Connection<void, REMOTE>>>
+		create(std::shared_ptr<TCPServiceThread> iothread, const char* ip, int port)
+	{
+		return createImpl<void,REMOTE>(iothread->io, nullptr, ip, port, iothread);
 	}
 };
 
@@ -364,15 +405,19 @@ public:
 class BaseTCPTransportAcceptor
 {
 public:
-	BaseTCPTransportAcceptor(TCPService& service)
+	BaseTCPTransportAcceptor(TCPService& service, std::shared_ptr<TCPServiceThread> iothread=nullptr)
 		: m_acceptor(service)
-	{}
+		, m_iothread(iothread)
+	{
+		CZRPC_ASSERT(m_iothread==nullptr || (&m_iothread->io == &service));
+	}
 
 	virtual ~BaseTCPTransportAcceptor()
 	{
 	}
 
 protected:
+	std::shared_ptr<TCPServiceThread> m_iothread; // this needs to be before m_acceptor
 	TCPAcceptor m_acceptor;
 };
 
@@ -386,7 +431,13 @@ public:
 	using AcceptHandler = std::function<bool(std::shared_ptr<ConnectionType>)>;
 
 	TCPTransportAcceptor(TCPService& service, LocalType& localObj)
-		: BaseTCPTransportAcceptor(service)
+		: BaseTCPTransportAcceptor(service, nullptr)
+		, m_localObj(localObj)
+	{
+	}
+
+	TCPTransportAcceptor(std::shared_ptr<TCPServiceThread> iothread, LocalType& localObj)
+		: BaseTCPTransportAcceptor(iothread->io, iothread)
 		, m_localObj(localObj)
 	{
 	}
@@ -406,7 +457,7 @@ private:
 
 	void setupAccept(AcceptHandler handler)
 	{
-		auto trp = std::make_shared<BaseTCPTransport>(TCPService::getFrom(m_acceptor));
+		auto trp = std::make_shared<BaseTCPTransport>(TCPService::getFrom(m_acceptor), m_iothread);
 		m_acceptor.asyncAccept(trp->m_sock, [this, trp, handler=std::move(handler)](const TCPError& ec)
 		{
 			SINGLETHREAD_ENFORCE();

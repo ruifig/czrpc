@@ -16,3 +16,5 @@
 #include "../SamplesCommon/Misc.h"
 
 CZRPC_ALLOW_RVALUE_REFS;
+
+

@@ -63,6 +63,7 @@ int main(int argc, char* argv[])
 			if (my_getch())
 				break;
 		}
+		getSharedData<TCPServiceThread>()->stop();
 	}
 	catch (const std::exception& e)
 	{
