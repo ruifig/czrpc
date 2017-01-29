@@ -1,5 +1,4 @@
 #include "testsPCH.h"
-#include "Semaphore.h"
 #include "Foo.h"
 
 #define TEST_PORT 9000

@@ -4,13 +4,14 @@ project(SamplesCommon)
 include(../../utils.cmake)
 
 SET(SOURCE_FILES
-		"Parameters.h"
-		"Parameters.cpp"
-		"SimpleServer.h"
-		"StringUtil.h"
-		"StringUtil.cpp"
-		"Misc.h"
 		"Misc.cpp"
+		"Misc.h"
+		"Parameters.cpp"
+		"Parameters.h"
+		"Semaphore.h"
+		"SimpleServer.h"
+		"StringUtil.cpp"
+		"StringUtil.h"
 		"targetver.h"
 		)
 
