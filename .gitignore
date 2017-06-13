@@ -1,0 +1,9 @@
+build/
+x64/
+
+# CLion IDE files
+.idea/
+
+# vim-vs temporary files
+/.vimvs-tmp*
+
