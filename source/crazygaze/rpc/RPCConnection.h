@@ -123,8 +123,8 @@ public:
 
 	template<typename R, typename C> friend class Call;
 
-	Connection(Local* localObj, std::shared_ptr<Transport> transport)
-		: m_transport(std::move(transport))
+	Connection(Local* localObj, Transport& transport)
+		: m_transport(transport)
 		, m_localPrc(localObj)
 	{
 	}
@@ -218,10 +218,10 @@ public:
 
 	virtual void close() override
 	{
-		m_transport->close();
+		m_transport.close();
 	}
 
-	virtual const std::shared_ptr<Transport>& getTransport() override
+	virtual const Transport& getTransport() override
 	{
 		return m_transport;
 	}
@@ -241,7 +241,7 @@ public:
 protected:
 
 	using WorkQueue = std::queue<std::function<bool()>>;
-	std::shared_ptr<Transport> m_transport;
+	Transport& m_transport;
 	InProcessor<Local> m_localPrc;
 	OutProcessor<Remote> m_remotePrc;
 
@@ -276,7 +276,7 @@ protected:
 
 		while(true)
 		{
-			if (!m_transport->receive(data))
+			if (!m_transport.receive(data))
 				return false;
 
 			// If we get an empty RPC, but "receive" returns true, it means the transport is still
@@ -297,7 +297,7 @@ protected:
 			if (hdr.bits.isReply)
 				m_remotePrc.processReply(in, hdr);
 			else
-				m_localPrc.processCall(*m_transport, in, hdr, dbg.get());
+				m_localPrc.processCall(m_transport, in, hdr, dbg.get());
 		}
 	}
 	
@@ -349,7 +349,7 @@ protected:
 				dbg->num, hdr->bits.size, hdr->bits.counter);
 		}
 		m_remotePrc.template addReplyHandler<F>(hdr->key(), std::forward<H>(handler), dbg);
-		return m_transport->send(data.extract());
+		return m_transport.send(data.extract());
 	}
 
 };

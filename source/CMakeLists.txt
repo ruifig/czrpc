@@ -1,7 +1,6 @@
 cmake_minimum_required(VERSION 3.5)
-project(czrpc)
 
-SET(SOURCE_FILES 
+ucm_add_files(
 	"crazygaze/rpc/RPC.h"
 	"crazygaze/rpc/RPCAny.h"
 	"crazygaze/rpc/RPCCallstack.h"
@@ -18,13 +17,18 @@ SET(SOURCE_FILES
 	"crazygaze/rpc/RPCTCPSocket.h"
 	"crazygaze/rpc/RPCTCPSocketTransport.h"
 	"crazygaze/rpc/RPCTransport.h"
-	"crazygaze/rpc/RPCUtils.h" )
+	"crazygaze/rpc/RPCUtils.h"
+	"crazygaze/rpc/RPCSpasTransport.h"
+	TO SOURCE_FILES
+	)
 
-add_library(${PROJECT_NAME} STATIC ${SOURCE_FILES})
-set(${PROJECT_NAME}_INCLUDE_DIRS ${PROJECT_SOURCE_DIR}
-    CACHE INTERNAL "${PROJECT_NAME}: Include Directories" FORCE)
+# Adding as INTERFACE, since it's an header only library
+add_library(czrpc INTERFACE)
+target_include_directories(czrpc INTERFACE "")
 
-include_directories(
-	${PROJECT_NAME}_INCLUDE_DIRS}
-)
-set_target_properties(${PROJECT_NAME} PROPERTIES LINKER_LANGUAGE CXX)
+# czrpc uses czspas in the default transport
+target_link_libraries(czrpc INTERFACE czspas)
+
+# Dummy target so that header only libraries show up in the IDE
+add_custom_target(czrpc_ SOURCES ${SOURCE_FILES})
+

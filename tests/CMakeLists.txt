@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.5)
-project(tests)
 
-include(../utils.cmake)
+include(../cmake/ucm.cmake)
+include(../cmake/utils.cmake)
 
-SET(SOURCE_FILES
+ucm_add_files(
 		"Foo.h" "Foo.cpp"
 		"tests_any.cpp"
 		#"tests_doc_a_small_taste.cpp"
@@ -12,27 +12,12 @@ SET(SOURCE_FILES
 		"tests_rpc_tcp.cpp"
 		"tests_tcpsocket.cpp"
 		"tests_traits.cpp"
+		"testsPCH.cpp" "testsPCH.h"
+		TO SOURCE_FILES
 		)
 
-ADD_MSVC_PRECOMPILED_HEADER("testsPCH.h" "testsPCH.cpp" SOURCE_FILES)
-
-message( "CMAKE_EXE_LINKER_FLAGS = " ${CMAKE_EXE_LINKER_FLAGS})
-message( "COMPILER FLAGS USED")
-message( "CMAKE_CXX_FLAGS                = " ${CMAKE_CXX_FLAGS})
-message( "CMAKE_CXX_FLAGS_DEBUG          = " ${CMAKE_CXX_FLAGS_DEBUG})
-message( "CMAKE_CXX_FLAGS_RELEASE        = " ${CMAKE_CXX_FLAGS_RELEASE})
-message( "CMAKE_CXX_FLAGS_MINSIZEREL     = " ${CMAKE_CXX_FLAGS_MINSIZEREL})
-message( "CMAKE_CXX_FLAGS_RELWITHDEBINFO = " ${CMAKE_CXX_FLAGS_RELWITHDEBINFO})
-
-include_directories(
-		${UnitTest++_INCLUDE_DIRS}
-		${czrpc_INCLUDE_DIRS}
-		)
-
-add_executable(${PROJECT_NAME} ${SOURCE_FILES})
-set_postfix()
-
-target_link_libraries(${PROJECT_NAME} UnitTest++)
-add_commonlibs()
-
+add_executable(tests ${SOURCE_FILES})
+cz_set_precompiled_header(tests "testsPCH.h" "testsPCH.cpp")
+target_link_libraries(tests czrpc UnitTest++)
+cz_set_postfix(tests)
 

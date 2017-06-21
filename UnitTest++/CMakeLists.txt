@@ -1,24 +1,14 @@
 cmake_minimum_required(VERSION 3.5)
-project(UnitTest++)
 
-include(../utils.cmake)
+ucm_add_dirs("UnitTest++/" TO UNITTESTPP_SRC)
 
-file(GLOB SOURCE_FILES_1
-		"UnitTest++/*.cpp"
-		"UnitTest++/*.h" )
-source_group(src FILES ${SOURCE_FILES_1})
 if (WIN32)
-	file(GLOB SOURCE_FILES_2 "UnitTest++/Win32/*.*")
-	source_group(src\\Win32 FILES ${SOURCE_FILES_2})
+	ucm_add_dirs("UnitTest++/Win32/" TO UNITTESTPP_SRC)
 else()
-	file(GLOB SOURCE_FILES_2 "UnitTest++/Posix/*.*")
-	source_group(src\\Posix FILES ${SOURCE_FILES_2})
+	ucm_add_dirs("UnitTest++/Posix/" TO UNITTESTPP_SRC)
 endif()
 
-SET(SOURCE_FILES ${SOURCE_FILES_1} ${SOURCE_FILES_2})
-
-add_library(${PROJECT_NAME} STATIC ${SOURCE_FILES})
-set_postfix()
-set(${PROJECT_NAME}_INCLUDE_DIRS ${PROJECT_SOURCE_DIR}
-    CACHE INTERNAL "${PROJECT_NAME}: Include Directories" FORCE)
+add_library(UnitTest++ STATIC ${UNITTESTPP_SRC})
+target_include_directories(UnitTest++ PUBLIC "")
+cz_set_postfix(UnitTest++)
 

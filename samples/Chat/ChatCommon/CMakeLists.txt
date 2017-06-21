@@ -1,16 +1,10 @@
-cmake_minimum_required(VERSION 3.5)
-project(ChatCommon)
-
-SET(SOURCE_FILES 
+ucm_add_files(
 	"ChatInterface.h"
+	TO SOURCE_FILES
 	)
 
-add_library(${PROJECT_NAME} STATIC ${SOURCE_FILES})
-set(${PROJECT_NAME}_INCLUDE_DIRS ${PROJECT_SOURCE_DIR}
-    CACHE INTERNAL "${PROJECT_NAME}: Include Directories" FORCE)
+add_library(ChatCommon INTERFACE)
+target_include_directories(ChatCommon INTERFACE "")
+add_custom_target(ChatCommon_ SOURCES ${SOURCE_FILES})
+set_target_properties(ChatCommon_ PROPERTIES FOLDER "samples/chat")
 
-include_directories(
-	${PROJECT_NAME}_INCLUDE_DIRS}
-)
-set_target_properties(${PROJECT_NAME} PROPERTIES LINKER_LANGUAGE CXX)
-set_property(TARGET ${PROJECT_NAME} PROPERTY FOLDER "samples/chat")

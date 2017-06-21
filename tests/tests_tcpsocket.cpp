@@ -124,7 +124,7 @@ TEST(TCPService_Accept_Failure)
 	CHECK(!ec && acceptor.isValid());
 
 	//
-	// Test canceling 10 accepts directly with the acceptor
+	// Test cancelling 10 accepts directly with the acceptor
 	//
 	{
 		Semaphore sem;

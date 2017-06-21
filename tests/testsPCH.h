@@ -72,3 +72,5 @@ namespace cz {
 #include "UnitTest++/CurrentTest.h"
 
 #include "../samples/SamplesCommon/Semaphore.h"
+
+#include "crazygaze/rpc/RPCSpasTransport.h"
