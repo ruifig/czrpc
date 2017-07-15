@@ -100,10 +100,13 @@ template<typename T>
 struct InProcessor
 {
 	using Type = T;
-	InProcessor(Type* obj)
-		: obj(*obj)
-		, data(obj)
+
+	InProcessor() {}
+
+	void init(Type* obj)
 	{
+		this->obj = obj;
+		data.init(obj);
 		data.authPassed = data.objData.getAuthToken() == "" ? true : false;
 	}
 
@@ -118,10 +121,10 @@ struct InProcessor
 				Table<T>::getName().c_str(), Table<T>::get(hdr.bits.rpcid)->name.c_str());
 		}
 		auto&& info = Table<Type>::get(hdr.bits.rpcid);
-		info->dispatcher(obj, in, data, transport, hdr, dbg);
+		info->dispatcher(*obj, in, data, transport, hdr, dbg);
 	}
 
-	Type& obj;
+	Type* obj=nullptr;
 	InProcessorData data;
 };
 
@@ -129,7 +132,8 @@ template<>
 class InProcessor<void>
 {
 public:
-	InProcessor(void*) { }
+	InProcessor() {}
+	void init(void* obj) {}
 	void processCall(Transport& trp, Stream& in, Header hdr, DebugInfo* dbg)
 	{
 		if (dbg)

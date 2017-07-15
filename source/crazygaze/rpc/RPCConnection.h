@@ -28,7 +28,7 @@ public:
 
 	virtual void process(Direction what=Direction::Both) = 0;
 	virtual void close() = 0;
-	virtual const std::shared_ptr<Transport>& getTransport() = 0;
+	virtual const Transport* getTransport() = 0;
 	virtual bool isRunningInThread() = 0;
 
 protected:
@@ -123,15 +123,26 @@ public:
 
 	template<typename R, typename C> friend class Call;
 
-	Connection(Local* localObj, Transport& transport)
-		: m_transport(transport)
-		, m_localPrc(localObj)
+	//! If using this constructor, then use #init method to initialize the object.
+	Connection()
 	{
+	}
+
+	Connection(Local* localObj, Transport& transport)
+	{
+		init(localObj, transport);
+	}
+
+	void init(Local* localObj, Transport& transport)
+	{
+		m_localPrc.init(localObj);
+		m_transport = &transport;
 	}
 
 	virtual ~Connection()
 	{
 	}
+
 
 	template<typename F, typename... Args>
 	auto call(uint32_t rpcid, Args&&... args)
@@ -218,10 +229,10 @@ public:
 
 	virtual void close() override
 	{
-		m_transport.close();
+		m_transport->close();
 	}
 
-	virtual const Transport& getTransport() override
+	virtual const Transport* getTransport() override
 	{
 		return m_transport;
 	}
@@ -241,7 +252,7 @@ public:
 protected:
 
 	using WorkQueue = std::queue<std::function<bool()>>;
-	Transport& m_transport;
+	Transport* m_transport = nullptr;
 	InProcessor<Local> m_localPrc;
 	OutProcessor<Remote> m_remotePrc;
 
@@ -276,7 +287,7 @@ protected:
 
 		while(true)
 		{
-			if (!m_transport.receive(data))
+			if (!m_transport->receive(data))
 				return false;
 
 			// If we get an empty RPC, but "receive" returns true, it means the transport is still
@@ -297,7 +308,7 @@ protected:
 			if (hdr.bits.isReply)
 				m_remotePrc.processReply(in, hdr);
 			else
-				m_localPrc.processCall(m_transport, in, hdr, dbg.get());
+				m_localPrc.processCall(*m_transport, in, hdr, dbg.get());
 		}
 	}
 	
@@ -349,7 +360,7 @@ protected:
 				dbg->num, hdr->bits.size, hdr->bits.counter);
 		}
 		m_remotePrc.template addReplyHandler<F>(hdr->key(), std::forward<H>(handler), dbg);
-		return m_transport.send(data.extract());
+		return m_transport->send(data.extract());
 	}
 
 };

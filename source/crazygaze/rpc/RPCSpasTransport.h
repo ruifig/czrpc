@@ -1,6 +1,6 @@
 #pragma once
 
-#include "crazygaze/spas/spas.h"
+#include "../../../czspas/source/crazygaze/spas/spas.h"
 #include "RPCTransport.h"
 #include "RPCConnection.h"
 #include "RPCUtils.h"
@@ -44,18 +44,9 @@ private:
 
 public:
 
-	static std::future<>> connect(
-		spas::Service& service, const char* ip, int port)
-	{
-		auto trp = std::make_unique<SpasTransport>(service);
-
-		m_sock.asyncConnect(ip, port, [&](const spas::Error& ec)
-		{
-			if (!ec)
-				startReadSize();
-		});
-	}
-
+	//
+	// Transport interface BEGIN
+	//
 	virtual bool send(std::vector<char> data) override
 	{
 		if (m_closing)
@@ -102,6 +93,14 @@ public:
 
 		return true;
 	}
+
+	virtual void close() override
+	{
+		// #TODO : What to do here?
+	}
+	//
+	// Transport interface END
+	//
 
 private:
 	bool m_closing = false;

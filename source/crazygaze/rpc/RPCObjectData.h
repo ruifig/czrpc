@@ -9,8 +9,15 @@ class ObjectData
 {
 public:
 
-	explicit ObjectData(void* owner) : m_owner(owner)
+	ObjectData() {}
+	ObjectData(void *owner)
 	{
+		init(owner);
+	}
+
+	void init(void* owner)
+	{
+		m_owner = owner;
 		m_data = shared(owner);
 	}
 
@@ -74,7 +81,7 @@ public:
 
 private:
 
-	void* m_owner;
+	void* m_owner = nullptr;
 	struct SharedData
 	{
 		std::unique_lock<std::mutex> lock()

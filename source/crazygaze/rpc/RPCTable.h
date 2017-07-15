@@ -83,9 +83,11 @@ inline Stream& operator>>(Stream& s, DebugInfo& v)
 
 struct InProcessorData
 {
-	InProcessorData(void* owner)
-		: objData(owner)
+	InProcessorData() {}
+
+	void init(void* owner)
 	{
+		objData.init(owner);
 	}
 
 	~InProcessorData()
@@ -488,7 +490,7 @@ class Table : public TableImpl<T>
 {
 public:
 	// Using std::is_pointer has a hack to cause this assert to always fail if we try to instantiate
-	// an instace of a non specialized Table
+	// an instance of a non specialized Table
 	static_assert(std::is_pointer<T>::value, "RPC Table not specified for the type.");
 };
 

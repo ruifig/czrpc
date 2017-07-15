@@ -340,7 +340,7 @@ protected:
 				return;
 			}
 
-			auto con = std::make_shared<Connection<LOCAL,REMOTE>>(localObj, trp);
+			auto con = std::make_shared<Connection<LOCAL,REMOTE>>(localObj, *trp);
 			trp->m_rpcCon = con;
 			TRPLOG("Connected: trp<->con : %p <-> %p", trp.get(), con.get());
 			con->setOutSignal([trp=trp.get()]()
@@ -449,10 +449,10 @@ private:
 				return;
 			}
 
-			auto con = std::make_shared<ConnectionType>(&m_localObj, trp);
+			auto con = std::make_shared<ConnectionType>(&m_localObj, *trp);
 			trp->m_rpcCon = con;
 			TRPLOG("Accepted: trp<->con : %p <-> %p", trp.get(), con.get());
-			con->setOutSignal([con=con.get()]
+			con->setOutSignal([con=con.get(), trp]
 			{
 				con->process(BaseConnection::Direction::Out);
 			});
