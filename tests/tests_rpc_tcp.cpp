@@ -8,18 +8,21 @@
 using namespace cz;
 using namespace cz::rpc;
 
-class CalcTest
+namespace
 {
-public:
-	int add(int a, int b)
+	class CalcTest
 	{
-		return a + b;
-	}
-	int sub(int a, int b)
-	{
-		return a - b;
-	}
-};
+	public:
+		int add(int a, int b)
+		{
+			return a + b;
+		}
+		int sub(int a, int b)
+		{
+			return a - b;
+		}
+	};
+}
 
 // Gather all the RPCs for Tester, but not define the Table right now, since we need to reuse the define
 #define RPCTABLE_CLASS CalcTest

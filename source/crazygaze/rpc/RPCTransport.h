@@ -24,6 +24,14 @@ class Transport : public std::enable_shared_from_this<Transport>
 	// Close connection to the peer
 	virtual void close() = 0;
 
+	//! Called by the Connection when new data is ready to send
+	// This makes it possible for the transport to be the one triggering the call to Connection::process 
+	virtual void onSendReady() {}
+
+protected:
+	friend class BaseConnection;
+	BaseConnection* m_con = nullptr;;
+
 };
 }
 }

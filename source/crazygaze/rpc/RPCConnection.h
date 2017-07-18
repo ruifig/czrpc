@@ -27,11 +27,27 @@ public:
 	};
 
 	virtual void process(Direction what=Direction::Both) = 0;
-	virtual void close() = 0;
-	virtual const Transport* getTransport() = 0;
 	virtual bool isRunningInThread() = 0;
 
+	void close()
+	{
+		m_transport->close();
+	}
+
+	const Transport* getTransport()
+	{
+		return m_transport;
+	}
+
 protected:
+
+	void initBase(Transport& transport)
+	{
+		m_transport = &transport;
+		m_transport->m_con = this;
+	}
+
+	Transport* m_transport = nullptr;
 };
 
 template<typename F, typename C>
@@ -136,13 +152,12 @@ public:
 	void init(Local* localObj, Transport& transport)
 	{
 		m_localPrc.init(localObj);
-		m_transport = &transport;
+		initBase(transport);
 	}
 
 	virtual ~Connection()
 	{
 	}
-
 
 	template<typename F, typename... Args>
 	auto call(uint32_t rpcid, Args&&... args)
@@ -225,16 +240,6 @@ public:
 				m_disconnectSignal = nullptr;
 			}
 		}
-	}
-
-	virtual void close() override
-	{
-		m_transport->close();
-	}
-
-	virtual const Transport* getTransport() override
-	{
-		return m_transport;
 	}
 
 	// Called whenever a RPC call is committed (e.g: As a result of CZRPC_CALL).

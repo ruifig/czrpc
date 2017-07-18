@@ -10,14 +10,9 @@ namespace cz
 namespace rpc
 {
 
-struct SpasTransportSession
-{
-};
-
 class SpasTransport : public Transport
 {
-private:
-	// Private so it forces creation in the heap through "connect"
+public:
 	SpasTransport(spas::Service& service) : m_sock(service)
 	{
 	}
@@ -26,23 +21,50 @@ private:
 	{
 	}
 
-	template<typename H, typename = cz::spas::detail::IsConnectHandler<H> >
-	void asyncConnect(BaseConnection& rpccon, const char* ip, int port, H&& h)
+	//! Version for Connection<LOCAL, REMOTE>
+	template<typename LOCAL, typename REMOTE, typename H,
+		typename = cz::spas::detail::IsConnectHandler<H>,
+		typename = std::enable_if<!std::is_void<LOCAL>::value>
+		>
+	void asyncConnect(Connection<LOCAL, REMOTE>& rpccon, LOCAL& localObj, const char* ip, int port, H&& h)
 	{
-		m_sock.asyncConnect(ip, port,[this, h = std::forward<H>(h)](const spas::Error& ec)
+		m_sock.asyncConnect(ip, port, 5000, [this, &rpccon, h = std::forward<H>(h)](const spas::Error& ec)
 		{
 			// If no error, then setup whatever we need
 			if (!ec)
 			{
-				m_con = con;
-				startReadData();
+				m_con = rpccon;
+				rpccon->init(&localObj, *this);
+				startReadSize();
 			}
 
 			h(ec);
 		});
 	}
 
-public:
+
+	//! Version for Connection<void, REMOTE>
+	template<typename LOCAL, typename REMOTE, typename H,
+		typename = cz::spas::detail::IsConnectHandler<H>,
+		typename = std::enable_if<std::is_void<LOCAL>::value>
+		>
+	void asyncConnect(Connection<LOCAL, REMOTE>& rpccon, const char* ip, int port, H&& h)
+	{
+		m_sock.asyncConnect(ip, port, 5000, [this, &rpccon, h = std::forward<H>(h)](const spas::Error& ec)
+		{
+			// If no error, then setup whatever we need
+			if (!ec)
+			{
+				m_con = &rpccon;
+				rpccon.init(nullptr, *this);
+				startReadSize();
+			}
+
+			h(ec);
+		});
+	}
+
+private:
 
 	//
 	// Transport interface BEGIN
@@ -103,6 +125,7 @@ public:
 	//
 
 private:
+	friend class SpasTransportAcceptor;
 	bool m_closing = false;
 	spas::Socket m_sock;
 	struct Out
@@ -198,10 +221,51 @@ private:
 				in.q.push(std::move(m_incoming));
 			});
 			startReadSize();
-			m_con->process();
+			m_con->process(rpc::BaseConnection::Direction::In);
 		});
 	}
 
+};
+
+
+//template<typename LOCAL, typename REMOTE>
+class SpasTransportAcceptor
+{
+public:
+#if 0
+	using LocalType = LOCAL;
+	using RemoteType = REMOTE;
+	using ConnectionType = Connection<LocalType, RemoteType>;
+#endif
+
+	SpasTransportAcceptor(spas::Service& io)
+		: m_acceptor(io)
+	{
+	}
+
+	virtual ~SpasTransportAcceptor()
+	{
+	}
+
+	spas::Error listen(const char* bindIP, int port, int backlog, bool reuseAddr)
+	{
+		return m_acceptor.listen(bindIP, port, backlog, reuseAddr);
+	}
+
+	spas::Error listen(int port)
+	{
+		return m_acceptor.listen(port);
+	}
+
+	template< typename H, typename = spas::detail::IsConnectHandler<H> >
+	void asyncAccept(SpasTransport& trp, H&& h)
+	{
+		m_acceptor.asyncAccept(trp.m_sock, std::forward<H>(h));
+	}
+
+private:
+
+	spas::Acceptor m_acceptor;
 };
 
 }
