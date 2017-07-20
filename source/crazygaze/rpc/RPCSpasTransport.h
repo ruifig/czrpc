@@ -13,7 +13,9 @@ namespace rpc
 class SpasTransport : public Transport
 {
 public:
-	SpasTransport(spas::Service& service) : m_sock(service)
+	SpasTransport(spas::Service& service)
+		: m_sock(service)
+		, m_pendingConProcessCall(false)
 	{
 	}
 
@@ -33,7 +35,6 @@ public:
 			// If no error, then setup whatever we need
 			if (!ec)
 			{
-				m_con = rpccon;
 				rpccon->init(&localObj, *this);
 				startReadSize();
 			}
@@ -55,7 +56,6 @@ public:
 			// If no error, then setup whatever we need
 			if (!ec)
 			{
-				m_con = &rpccon;
 				rpccon.init(nullptr, *this);
 				startReadSize();
 			}
@@ -141,7 +141,30 @@ private:
 	Monitor<In> m_in;
 	std::vector<char> m_outgoing;
 	std::vector<char> m_incoming;
-	BaseConnection* m_con = nullptr;
+	std::atomic<bool> m_pendingConProcessCall;
+
+	virtual void onSendReady() override
+	{
+		checkConProcessCallTrigger();
+	}
+
+	void checkConProcessCallTrigger()
+	{
+		// Check if we need to trigger a con->process call
+		// #TODO : If I ever add functionality to spas to detect if Service::run is running on this thread, 
+		// then add an optimization here to call con->process in-place, instead of using post.
+		// Another option is, if I add that functionality to Service, then most certainly Service will have a
+		// "dispatch" method (which executes right away is Service::run is running on this thread). I can simply use
+		// that method
+		if (m_pendingConProcessCall.exchange(true) == false)
+		{
+			m_sock.getService().post([this]()
+			{
+				m_con->process(rpc::BaseConnection::Direction::Both);
+				m_pendingConProcessCall.exchange(false);
+			});
+		}
+	}
 
 	void doSend()
 	{
@@ -221,7 +244,7 @@ private:
 				in.q.push(std::move(m_incoming));
 			});
 			startReadSize();
-			m_con->process(rpc::BaseConnection::Direction::In);
+			checkConProcessCallTrigger();
 		});
 	}
 
@@ -257,10 +280,28 @@ public:
 		return m_acceptor.listen(port);
 	}
 
+#if 0
 	template< typename H, typename = spas::detail::IsConnectHandler<H> >
 	void asyncAccept(SpasTransport& trp, H&& h)
 	{
 		m_acceptor.asyncAccept(trp.m_sock, std::forward<H>(h));
+	}
+#endif
+
+	//! Version for Connection<LOCAL, REMOTE>
+	template<typename LOCAL, typename REMOTE, typename H, typename = cz::spas::detail::IsConnectHandler<H>>
+	void asyncAccept(SpasTransport& trp, Connection<LOCAL, REMOTE>& rpccon, LOCAL& localObj, H&& h)
+	{
+		m_acceptor.asyncAccept(trp.m_sock, [&trp, &rpccon, &localObj, h](const spas::Error& ec)
+		{
+			// If no errors, then setup transport and rpc connection
+			if (!ec)
+			{
+				rpccon.init(&localObj, trp);
+				trp.startReadSize();
+			}
+			h(ec);
+		});
 	}
 
 private:

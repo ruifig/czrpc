@@ -244,11 +244,13 @@ public:
 
 	// Called whenever a RPC call is committed (e.g: As a result of CZRPC_CALL).
 	// Can be used by custom transports to trigger calls to Connection::process
+	// #TODO : Remove this
 	void setOutSignal(std::function<void()> callback)
 	{
 		m_outSignal = std::move(callback);
 	}
 
+	// #TODO : Remove/revise this
 	void setDisconnectSignal(std::function<void()> callback)
 	{
 		m_disconnectSignal = std::move(callback);
@@ -257,14 +259,13 @@ public:
 protected:
 
 	using WorkQueue = std::queue<std::function<bool()>>;
-	Transport* m_transport = nullptr;
 	InProcessor<Local> m_localPrc;
 	OutProcessor<Remote> m_remotePrc;
 
 	Monitor<WorkQueue> m_outWork;
 	WorkQueue m_tmpOutWork;
-	std::function<void()> m_outSignal;
-	std::function<void()> m_disconnectSignal;
+	std::function<void()> m_outSignal; // #TODO Remove this
+	std::function<void()> m_disconnectSignal; // #TODO : Remove/revise this
 
 	virtual bool processOut()
 	{
@@ -348,8 +349,7 @@ protected:
 			});
 		});
 
-		if (m_outSignal)
-			m_outSignal();
+		m_transport->onSendReady();
 	}
 
 	template<typename F, typename H>

@@ -44,11 +44,13 @@ namespace
 			m_th = std::thread([this]
 			{
 				m_io.run();
+				printf("");
 			});
 		}
 
 		~ServerSession()
 		{
+			m_io.stop();
 			m_th.join();
 		}
 
@@ -63,14 +65,13 @@ namespace
 		void setupAccept()
 		{
 			auto contrp = std::make_shared<ConTrp<Local, Remote>>(m_io);
-			m_acceptor.asyncAccept(contrp->trp, [this, contrp](const spas::Error& ec)
+			m_acceptor.asyncAccept(contrp->trp, contrp->con, m_servedObj, [this, contrp](const spas::Error& ec)
 			{
 				if (ec)
 				{
 					CZRPC_LOG(Log, "Failed to accept connection: %s", ec.msg());
 					return;
 				}
-				contrp->con.init(&m_servedObj, contrp->trp);
 				m_cons.push_back(contrp);
 				setupAccept();
 			});
@@ -111,7 +112,6 @@ bool doConnect(ConTrp<LOCAL, REMOTE>& contrp, const char* ip, int port)
 		return true;
 }
 
-
 SUITE(RPC_SPAS)
 {
 
@@ -124,6 +124,7 @@ TEST(1)
 	std::thread iothread = std::thread([&io]
 	{
 		io.run();
+		printf("");
 	});
 
 	ConTrp<void, CalcTest> clientSession(io);
@@ -137,6 +138,9 @@ TEST(1)
 		sem.notify();
 	});
 	sem.wait();
+
+	io.stop();
+	iothread.join();
 }
 
 }
