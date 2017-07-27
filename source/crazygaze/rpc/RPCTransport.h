@@ -5,7 +5,7 @@ namespace cz
 namespace rpc
 {
 
-class Transport : public std::enable_shared_from_this<Transport>
+class Transport
 {
   public:
 	virtual ~Transport() {}

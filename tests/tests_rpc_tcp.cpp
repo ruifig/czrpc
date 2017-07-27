@@ -104,6 +104,9 @@ TEST(1)
 }
 
 // Forward declaration, so the server side can use it
+namespace
+{
+
 class TesterClient;
 
 class Tester
@@ -311,6 +314,8 @@ std::future<std::string> Tester::testClientVoid()
 
 	return pr->get_future();
 }
+
+} // anonymous namespace
 
 CZRPC_DEFINE_CONST_LVALUE_REF(std::vector<int>)
 
@@ -950,7 +955,7 @@ TEST(Latency)
 
 TEST(Throughput)
 {
-	using namespace cz::rpc;
+	using namespace ::cz::rpc;
 
 	ServerProcess<Tester, void> server(TEST_PORT);
 

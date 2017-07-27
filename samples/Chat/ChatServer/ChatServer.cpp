@@ -87,7 +87,7 @@ private:
 			else
 			{
 				LOG("Client connected.");
-				clientInfo->con.setDisconnectSignal([this, clientInfo]()
+				clientInfo->con.setOnDisconnect([this, clientInfo]()
 				{
 					onDisconnect(clientInfo);
 				});

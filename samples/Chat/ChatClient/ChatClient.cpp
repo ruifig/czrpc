@@ -31,7 +31,7 @@ public:
 			exit(0);
 		}
 
-		m_spascon.setDisconnectSignal([]
+		m_spascon.setOnDisconnect([]
 		{
 			printf("Disconnected\n");
 			system("pause");

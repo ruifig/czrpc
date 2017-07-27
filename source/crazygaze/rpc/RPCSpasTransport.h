@@ -5,6 +5,14 @@
 #include "RPCConnection.h"
 #include "RPCUtils.h"
 
+#define CHECK_CZSPAS_EQUAL(expected, ec)                                                                      \
+	if ((ec.code) != (Error::Code::expected))                                                                 \
+	{                                                                                                         \
+		UnitTest::CheckEqual(*UnitTest::CurrentTest::Results(), Error(Error::Code::expected).msg(), ec.msg(), \
+		                     UnitTest::TestDetails(*UnitTest::CurrentTest::Details(), __LINE__));             \
+	}
+#define CHECK_CZSPAS(ec) CHECK_CZSPAS_EQUAL(Success, ec)
+
 namespace cz
 {
 namespace rpc
@@ -155,6 +163,7 @@ private:
 	virtual void close() override
 	{
 		// #TODO : Is this ok?
+		m_closing = true;
 		m_sock.getService().post([this]()
 		{
 			m_sock.cancel();

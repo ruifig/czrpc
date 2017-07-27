@@ -233,11 +233,11 @@ public:
 		if (!ok)
 		{
 			m_remotePrc.abortReplies();
-			if (m_disconnectSignal)
+			if (m_onDisconnect)
 			{
-				m_disconnectSignal();
+				m_onDisconnect();
 				// Release any resources kept by the handler
-				m_disconnectSignal = nullptr;
+				m_onDisconnect = nullptr;
 			}
 		}
 	}
@@ -245,15 +245,17 @@ public:
 	// Called whenever a RPC call is committed (e.g: As a result of CZRPC_CALL).
 	// Can be used by custom transports to trigger calls to Connection::process
 	// #TODO : Remove this
+#if 0
 	void setOutSignal(std::function<void()> callback)
 	{
 		m_outSignal = std::move(callback);
 	}
+#endif
 
 	// #TODO : Remove/revise this
-	void setDisconnectSignal(std::function<void()> callback)
+	void setOnDisconnect(std::function<void()> callback)
 	{
-		m_disconnectSignal = std::move(callback);
+		m_onDisconnect = std::move(callback);
 	}
 
 protected:
@@ -264,8 +266,11 @@ protected:
 
 	Monitor<WorkQueue> m_outWork;
 	WorkQueue m_tmpOutWork;
+	// #TODO : Remove this
+#if 0
 	std::function<void()> m_outSignal; // #TODO Remove this
-	std::function<void()> m_disconnectSignal; // #TODO : Remove/revise this
+#endif
+	std::function<void()> m_onDisconnect; // #TODO : Remove/revise this
 
 	virtual bool processOut()
 	{
