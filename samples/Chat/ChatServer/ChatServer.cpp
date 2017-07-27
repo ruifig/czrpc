@@ -75,7 +75,7 @@ private:
 	void setupAccept()
 	{
 		auto clientInfo = std::make_shared<ClientInfo>(m_io);
-		m_acceptor.asyncAccept(clientInfo->trp, clientInfo->con, static_cast<ChatServerInterface*>(this), [this, clientInfo](const spas::Error& ec)
+		m_acceptor.asyncAccept(clientInfo->trp, clientInfo->con, *this, [this, clientInfo](const spas::Error& ec)
 		{
 			if (ec)
 			{

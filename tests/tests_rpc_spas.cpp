@@ -17,6 +17,7 @@ namespace
 		}
 	};
 
+	// Just puts together a Connection and Transport
 	template<typename LOCAL, typename REMOTE>
 	struct ConTrp
 	{
@@ -29,6 +30,10 @@ namespace
 		SpasTransport trp;
 	};
 
+	//
+	// Utility class just to make the unit tests shorter, by allowing tweaks on how to handle spas::Service, and
+	// SpasTransport/SpasTransportAcceptor
+	//
 	template<typename LOCAL, typename REMOTE>
 	class ServerSession
 	{
@@ -36,28 +41,51 @@ namespace
 		using Local = LOCAL;
 		using Remote = REMOTE;
 
-		explicit ServerSession(int port)
+		explicit ServerSession(int port, bool autoRun, bool autoAccept, bool keepAlive, bool doStop)
 			: m_objData(&m_servedObj)
 			, m_acceptor(m_io)
+			, m_port(port)
+			, m_keepAlive(keepAlive)
+			, m_doStop(doStop)
 		{
-			// #TODO : Set auth token on m_objData
-			m_th = std::thread([this]
-			{
-				m_io.run();
-				printf("");
-			});
+			if (autoAccept)
+				startAccept();
+
+			if (autoRun)
+				run();
 		}
 
 		~ServerSession()
 		{
-			m_io.stop();
-			m_th.join();
+			finish();
 		}
 
-		void start(int port)
+		void run()
 		{
-			m_acceptor.listen(port);
+			// #TODO : Set auth token on m_objData
+			m_th = std::thread([this]
+			{
+				// If required, add the dummy Work to the service, so that Service::run doesn't exit immediately
+				std::unique_ptr<spas::Service::Work> work;
+				if (m_keepAlive)
+					work = std::make_unique<spas::Service::Work>(m_io);
+				m_io.run();
+			});
+
+		}
+
+		void startAccept()
+		{
+			m_acceptor.listen(m_port);
 			setupAccept();
+		}
+
+		void finish()
+		{
+			if (m_doStop)
+				m_io.stop();
+			if (m_th.joinable())
+				m_th.join();
 		}
 
 	private:
@@ -69,10 +97,14 @@ namespace
 			{
 				if (ec)
 				{
+					if (ec.code == spas::Error::Code::Cancelled)
+						return;
 					CZRPC_LOG(Log, "Failed to accept connection: %s", ec.msg());
-					return;
 				}
-				m_cons.push_back(contrp);
+				else
+				{
+					m_cons.push_back(contrp);
+				}
 				setupAccept();
 			});
 		}
@@ -82,8 +114,54 @@ namespace
 		spas::Service m_io;
 		std::thread m_th;
 		SpasTransportAcceptor m_acceptor;
+		int m_port;
+		bool m_keepAlive;
+		bool m_doStop;
 		std::vector<std::shared_ptr<ConTrp<Local, Remote>>> m_cons;
 	};
+	
+	//! Helper class to run a Service in a separate thread.
+	struct ServiceThread
+	{
+		spas::Service service;
+		std::thread th;
+		bool doStop = false;
+		bool keepAlive = false;
+		explicit ServiceThread(bool autoRun, bool keepAlive, bool doStop)
+			: doStop(doStop)
+			, keepAlive(keepAlive)
+		{
+			if (autoRun)
+				run();
+		}
+
+		~ServiceThread()
+		{
+			finish();
+		}
+
+		void run()
+		{
+			CHECK(th.joinable() == false);
+			th = std::thread([this]()
+			{
+				//UnitTest::TimeHelpers::SleepMs(500);
+				std::unique_ptr<spas::Service::Work> work;
+				if (keepAlive)
+					work = std::make_unique<spas::Service::Work>(service);
+				service.run();
+			});
+		}
+
+		void finish()
+		{
+			if (doStop)
+				service.stop();
+			if (th.joinable())
+				th.join();
+		}
+
+};
 
 }
 
@@ -115,20 +193,29 @@ bool doConnect(ConTrp<LOCAL, REMOTE>& contrp, const char* ip, int port)
 SUITE(RPC_SPAS)
 {
 
+// Does nothing. Just to check if there is anything blocking/crashing in this case
+TEST(SpasTransport_Nothing)
+{
+	spas::Service ioservice;
+	SpasTransportAcceptor acceptor(ioservice);
+	SpasTransport trp(ioservice);
+}
+
+TEST(SpasTransport_Accept_cancel)
+{
+	spas::Service ioservice;
+}
+
+
+#if 1
+
 TEST(1)
 {
-	ServerSession<CalcTest, void> serverSession(TEST_PORT);
-	serverSession.start(TEST_PORT);
+	ServerSession<CalcTest, void> serverSession(TEST_PORT, true, true, true, true);
 
-	spas::Service io;
-	std::thread iothread = std::thread([&io]
-	{
-		io.run();
-		printf("");
-	});
+	ServiceThread ioth(true, true, true);
 
-	ConTrp<void, CalcTest> clientSession(io);
-	//bool res = doConnect(clientSession, "127.0.0.1", TEST_PORT);
+	ConTrp<void, CalcTest> clientSession(ioth.service);
 	auto ec = clientSession.trp.asyncConnect(clientSession.con, "127.0.0.1", TEST_PORT).get();
 	CHECK(!ec);
 
@@ -139,9 +226,9 @@ TEST(1)
 		sem.notify();
 	});
 	sem.wait();
-
-	io.stop();
-	iothread.join();
 }
 
+#endif
+
 }
+

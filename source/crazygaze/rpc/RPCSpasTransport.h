@@ -24,18 +24,21 @@ public:
 	}
 
 	//! Version for Connection<LOCAL, REMOTE>
-	template<typename LOCAL, typename REMOTE, typename H,
-		typename = cz::spas::detail::IsConnectHandler<H>,
-		typename = std::enable_if<!std::is_void<LOCAL>::value>
+	template<typename LOCAL, typename REMOTE, typename LOCAL_, typename H,
+		typename = cz::spas::detail::IsConnectHandler<H>
 		>
-	void asyncConnect(Connection<LOCAL, REMOTE>& rpccon, LOCAL& localObj, const char* ip, int port, H&& h)
+	void asyncConnect(Connection<LOCAL, REMOTE>& rpccon, LOCAL_& localObj, const char* ip, int port, H&& h)
 	{
-		m_sock.asyncConnect(ip, port, 5000, [this, &rpccon, &localObj, h = std::forward<H>(h)](const spas::Error& ec)
+		static_assert(!std::is_void<LOCAL>::value, "Specified RPC Connection doesn't have a local interface, so use the other asyncConnect function");
+		static_assert(std::is_base_of<LOCAL, LOCAL_>::value, "localObj doesn't implement the required LOCAL interface");
+
+		LOCAL* rpcObj = static_cast<LOCAL*>(&localObj);
+		m_sock.asyncConnect(ip, port, 5000, [this, &rpccon, rpcObj, h = std::forward<H>(h)](const spas::Error& ec)
 		{
 			// If no error, then setup whatever we need
 			if (!ec)
 			{
-				rpccon.init(&localObj, *this);
+				rpccon.init(rpcObj, *this);
 				startReadSize();
 			}
 
@@ -46,11 +49,13 @@ public:
 
 	//! Version for Connection<void, REMOTE>
 	template<typename LOCAL, typename REMOTE, typename H,
-		typename = cz::spas::detail::IsConnectHandler<H>,
-		typename = std::enable_if<std::is_void<LOCAL>::value>
+		typename = cz::spas::detail::IsConnectHandler<H>
 		>
 	void asyncConnect(Connection<LOCAL, REMOTE>& rpccon, const char* ip, int port, H&& h)
 	{
+		static_assert(std::is_void<LOCAL>::value, "Specified RPC Connection has a local interface, so use the other asyncConnect");
+
+		// Create the std::promise as a shared_ptr, so we can pass it to the handler.
 		m_sock.asyncConnect(ip, port, 5000, [this, &rpccon, h = std::forward<H>(h)](const spas::Error& ec)
 		{
 			// If no error, then setup whatever we need
@@ -65,52 +70,33 @@ public:
 	}
 
 	//! Version for Connection<LOCAL, REMOTE>
-	template<typename LOCAL, typename REMOTE, typename LOCAL_,
-		typename = std::enable_if<!std::is_void<LOCAL>::value>
-		>
+	template<typename LOCAL, typename REMOTE, typename LOCAL_>
 	std::future<spas::Error> asyncConnect(Connection<LOCAL, REMOTE>& rpccon, LOCAL_& localObj, const char* ip, int port)
 	{
-		static_assert(std::is_base_of<LOCAL, LOCAL_>::value, "localObj doesn't implement the required LOCAL interface");
-		LOCAL* obj = static_cast<LOCAL*>(&localObj);
 		static_assert(!std::is_void<LOCAL>::value, "Specified RPC Connection doesn't have a local interface, so use the other asyncConnect function");
-		// Create the std::promise as a shared_ptr, so we can pass it to the handler.
-		auto pr = std::make_shared<std::promise<spas::Error>>();
-		m_sock.asyncConnect(ip, port, 5000, [this, &rpccon, obj, pr](const spas::Error& ec)
-		{
-			// If no error, then setup whatever we need
-			if (!ec)
-			{
-				rpccon.init(obj, *this);
-				startReadSize();
-			}
+		static_assert(std::is_base_of<LOCAL, LOCAL_>::value, "localObj doesn't implement the required LOCAL interface");
 
+		// Create the std::promise as a shared_ptr, so we can copy it around
+		auto pr = std::make_shared<std::promise<spas::Error>>();
+		asyncConnect(rpccon, localObj, ip, port, [pr](const spas::Error& ec)
+		{
 			pr->set_value(ec);
 		});
-
 		return pr->get_future();
 	}
 
 	//! Version for Connection<void, REMOTE>
-	template<typename LOCAL, typename REMOTE,
-		typename = std::enable_if<std::is_void<LOCAL>::value>
-		>
+	template<typename LOCAL, typename REMOTE>
 	std::future<spas::Error> asyncConnect(Connection<LOCAL, REMOTE>& rpccon, const char* ip, int port)
 	{
-		static_assert(std::is_void<LOCAL>::value, "Specified RPC Connection has a local interface, so use the other asyncConnect to specify the local interface");
-		// Create the std::promise as a shared_ptr, so we can pass it to the handler.
-		auto pr = std::make_shared<std::promise<spas::Error>>();
-		m_sock.asyncConnect(ip, port, 5000, [this, &rpccon, pr](const spas::Error& ec)
-		{
-			// If no error, then setup whatever we need
-			if (!ec)
-			{
-				rpccon.init(nullptr, *this);
-				startReadSize();
-			}
+		static_assert(std::is_void<LOCAL>::value, "Specified RPC Connection has a local interface, so use the other asyncConnect");
 
+		// Create the std::promise as a shared_ptr, so we can copy it around
+		auto pr = std::make_shared<std::promise<spas::Error>>();
+		asyncConnect(rpccon, ip, port, [pr](const spas::Error& ec)
+		{
 			pr->set_value(ec);
 		});
-
 		return pr->get_future();
 	}
 
@@ -350,15 +336,19 @@ public:
 #endif
 
 	//! Version for Connection<LOCAL, REMOTE>
-	template<typename LOCAL, typename REMOTE, typename H, typename = cz::spas::detail::IsConnectHandler<H>>
-	void asyncAccept(SpasTransport& trp, Connection<LOCAL, REMOTE>& rpccon, LOCAL* localObj, H&& h)
+	template<typename LOCAL, typename REMOTE, typename LOCAL_, typename H,
+		typename = cz::spas::detail::IsConnectHandler<H>>
+	void asyncAccept(SpasTransport& trp, Connection<LOCAL, REMOTE>& rpccon, LOCAL_& localObj, H&& h)
 	{
-		m_acceptor.asyncAccept(trp.m_sock, [&trp, &rpccon, localObj, h](const spas::Error& ec)
+		static_assert(std::is_base_of<LOCAL, LOCAL_>::value, "localObj doesn't implement the required LOCAL interface");
+
+		LOCAL* rpcObj = static_cast<LOCAL*>(&localObj);
+		m_acceptor.asyncAccept(trp.m_sock, [&trp, &rpccon, rpcObj, h](const spas::Error& ec)
 		{
 			// If no errors, then setup transport and rpc connection
 			if (!ec)
 			{
-				rpccon.init(localObj, trp);
+				rpccon.init(rpcObj, trp);
 				trp.startReadSize();
 			}
 			h(ec);

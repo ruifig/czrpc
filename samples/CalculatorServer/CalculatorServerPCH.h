@@ -15,7 +15,7 @@
 #include <cmath>
 
 #include "crazygaze/rpc/RPC.h"
-#include "crazygaze/rpc/RPCTCPSocketTransport.h"
+#include "crazygaze/rpc/RPCSpasTransport.h"
 
 #include "../SamplesCommon/Parameters.h"
 #include "../SamplesCommon/SimpleServer.h"

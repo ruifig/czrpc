@@ -9,6 +9,7 @@ ucm_add_files(
 		#"tests_doc_a_small_taste.cpp"
 		#"tests_doc_paramtraits.cpp"
 		"tests_main.cpp"
+		"tests_rpc_spas.cpp"
 		"tests_rpc_tcp.cpp"
 		"tests_tcpsocket.cpp"
 		"tests_traits.cpp"
