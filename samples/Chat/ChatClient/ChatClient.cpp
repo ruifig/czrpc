@@ -14,20 +14,24 @@ public:
 
 	using ConType = Connection<ChatClientInterface, ChatServerInterface>;
 	ChatClient(const std::string& ip, int port)
+		: m_spastrp(m_spasio)
 	{
 		m_th = std::thread([this]
 		{
-			m_io.run();
+			spas::Service::Work work(m_spasio);
+			m_spasio.run();
 		});
 
 		printf("SYSTEM: Connecting to Chat Server at %s:%d\n", ip.c_str(), port);
-		m_con = TCPTransport<ChatClientInterface, ChatServerInterface>::create(m_io, *this, ip.c_str(), port).get();
-		if (!m_con)
+		spas::Error ec = m_spastrp.asyncConnect(m_spascon, *this, ip.c_str(), port).get();
+		if (ec)
 		{
 			printf("Failed to connect to %s:%d\n", ip.c_str(), port);
+			printf("Error: %s\n", ec.msg());
 			exit(0);
 		}
-		m_con->setDisconnectSignal([]
+
+		m_spascon.setDisconnectSignal([]
 		{
 			printf("Disconnected\n");
 			system("pause");
@@ -39,13 +43,13 @@ public:
 
 	~ChatClient()
 	{
-		m_io.stop();
+		m_spasio.stop();
 		m_th.join();
 	}
 
 	int run(const std::string& name, const std::string& pass)
 	{
-		auto res = CZRPC_CALL(*m_con, login, name, pass).ft().get().get();
+		auto res = CZRPC_CALL(m_spascon, login, name, pass).ft().get().get();
 		if (res!="OK")
 		{
 			printf("LOGIN ERROR: %s\n", res.c_str());
@@ -63,11 +67,11 @@ public:
 			}
 			else if (strncmp(msg.c_str(), "/kick ", strlen("/kick ")) == 0)
 			{
-				CZRPC_CALL(*m_con, kick, std::string(msg.begin() + strlen("/kick "), msg.end()));
+				CZRPC_CALL(m_spascon, kick, std::string(msg.begin() + strlen("/kick "), msg.end()));
 			}
 			else if (strncmp(msg.c_str(), "/userlist", strlen("/userlist")) == 0)
 			{
-				Result<std::vector<std::string>> res = CZRPC_CALL(*m_con, getUserList).ft().get();
+				Result<std::vector<std::string>> res = CZRPC_CALL(m_spascon, getUserList).ft().get();
 				if (res.isValid())
 				{
 					printf("%d users.\n", (int)res.get().size());
@@ -77,7 +81,7 @@ public:
 			}
 			else if (msg.size())
 			{
-				CZRPC_CALL(*m_con, sendMsg, msg);
+				CZRPC_CALL(m_spascon, sendMsg, msg);
 			}
 		}
 
@@ -90,9 +94,10 @@ private:
 		printf("%s: %s\n", name=="" ? "SYSTEM" : name.c_str(), msg.c_str());
 	}
 
-	TCPService m_io;
+	spas::Service m_spasio; // #TODO : Rename this to m_io after the refactoring is working
 	std::thread m_th;
-	std::shared_ptr<ConType> m_con;
+	ConType m_spascon; // #TODO : Rename this to m_con after the refactoring is working
+	SpasTransport m_spastrp; // #TODO : Rename this to m_trp, or possibly group it together with the con object
 };
 
 int main(int argc, char *argv[])

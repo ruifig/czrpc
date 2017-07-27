@@ -18,13 +18,17 @@ Parameters gParams;
 		{                                                    \
 			if (c.second.get() == excluded)                  \
 				continue;                                    \
-			CZRPC_CALL(*(c.second->con), func, __VA_ARGS__); \
+			CZRPC_CALL(c.second->con, func, __VA_ARGS__); \
 		}                                                    \
 	}
 
 struct ClientInfo
 {
-	std::shared_ptr<Connection<ChatServerInterface, ChatClientInterface>> con;
+	explicit ClientInfo(spas::Service& io)
+		: trp(io) { }
+
+	Connection<ChatServerInterface, ChatClientInterface> con;
+	SpasTransport trp;
 	std::string name;
 	bool admin = false;
 	bool authenticated = false;
@@ -37,38 +41,61 @@ public:
 
 	ChatServer(int port)
 		: m_objData(this)
-		, m_acceptor(m_io, *this)
+		, m_acceptor(m_io)
 	{
+		m_objData.setProperty("name", Any("chat"));
+		m_acceptor.listen(port);
+		setupAccept();
+
+		// NOTE: We start the IO thread AFTER calling setupAccept, so the Service has work to do, otherwise
+		// Service::run return immediately
+		// This makes it easier to deal with shutdown. Once whe cancel all asynchronous operations, Service::run will exit and we are done.
 		m_th = std::thread([this]
 		{
 			m_io.run();
 		});
-
-		m_objData.setProperty("name", Any("chat"));
-
-		m_acceptor.start(port, [&](std::shared_ptr<ConType> con)
-		{
-			LOG("Client connected.");
-			auto info = std::make_shared<ClientInfo>();
-			info->con = con;
-			info->con->setDisconnectSignal([this, info]
-			{
-				onDisconnect(info);
-			});
-
-			m_clients.insert(std::make_pair(con.get(), info));
-			return true;
-		});
-
 	}
 
 	~ChatServer()
 	{
-		m_io.stop();
+		m_io.post([this]()
+		{
+			m_acceptor.cancel();
+			for (auto&& info : m_clients)
+			{
+				info.second->con.close();
+			}
+		});
+
 		m_th.join();
 	}
 
 private:
+
+	void setupAccept()
+	{
+		auto clientInfo = std::make_shared<ClientInfo>(m_io);
+		m_acceptor.asyncAccept(clientInfo->trp, clientInfo->con, static_cast<ChatServerInterface*>(this), [this, clientInfo](const spas::Error& ec)
+		{
+			if (ec)
+			{
+				if (ec.code == spas::Error::Code::Cancelled)
+					return;
+				else
+					LOG("Failed to accept incoming connection: %s", ec.msg());
+			}
+			else
+			{
+				LOG("Client connected.");
+				clientInfo->con.setDisconnectSignal([this, clientInfo]()
+				{
+					onDisconnect(clientInfo);
+				});
+				m_clients.insert(std::make_pair(&clientInfo->con, clientInfo));
+			}
+			setupAccept();
+		});
+	}
 
 	void onDisconnect(std::shared_ptr<ClientInfo> info)
 	{
@@ -155,7 +182,7 @@ private:
 		auto user = getCurrentUser();
 		if (!user->admin)
 		{
-			CZRPC_CALL(*user->con, onMsg, "", "You do not have admin rights");
+			CZRPC_CALL(user->con, onMsg, "", "You do not have admin rights");
 			return;
 		}
 
@@ -163,15 +190,15 @@ private:
 
 		if (!kicked)
 		{
-			CZRPC_CALL(*user->con, onMsg, "", formatString("User %s not found", name.c_str()));
+			CZRPC_CALL(user->con, onMsg, "", formatString("User %s not found", name.c_str()));
 			return;
 		}
 
 		// Inform the kicked player that he was kicked
-		CZRPC_CALL(*kicked->con, onMsg, "", "You were kicked").async(
+		CZRPC_CALL(kicked->con, onMsg, "", "You were kicked").async(
 			[kicked,this] (Result<void> r)
 		{
-			kicked->con->close();
+			kicked->con.close();
 		});
 
 	}
@@ -189,9 +216,9 @@ private:
 		return users;
 	}
 
-	TCPService m_io;
+	spas::Service m_io;
 	std::thread m_th;
-	TCPTransportAcceptor<ChatServerInterface, ChatClientInterface> m_acceptor;
+	SpasTransportAcceptor m_acceptor;
 	std::unordered_map<ConType*, std::shared_ptr<ClientInfo>> m_clients;
 	ObjectData m_objData;
 };

@@ -128,8 +128,9 @@ TEST(1)
 	});
 
 	ConTrp<void, CalcTest> clientSession(io);
-	bool res = doConnect(clientSession, "127.0.0.1", TEST_PORT);
-	CHECK(res);
+	//bool res = doConnect(clientSession, "127.0.0.1", TEST_PORT);
+	auto ec = clientSession.trp.asyncConnect(clientSession.con, "127.0.0.1", TEST_PORT).get();
+	CHECK(!ec);
 
 	Semaphore sem;
 	CZRPC_CALL(clientSession.con, add, 1, 2).async([&sem](Result<int> res)
