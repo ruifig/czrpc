@@ -42,13 +42,13 @@ public:
 
 	static std::shared_ptr<ConTrp<Local, Remote>> getCurrent()
 	{
-		auto client = cz::rpc::Connection<Local, Remote>::getCurrent();
-		auto clients = getShared<Clients>();
+		auto con = cz::rpc::Connection<Local, Remote>::getCurrent();
+		auto clients = getSharedData<Clients>();
 		if (!clients)
 			return nullptr;
 
-		for (auto&& c : clients)
-			if (c->con.get() == clients)
+		for (auto&& c : *clients)
+			if (con == &c->con)
 				return c;
 		return nullptr;
 	}
@@ -116,7 +116,7 @@ private:
 			}
 			else
 			{
-				m_clients.push_back(contrp);
+				m_clients->push_back(contrp);
 				todo--;
 			}
 			setupAccept(todo);
@@ -372,7 +372,7 @@ std::future<std::string> Tester::testClientVoid()
 
 	auto pr = std::make_shared<std::promise<std::string>>();
 	CZRPC_CALL(client->con, clientAdd, 1, 2).async(
-		[this, client->con, pr](Result<int> res)
+		[this, client, pr](Result<int> res)
 	{
 		CHECK(res.isException());
 		pr->set_value(res.getException());

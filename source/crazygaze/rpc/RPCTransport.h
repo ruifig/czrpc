@@ -5,6 +5,12 @@ namespace cz
 namespace rpc
 {
 
+class Session
+{
+public:
+	virtual ~Session() {}
+};
+
 class Transport
 {
   public:
@@ -30,8 +36,7 @@ class Transport
 
 protected:
 	friend class BaseConnection;
-	BaseConnection* m_con = nullptr;;
-
+	BaseConnection* m_con = nullptr;
 };
 }
 }

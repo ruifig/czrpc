@@ -23,7 +23,7 @@ public:
 		});
 
 		printf("SYSTEM: Connecting to Chat Server at %s:%d\n", ip.c_str(), port);
-		spas::Error ec = m_spastrp.asyncConnect(m_spascon, *this, ip.c_str(), port).get();
+		spas::Error ec = m_spastrp.asyncConnect(nullptr, m_spascon, *this, ip.c_str(), port).get();
 		if (ec)
 		{
 			printf("Failed to connect to %s:%d\n", ip.c_str(), port);

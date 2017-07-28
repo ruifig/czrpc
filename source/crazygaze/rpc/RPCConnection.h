@@ -32,6 +32,7 @@ public:
 	void close()
 	{
 		m_transport->close();
+		m_session = nullptr;
 	}
 
 	const Transport* getTransport()
@@ -39,15 +40,22 @@ public:
 		return m_transport;
 	}
 
+	std::shared_ptr<Session> getSession()
+	{
+		return m_session;
+	}
+
 protected:
 
-	void initBase(Transport& transport)
+	void initBase(Transport& transport, std::shared_ptr<Session> session)
 	{
 		m_transport = &transport;
 		m_transport->m_con = this;
+		m_session = std::move(session);
 	}
 
 	Transport* m_transport = nullptr;
+	std::shared_ptr<Session> m_session;
 };
 
 template<typename F, typename C>
@@ -144,15 +152,10 @@ public:
 	{
 	}
 
-	Connection(Local* localObj, Transport& transport)
-	{
-		init(localObj, transport);
-	}
-
-	void init(Local* localObj, Transport& transport)
+	void init(Local* localObj, Transport& transport, std::shared_ptr<Session> session)
 	{
 		m_localPrc.init(localObj);
-		initBase(transport);
+		initBase(transport, std::move(session));
 	}
 
 	virtual ~Connection()

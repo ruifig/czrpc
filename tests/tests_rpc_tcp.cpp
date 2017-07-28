@@ -5,7 +5,7 @@
 
 #define LONGTEST 0
 
-#if 0
+#if 1
 
 using namespace cz;
 using namespace cz::rpc;

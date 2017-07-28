@@ -22,10 +22,18 @@ Parameters gParams;
 		}                                                    \
 	}
 
-struct ClientInfo
+struct ClientInfo : public cz::rpc::Session, std::enable_shared_from_this<ClientInfo>
 {
 	explicit ClientInfo(spas::Service& io)
-		: trp(io) { }
+		: trp(io)
+	{
+		LOG("DEBUG: ClientInfo constructed (%p)", this);
+	}
+
+	~ClientInfo()
+	{
+		LOG("DEBUG: ClientInfo destroyed (%p, %s)", this, name.c_str());
+	}
 
 	Connection<ChatServerInterface, ChatClientInterface> con;
 	SpasTransport trp;
@@ -75,7 +83,8 @@ private:
 	void setupAccept()
 	{
 		auto clientInfo = std::make_shared<ClientInfo>(m_io);
-		m_acceptor.asyncAccept(clientInfo->trp, clientInfo->con, *this, [this, clientInfo](const spas::Error& ec)
+		m_acceptor.asyncAccept(clientInfo, clientInfo->trp, clientInfo->con, *this,
+			[this, clientInfo](const spas::Error& ec)
 		{
 			if (ec)
 			{
