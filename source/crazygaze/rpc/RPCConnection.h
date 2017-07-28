@@ -241,6 +241,8 @@ public:
 				m_onDisconnect();
 				// Release any resources kept by the handler
 				m_onDisconnect = nullptr;
+				// Release our reference to the session data
+				m_session = nullptr;
 			}
 		}
 	}
@@ -286,7 +288,7 @@ protected:
 		while (m_tmpOutWork.size())
 		{
 			// NOTE: If the transport fails while we still have outgoing work, we still process all of it,
-			// so the replies are properly setup and later cancelled.
+			// so the replies are properly setup and later canceled.
 			ok = m_tmpOutWork.front()() && ok;
 			m_tmpOutWork.pop();
 		}
