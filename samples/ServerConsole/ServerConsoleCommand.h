@@ -1,9 +1,21 @@
 #pragma once
 
 using namespace cz::rpc;
+using namespace cz;
 
-struct ConInfo
+struct ConInfo : public cz::rpc::Session, std::enable_shared_from_this<ConInfo>
 {
+	ConInfo(spas::Service& service)
+		: trp(service)
+	{
+	}
+
+	~ConInfo()
+	{
+		if (name != "")
+			std::cout << "Connection '" << name << "' deleted\n";
+	}
+
 	std::string name;
 	struct Addr
 	{
@@ -19,12 +31,8 @@ struct ConInfo
 		}
 	} addr;
 
-	~ConInfo()
-	{
-		con.reset(); // the connection needs to be destroyed before the IO service
-	}
-	std::shared_ptr<Connection<void, GenericServer>> con;
-	bool closed = false;
+	Connection<void, GenericServer> con;
+	SpasTransport trp;
 };
 
 struct GenericCommand
@@ -34,7 +42,13 @@ struct GenericCommand
 	std::vector<cz::rpc::Any> params;
 };
 
-extern std::unordered_map<std::string, std::shared_ptr<ConInfo>> gCons;
-extern std::unique_ptr<cz::rpc::TCPServiceThread> gIOThread;
+struct Data
+{
+	std::unordered_map<std::string, std::shared_ptr<ConInfo>> cons;
+	spas::Service service;
+	std::atomic<bool> finish = false;
+};
 
-bool processCommand(const std::string& str);
+extern Data* gData;
+
+void processCommand(const std::string& str);

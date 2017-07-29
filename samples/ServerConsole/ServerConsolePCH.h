@@ -11,7 +11,7 @@
 #include <sstream>
 
 #include "crazygaze/rpc/RPC.h"
-#include "crazygaze/rpc/RPCTCPSocketTransport.h"
+#include "crazygaze/rpc/RPCSpasTransport.h"
 #include "../SamplesCommon/StringUtil.h"
 #include "../SamplesCommon/Misc.h"
 

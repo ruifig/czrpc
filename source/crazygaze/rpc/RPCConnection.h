@@ -32,7 +32,6 @@ public:
 	void close()
 	{
 		m_transport->close();
-		m_session = nullptr;
 	}
 
 	const Transport* getTransport()
@@ -40,10 +39,12 @@ public:
 		return m_transport;
 	}
 
+#if 0
 	std::shared_ptr<Session> getSession()
 	{
 		return m_session;
 	}
+#endif
 
 protected:
 
@@ -351,9 +352,10 @@ protected:
 			CZRPC_LOG(Log, CZRPC_LOGSTR_COMMIT"", dbg->num);
 		}
 		
+		auto session = m_session;
 		m_outWork([&](WorkQueue& q)
 		{
-			q.emplace([this, data=std::move(data), handler=std::move(handler)]() mutable -> bool
+			q.emplace([this, session=std::move(session), data = std::move(data), handler = std::move(handler)]() mutable -> bool
 			{
 				return send<F>(std::move(data), std::move(handler));
 			});

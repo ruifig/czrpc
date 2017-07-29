@@ -11,52 +11,51 @@ Parameters gParams;
 class ChatClient : public ChatClientInterface
 {
 public:
-
 	using ConType = Connection<ChatClientInterface, ChatServerInterface>;
-	ChatClient(const std::string& ip, int port)
-		: m_spastrp(m_spasio)
+	ChatClient(spas::Service& service, const std::string& ip, int port)
+		: m_trp(service)
 	{
-		m_th = std::thread([this]
-		{
-			spas::Service::Work work(m_spasio);
-			m_spasio.run();
-		});
-
 		printf("SYSTEM: Connecting to Chat Server at %s:%d\n", ip.c_str(), port);
-		spas::Error ec = m_spastrp.asyncConnect(nullptr, m_spascon, *this, ip.c_str(), port).get();
+		spas::Error ec = m_trp.asyncConnect(nullptr, m_con, *this, ip.c_str(), port).get();
 		if (ec)
 		{
 			printf("Failed to connect to %s:%d\n", ip.c_str(), port);
 			printf("Error: %s\n", ec.msg());
-			exit(0);
+			m_finished = true;
+			return;
 		}
+		printf("SYSTEM: Connected to server %s:%d\n", ip.c_str(), port);
 
-		m_spascon.setOnDisconnect([]
+		m_con.setOnDisconnect([this]
 		{
 			printf("Disconnected\n");
 			system("pause");
-			exit(0);
+			m_finished = true;
 		});
-
-		printf("SYSTEM: Connected to server %s:%d\n", ip.c_str(), port);
 	}
 
 	~ChatClient()
 	{
-		m_spasio.stop();
-		m_th.join();
+	}
+
+	bool isFinished()
+	{
+		return m_finished;
 	}
 
 	int run(const std::string& name, const std::string& pass)
 	{
-		auto res = CZRPC_CALL(m_spascon, login, name, pass).ft().get().get();
+		if (m_finished)
+			return EXIT_FAILURE;
+
+		auto res = CZRPC_CALL(m_con, login, name, pass).ft().get().get();
 		if (res!="OK")
 		{
 			printf("LOGIN ERROR: %s\n", res.c_str());
 			return EXIT_FAILURE;
 		}
 
-		while (true)
+		while (!m_finished)
 		{
 			std::string msg;
 			std::getline(std::cin, msg);
@@ -67,11 +66,11 @@ public:
 			}
 			else if (strncmp(msg.c_str(), "/kick ", strlen("/kick ")) == 0)
 			{
-				CZRPC_CALL(m_spascon, kick, std::string(msg.begin() + strlen("/kick "), msg.end()));
+				CZRPC_CALL(m_con, kick, std::string(msg.begin() + strlen("/kick "), msg.end()));
 			}
 			else if (strncmp(msg.c_str(), "/userlist", strlen("/userlist")) == 0)
 			{
-				Result<std::vector<std::string>> res = CZRPC_CALL(m_spascon, getUserList).ft().get();
+				Result<std::vector<std::string>> res = CZRPC_CALL(m_con, getUserList).ft().get();
 				if (res.isValid())
 				{
 					printf("%d users.\n", (int)res.get().size());
@@ -81,7 +80,7 @@ public:
 			}
 			else if (msg.size())
 			{
-				CZRPC_CALL(m_spascon, sendMsg, msg);
+				CZRPC_CALL(m_con, sendMsg, msg);
 			}
 		}
 
@@ -94,10 +93,9 @@ private:
 		printf("%s: %s\n", name=="" ? "SYSTEM" : name.c_str(), msg.c_str());
 	}
 
-	spas::Service m_spasio; // #TODO : Rename this to m_io after the refactoring is working
-	std::thread m_th;
-	ConType m_spascon; // #TODO : Rename this to m_con after the refactoring is working
-	SpasTransport m_spastrp; // #TODO : Rename this to m_trp, or possibly group it together with the con object
+	bool m_finished = false;
+	ConType m_con; // #TODO : Rename this to m_con after the refactoring is working
+	SpasTransport m_trp; // #TODO : Rename this to m_trp, or possibly group it together with the con object
 };
 
 int main(int argc, char *argv[])
@@ -113,11 +111,24 @@ int main(int argc, char *argv[])
 		return EXIT_FAILURE;
 	}
 
-	ChatClient client(addr.first, addr.second);
+	// Start the service
+	spas::Service service;
+	std::thread ioth = std::thread([&service]
+	{
+		spas::Service::Work work(service);
+		service.run();
+	});
+
+	ChatClient client(service, addr.first, addr.second);
+	if (client.isFinished())
+	{
+		service.stop();
+		ioth.join();
+		return EXIT_FAILURE;
+	}
 
 	std::string name;
 	std::string pass;
-
 	char buf[512];
 	if (argc==3)
 	{
@@ -134,6 +145,8 @@ int main(int argc, char *argv[])
 		pass = buf;
 	}
 	printf("Logging in as %s\n", name.c_str());
-	return client.run(name, pass);
+	auto res = client.run(name, pass);
+	service.stop();
+	ioth.join();
 }
 

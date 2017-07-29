@@ -5,48 +5,53 @@
 
 #include "ServerConsoleCommand.h"
 using namespace cz::rpc;
+using namespace cz;
 
-std::unordered_map<std::string, std::shared_ptr<ConInfo>> gCons;
-std::unique_ptr<TCPServiceThread> gIOThread;
+Data* gData;
 
 int main()
 {
-	gIOThread = std::make_unique<TCPServiceThread>();
+	// Run the service thread
+	Data data;
+	auto keepAliveWork = std::make_unique<spas::Service::Work>(data.service);
+	std::thread ioth([&data]
+	{
+		data.service.run();
+	});
+	gData = &data;
+
 	std::cout << "Type :h for help\n";
-	bool quit = false;
 	CommandLineReader cmdReader("COMMAND> ");
 
-	if (!processCommand(":c \"127.0.0.1:9000\""))
-		quit = true;
+	// #TODO Remove this
+	gData->service.post([]
+	{
+		processCommand(":c \"127.0.0.1:9000\"");
+	});
 
-	while(!quit)
+	while(!gData->finish)
 	{
 		std::string cmd;
 		while(!cmdReader.tryGet(cmd))
-		{
 			std::this_thread::sleep_for(std::chrono::milliseconds(5));
 
-			// Delete any closed connections
-			for(auto it = gCons.begin(); it!=gCons.end();)
-			{
-				if (it->second->closed)
-				{
-					std::cout << "Connection '" << it->second->name << "' closed.\n";
-					it = gCons.erase(it);
-				}
-				else
-				{
-					it++;
-				}
-			}
-		}
-
-		if (!processCommand(cmd))
-			quit = true;
+		gData->service.post([cmd=std::move(cmd)]
+		{
+			processCommand(cmd);
+		});
 	}
 
-	gIOThread->stop();
-	gCons.clear(); // No connections can outlive the io service they use
+	// Release our dummy work item, and close all active connections.
+	// This causes the Service::run to exit when there is no more work to be done
+	keepAliveWork = nullptr;
+	gData->service.post([&]
+	{
+		for (auto&& c : gData->cons)
+			c.second->con.close();
+	});
+	// At this point everything should be closing automatically
+	ioth.join();
+	assert(gData->cons.size() == 0);
 
     return 0;
 }

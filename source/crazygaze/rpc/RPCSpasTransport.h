@@ -32,10 +32,15 @@ public:
 	}
 
 	//! Version for Connection<LOCAL, REMOTE>
-	template<typename LOCAL, typename REMOTE, typename LOCAL_, typename H,
+	template<
+		typename LOCAL, typename REMOTE, typename LOCAL_, typename H,
+		typename = std::enable_if_t<std::is_base_of<LOCAL, LOCAL_>::value>,
 		typename = cz::spas::detail::IsConnectHandler<H>
 		>
-	void asyncConnect(std::shared_ptr<Session> session, Connection<LOCAL, REMOTE>& rpccon, LOCAL_& localObj, const char* ip, int port, H&& h)
+	void asyncConnect(
+		std::shared_ptr<Session> session,
+		Connection<LOCAL, REMOTE>& rpccon, LOCAL_& localObj,
+		const char* ip, int port, H&& h)
 	{
 		static_assert(!std::is_void<LOCAL>::value, "Specified RPC Connection doesn't have a local interface, so use the other asyncConnect function");
 		static_assert(std::is_base_of<LOCAL, LOCAL_>::value, "localObj doesn't implement the required LOCAL interface");
@@ -48,6 +53,7 @@ public:
 			if (!ec)
 			{
 				rpccon.init(rpcObj, *this, session);
+				m_session = session;
 				startReadSize();
 			}
 
@@ -57,7 +63,9 @@ public:
 
 
 	//! Version for Connection<void, REMOTE>
-	template<typename LOCAL, typename REMOTE, typename H,
+	template<
+		typename LOCAL, typename REMOTE, typename H,
+		typename = std::enable_if_t<std::is_void<LOCAL>::value>,
 		typename = cz::spas::detail::IsConnectHandler<H>
 		>
 	void asyncConnect(std::shared_ptr<Session> session, Connection<LOCAL, REMOTE>& rpccon, const char* ip, int port, H&& h)
@@ -71,6 +79,7 @@ public:
 			if (!ec)
 			{
 				rpccon.init(nullptr, *this, session);
+				m_session = session;
 				startReadSize();
 			}
 
@@ -79,7 +88,10 @@ public:
 	}
 
 	//! Version for Connection<LOCAL, REMOTE>
-	template<typename LOCAL, typename REMOTE, typename LOCAL_>
+	template<
+		typename LOCAL, typename REMOTE, typename LOCAL_,
+		typename = std::enable_if_t<std::is_base_of<LOCAL, LOCAL_>::value>
+		>
 	std::future<spas::Error> asyncConnect(std::shared_ptr<Session> session, Connection<LOCAL, REMOTE>& rpccon, LOCAL_& localObj, const char* ip, int port)
 	{
 		static_assert(!std::is_void<LOCAL>::value, "Specified RPC Connection doesn't have a local interface, so use the other asyncConnect function");
@@ -95,7 +107,10 @@ public:
 	}
 
 	//! Version for Connection<void, REMOTE>
-	template<typename LOCAL, typename REMOTE>
+	template<
+		typename LOCAL, typename REMOTE,
+		typename = std::enable_if_t<std::is_void<LOCAL>::value>
+		>
 	std::future<spas::Error> asyncConnect(std::shared_ptr<Session> session, Connection<LOCAL, REMOTE>& rpccon, const char* ip, int port)
 	{
 		static_assert(std::is_void<LOCAL>::value, "Specified RPC Connection has a local interface, so use the other asyncConnect");
@@ -165,7 +180,7 @@ private:
 	{
 		// #TODO : Is this ok?
 		m_closing = true;
-		m_sock.getService().post([this, session = m_con->getSession()]()
+		m_sock.getService().post([this, session = m_session.lock()]()
 		{
 			m_sock.cancel();
 		});
@@ -193,6 +208,7 @@ private:
 	std::vector<char> m_outgoing;
 	std::vector<char> m_incoming;
 	std::atomic<bool> m_pendingConProcessCall;
+	std::weak_ptr<Session> m_session;
 
 	virtual void onSendReady() override
 	{
@@ -209,7 +225,7 @@ private:
 		// that method
 		if (m_pendingConProcessCall.exchange(true) == false)
 		{
-			m_sock.getService().post([this, session = m_con->getSession()]()
+			m_sock.getService().post([this, session = m_session.lock()]()
 			{
 				m_con->process(rpc::BaseConnection::Direction::Both);
 				m_pendingConProcessCall.exchange(false);
@@ -220,7 +236,7 @@ private:
 	void doSend()
 	{
 		spas::asyncSend(m_sock, m_outgoing.data(), m_outgoing.size(),
-			[this, session = m_con->getSession()](const spas::Error& ec, size_t transfered)
+			[this, session = m_session.lock()](const spas::Error& ec, size_t transfered)
 		{
 			handleSend(ec, transfered);
 		});
@@ -256,11 +272,8 @@ private:
 
 	void onClosing()
 	{
-		if (m_closing)
-			return;
 		m_closing = true;
 		checkConProcessCallTrigger();
-		// #TODO ???
 	}
 
 	void startReadSize()
@@ -268,7 +281,7 @@ private:
 		assert(m_incoming.size() == 0);
 		m_incoming.insert(m_incoming.end(), 4, 0);
 		spas::asyncReceive(m_sock, m_incoming.data(), 4,
-			[this, session = m_con->getSession()](const spas::Error& ec, size_t transfered)
+			[this, session = m_session.lock()](const spas::Error& ec, size_t transfered)
 		{
 			if (ec)
 			{
@@ -285,7 +298,7 @@ private:
 		auto rpcSize = *reinterpret_cast<uint32_t*>(&m_incoming[0]);
 		m_incoming.insert(m_incoming.end(), rpcSize - 4, 0);
 		spas::asyncReceive(m_sock, &m_incoming[4], rpcSize - 4,
-			[this, session = m_con->getSession()](const spas::Error& ec, size_t transfered)
+			[this, session = m_session.lock()](const spas::Error& ec, size_t transfered)
 		{
 			if (ec)
 			{
@@ -363,6 +376,7 @@ public:
 			if (!ec)
 			{
 				rpccon.init(rpcObj, trp, session);
+				trp.m_session = session;
 				trp.startReadSize();
 			}
 			h(ec);
