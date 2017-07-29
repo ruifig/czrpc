@@ -29,7 +29,6 @@ public:
 		m_con.setOnDisconnect([this]
 		{
 			printf("Disconnected\n");
-			system("pause");
 			m_finished = true;
 		});
 	}

@@ -53,7 +53,6 @@ public:
 			if (!ec)
 			{
 				rpccon.init(rpcObj, *this, session);
-				m_session = session;
 				startReadSize();
 			}
 
@@ -79,7 +78,6 @@ public:
 			if (!ec)
 			{
 				rpccon.init(nullptr, *this, session);
-				m_session = session;
 				startReadSize();
 			}
 
@@ -180,7 +178,7 @@ private:
 	{
 		// #TODO : Is this ok?
 		m_closing = true;
-		m_sock.getService().post([this, session = m_session.lock()]()
+		m_sock.getService().post([this, session = m_con->getSession()]()
 		{
 			m_sock.cancel();
 		});
@@ -208,7 +206,6 @@ private:
 	std::vector<char> m_outgoing;
 	std::vector<char> m_incoming;
 	std::atomic<bool> m_pendingConProcessCall;
-	std::weak_ptr<Session> m_session;
 
 	virtual void onSendReady() override
 	{
@@ -225,7 +222,7 @@ private:
 		// that method
 		if (m_pendingConProcessCall.exchange(true) == false)
 		{
-			m_sock.getService().post([this, session = m_session.lock()]()
+			m_sock.getService().post([this, session = m_con->getSession()]()
 			{
 				m_con->process(rpc::BaseConnection::Direction::Both);
 				m_pendingConProcessCall.exchange(false);
@@ -236,7 +233,7 @@ private:
 	void doSend()
 	{
 		spas::asyncSend(m_sock, m_outgoing.data(), m_outgoing.size(),
-			[this, session = m_session.lock()](const spas::Error& ec, size_t transfered)
+			[this, session = m_con->getSession()](const spas::Error& ec, size_t transfered)
 		{
 			handleSend(ec, transfered);
 		});
@@ -281,7 +278,7 @@ private:
 		assert(m_incoming.size() == 0);
 		m_incoming.insert(m_incoming.end(), 4, 0);
 		spas::asyncReceive(m_sock, m_incoming.data(), 4,
-			[this, session = m_session.lock()](const spas::Error& ec, size_t transfered)
+			[this, session = m_con->getSession()](const spas::Error& ec, size_t transfered)
 		{
 			if (ec)
 			{
@@ -298,7 +295,7 @@ private:
 		auto rpcSize = *reinterpret_cast<uint32_t*>(&m_incoming[0]);
 		m_incoming.insert(m_incoming.end(), rpcSize - 4, 0);
 		spas::asyncReceive(m_sock, &m_incoming[4], rpcSize - 4,
-			[this, session = m_session.lock()](const spas::Error& ec, size_t transfered)
+			[this, session = m_con->getSession()](const spas::Error& ec, size_t transfered)
 		{
 			if (ec)
 			{
@@ -376,7 +373,6 @@ public:
 			if (!ec)
 			{
 				rpccon.init(rpcObj, trp, session);
-				trp.m_session = session;
 				trp.startReadSize();
 			}
 			h(ec);

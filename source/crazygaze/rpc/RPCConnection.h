@@ -39,12 +39,10 @@ public:
 		return m_transport;
 	}
 
-#if 0
 	std::shared_ptr<Session> getSession()
 	{
-		return m_session;
+		return m_weakSession.lock();
 	}
-#endif
 
 protected:
 
@@ -52,11 +50,18 @@ protected:
 	{
 		m_transport = &transport;
 		m_transport->m_con = this;
-		m_session = std::move(session);
+		m_strongSession = std::move(session);
+		m_weakSession = m_strongSession;
 	}
 
 	Transport* m_transport = nullptr;
-	std::shared_ptr<Session> m_session;
+	// The strong reference is kept until the transport disconnects, or the user explicitly closes the connection
+	// This keeps a session alive even if there are no pending operations.
+	std::shared_ptr<Session> m_strongSession;
+	// This keeps a weak reference, and it's the one from where everything gets a session pointers.
+	// This allows the transport to still get a valid session pointer during shutdown, since at the point the strong
+	// reference might not be valid anymore.
+	std::weak_ptr<Session> m_weakSession;
 };
 
 template<typename F, typename C>
@@ -242,8 +247,9 @@ public:
 				m_onDisconnect();
 				// Release any resources kept by the handler
 				m_onDisconnect = nullptr;
-				// Release our reference to the session data
-				m_session = nullptr;
+				// Release our strong reference to the session data.
+				// If the transport will still need to keep the session alive, it can get it from the weak_ptr.
+				m_strongSession = nullptr;
 			}
 		}
 	}
@@ -352,7 +358,7 @@ protected:
 			CZRPC_LOG(Log, CZRPC_LOGSTR_COMMIT"", dbg->num);
 		}
 		
-		auto session = m_session;
+		auto session = getSession();
 		m_outWork([&](WorkQueue& q)
 		{
 			q.emplace([this, session=std::move(session), data = std::move(data), handler = std::move(handler)]() mutable -> bool
