@@ -122,6 +122,46 @@ public:
 		return pr->get_future();
 	}
 
+	//! Synchronous connect.
+	// Version for Connection<LOCAL, REMOTE>
+	// This doesn't need to have the Service running to make the connection.
+	template<
+		typename LOCAL, typename REMOTE, typename LOCAL_,
+		typename = std::enable_if_t<std::is_base_of<LOCAL, LOCAL_>::value>
+		>
+	spas::Error connect(std::shared_ptr<Session> session, Connection<LOCAL, REMOTE>& rpccon, LOCAL_& localObj, const char* ip, int port)
+	{
+		static_assert(!std::is_void<LOCAL>::value, "Specified RPC Connection doesn't have a local interface, so use the other asyncConnect function");
+		static_assert(std::is_base_of<LOCAL, LOCAL_>::value, "localObj doesn't implement the required LOCAL interface");
+		auto ec = m_sock.connect(ip, port);
+		if (ec)
+			return ec;
+
+		LOCAL* rpcObj = static_cast<LOCAL*>(&localObj);
+		rpccon.init(rpcObj, *this, std::move(session));
+		startReadSize();
+		return ec;
+	}
+
+	//! Synchronous connect.
+	// Version for Connection<void, REMOTE>
+	// This doesn't need to have the Service running to make the connection.
+	template<
+		typename LOCAL, typename REMOTE,
+		typename = std::enable_if_t<std::is_void<LOCAL>::value>
+		>
+	spas::Error connect(std::shared_ptr<Session> session, Connection<LOCAL, REMOTE>& rpccon, const char* ip, int port)
+	{
+		static_assert(std::is_void<LOCAL>::value, "Specified RPC Connection has a local interface, so use the other asyncConnect");
+		auto ec = m_sock.connect(ip, port);
+		if (ec)
+			return ec;
+
+		rpccon.init(nullptr, *this, std::move(session));
+		startReadSize();
+		return ec;
+	}
+
 private:
 
 	//
