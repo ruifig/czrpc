@@ -4,13 +4,13 @@
 
 // Just puts together a Connection and Transport
 template<typename LOCAL, typename REMOTE>
-struct ConTrp : cz::rpc::Session
+struct Session : rpc::SessionData
 {
-	explicit ConTrp(spas::Service& io)
+	explicit Session(spas::Service& io)
 		: trp(io)
 	{
 	}
-	~ConTrp() {}
+	~Session() {}
 	Connection<LOCAL, REMOTE> con;
 	SpasTransport trp;
 };
@@ -40,7 +40,7 @@ public:
 		finish();
 	}
 
-	static std::shared_ptr<ConTrp<Local, Remote>> getCurrent()
+	static std::shared_ptr<Session<Local, Remote>> getCurrent()
 	{
 		auto con = cz::rpc::Connection<Local, Remote>::getCurrent();
 		auto clients = getSharedData<Clients>();
@@ -130,7 +130,7 @@ private:
 	SpasTransportAcceptor m_acceptor;
 	bool m_autoStop = false;
 
-	using Clients = std::vector<std::shared_ptr<ConTrp<Local, Remote>>>;
+	using Clients = std::vector<std::shared_ptr<Session<Local, Remote>>>;
 	std::shared_ptr<Clients> m_clients;
 };
 

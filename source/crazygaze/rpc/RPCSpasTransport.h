@@ -226,7 +226,8 @@ private:
 
 	virtual void close() override
 	{
-		// #TODO : Is this ok?
+		// #TODO : Is this ok? Not sure m_closing should be outside, since the RPC connection might have calls pending,
+		// which will be aborted. Need to think what should be the best design
 		m_closing = true;
 		m_sock.getService().post([this, session = m_con->getSession()]()
 		{

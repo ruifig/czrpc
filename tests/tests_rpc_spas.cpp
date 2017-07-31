@@ -36,29 +36,61 @@ TEST(SpasTransport_Nothing)
 }
 
 //
-// Tests canceling the transport accept, without using any helper classes, so its a bit verbose
+// Tests canceling the transport accept, with minimal helper classes
 //
 TEST(SpasTransport_Accept_cancel)
 {
 	ServiceThread ioth;
 	SpasTransportAcceptor acceptor(ioth.service);
 
-	ConTrp<CalcTest, void> s(ioth.service);
+	Session<CalcTest, void> session(ioth.service);
 	Semaphore done;
 	CalcTest calc;
 	acceptor.listen(TEST_PORT);
-	acceptor.asyncAccept(nullptr, s.trp, s.con, calc, [&done](const spas::Error& ec)
+	acceptor.asyncAccept(nullptr, session.trp, session.con, calc, [&done](const spas::Error& ec)
 	{
 		CHECK_CZSPAS_EQUAL(Cancelled, ec);
 		done.notify();
 	});
 
+	// Running after setting up the accept, so we don't need a dummy work item
 	ioth.run(false, false);
+
+	// cancel the accept
 	ioth.service.post([&acceptor]()
 	{
 		acceptor.cancel();
 	});
 
+	// Service::run should return once there is no more work to do
+	ioth.finish();
+	CHECK_EQUAL(1, done.getCount());
+}
+
+TEST(SpasTransport_Accept_ok)
+{
+	ServiceThread ioth;
+	SpasTransportAcceptor acceptor(ioth.service);
+
+	Session<CalcTest, void> session(ioth.service);
+	Semaphore done;
+	CalcTest calc;
+	acceptor.listen(TEST_PORT);
+	acceptor.asyncAccept(nullptr, session.trp, session.con, calc, [&done](const spas::Error& ec)
+	{
+		CHECK_CZSPAS(ec);
+		done.notify();
+	});
+
+	// Running after setting up the accept, so we don't need a dummy work item
+	ioth.run(false, false);
+
+	Session<void, CalcTest> clientSession(ioth.service);
+	auto ec = clientSession.trp.connect(nullptr, clientSession.con, "127.0.0.1", TEST_PORT);
+	CHECK_CZSPAS(ec);
+	clientSession.con.close(); // Close this connection, so the service doesn't have anything else to do and finishes
+
+	// Service::run should return once there is no more work to do
 	ioth.finish();
 	CHECK_EQUAL(1, done.getCount());
 }
@@ -72,6 +104,8 @@ CZRPC_DEFINE_CONST_LVALUE_REF(std::vector<int>)
 
 SUITE(RPC)
 {
+
+#if 0
 
 TEST(NotAuth)
 {
@@ -102,7 +136,6 @@ TEST(NotAuth)
 	CHECK(ftRes.isAborted());
 }
 
-#if 0
 // RPC without return value or parameters
 TEST(Simple)
 {
