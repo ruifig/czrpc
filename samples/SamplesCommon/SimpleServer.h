@@ -36,9 +36,7 @@ public:
 		m_objData.setAuthToken(std::move(authToken));
 		auto ec = m_acceptor.listen(port);
 		if (ec)
-		{
-			throw std::runtime_error("SimpleServer: Could not start listening on the specified port.");
-		}
+			throw std::runtime_error(formatString("SimpleServer: %s", ec.msg()));
 
 		setupAccept();
 

@@ -2,7 +2,7 @@
 Minimal sample
 
 Does not use any helper classes to setup servers or clients, so a bit more verbose, but serves as an introduction.
-It runs an RPC server on on thread, and a client on another, to simulate as if it was two separate processes.
+It runs a Server and Client on separate threads, to simulate as if it was two separate processes.
 */
 
 #include "MinimalPCH.h"

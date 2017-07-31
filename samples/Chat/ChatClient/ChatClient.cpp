@@ -1,6 +1,11 @@
-// ChatClient.cpp : Defines the entry point for the console application.
-//
+/*
+ChatClient
 
+This is a client that connects a ChatServer process.
+It shows how to use bidirectional connections.
+
+Check the ChatInterface.h file for an explanation of the interfaces
+*/
 #include "ChatClientPCH.h"
 
 using namespace cz;
@@ -12,17 +17,24 @@ class ChatClient : public ChatClientInterface
 {
 public:
 	using ConType = Connection<ChatClientInterface, ChatServerInterface>;
-	ChatClient(spas::Service& service, const std::string& ip, int port)
+
+	ChatClient(spas::Service& service)
 		: m_trp(service)
 	{
+	}
+
+	~ChatClient()
+	{
+	}
+
+	bool init(const std::string& ip, int port)
+	{
 		printf("SYSTEM: Connecting to Chat Server at %s:%d\n", ip.c_str(), port);
-		spas::Error ec = m_trp.asyncConnect(nullptr, m_con, *this, ip.c_str(), port).get();
+		spas::Error ec = m_trp.connect(nullptr, m_con, *this, ip.c_str(), port);
 		if (ec)
 		{
-			printf("Failed to connect to %s:%d\n", ip.c_str(), port);
-			printf("Error: %s\n", ec.msg());
-			m_finished = true;
-			return;
+			printf("Failed to connect to %s:%d: %s\n", ip.c_str(), port, ec.msg());
+			return false;
 		}
 		printf("SYSTEM: Connected to server %s:%d\n", ip.c_str(), port);
 
@@ -31,27 +43,17 @@ public:
 			printf("Disconnected\n");
 			m_finished = true;
 		});
+
+		return true;
 	}
 
-	~ChatClient()
+	bool run(const std::string& name, const std::string& pass)
 	{
-	}
-
-	bool isFinished()
-	{
-		return m_finished;
-	}
-
-	int run(const std::string& name, const std::string& pass)
-	{
-		if (m_finished)
-			return EXIT_FAILURE;
-
 		auto res = CZRPC_CALL(m_con, login, name, pass).ft().get().get();
 		if (res!="OK")
 		{
 			printf("LOGIN ERROR: %s\n", res.c_str());
-			return EXIT_FAILURE;
+			return false;
 		}
 
 		while (!m_finished)
@@ -61,7 +63,7 @@ public:
 			if (msg == "/exit")
 			{
 				printf("Exiting...\n");
-				return EXIT_SUCCESS;
+				return true;
 			}
 			else if (strncmp(msg.c_str(), "/kick ", strlen("/kick ")) == 0)
 			{
@@ -83,18 +85,26 @@ public:
 			}
 		}
 
-		return EXIT_SUCCESS;
+		return true;
 	}
 
+	bool isFinished()
+	{
+		return m_finished;
+	}
+
+
 private:
+
+	// This is is a client side RPC. The server calls this on the client
 	virtual void onMsg(const std::string& name, const std::string& msg) override
 	{
 		printf("%s: %s\n", name=="" ? "SYSTEM" : name.c_str(), msg.c_str());
 	}
 
-	bool m_finished = false;
-	ConType m_con; // #TODO : Rename this to m_con after the refactoring is working
-	SpasTransport m_trp; // #TODO : Rename this to m_trp, or possibly group it together with the con object
+	std::atomic<bool> m_finished = false;
+	ConType m_con;
+	SpasTransport m_trp;
 };
 
 int main(int argc, char *argv[])
@@ -110,16 +120,16 @@ int main(int argc, char *argv[])
 		return EXIT_FAILURE;
 	}
 
-	// Start the service
 	spas::Service service;
 	std::thread ioth = std::thread([&service]
 	{
-		spas::Service::Work work(service);
+		// Start the service, and use a dummy work item, so Service::run doesn't return right away
+		spas::Service::Work keepAlive(service);
 		service.run();
 	});
 
-	ChatClient client(service, addr.first, addr.second);
-	if (client.isFinished())
+	ChatClient client(service);
+	if (!client.init(addr.first, addr.second))
 	{
 		service.stop();
 		ioth.join();
@@ -147,5 +157,6 @@ int main(int argc, char *argv[])
 	auto res = client.run(name, pass);
 	service.stop();
 	ioth.join();
+	return res ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 

@@ -21,4 +21,5 @@
 #include "../SamplesCommon/Parameters.h"
 #include "../SamplesCommon/SimpleServer.h"
 #include "../SamplesCommon/Misc.h"
+#include "../SamplesCommon/StringUtil.h"
 
