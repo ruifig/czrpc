@@ -5,10 +5,10 @@ namespace cz
 namespace rpc
 {
 
-class Session
+class SessionData
 {
 public:
-	virtual ~Session() {}
+	virtual ~SessionData() {}
 };
 
 class Transport

@@ -12,33 +12,32 @@ public:
 	using Local = LOCAL;
 	using Remote = REMOTE;
 
-	struct Session : rpc::Session
+	struct Session : SessionData
 	{
 		Session(spas::Service& service)
 			: trp(service)
 		{
-			printf("Session %p created\n", this);
+			printf("SimpleServerSession: %p created\n", this);
 		}
 		~Session()
 		{
-			printf("Session %p destroyed\n", this);
+			printf("SimpleServerSession: %p destroyed\n", this);
 		}
 		Connection<Local, Remote> rpccon;
 		SpasTransport trp;
 	};
 
-	explicit SimpleServer(
-		Local& obj, int port, std::string authToken = "")
+	explicit SimpleServer(Local& obj, int port, std::string authToken = "")
 		: m_obj(obj)
 		, m_objData(&m_obj)
 		, m_acceptor(m_service)
 	{
-		printf("Starting server on port %d, with token '%s'\n", port, authToken.c_str());
+		printf("SimpleServer: Starting server on port %d, with token '%s'\n", port, authToken.c_str());
 		m_objData.setAuthToken(std::move(authToken));
 		auto ec = m_acceptor.listen(port);
 		if (ec)
 		{
-			throw std::runtime_error("Could not start listening on the specified port.");
+			throw std::runtime_error("SimpleServer: Could not start listening on the specified port.");
 		}
 
 		setupAccept();
@@ -69,7 +68,6 @@ private:
 	{
 		m_service.post([this]()
 		{
-			m_shuttingDown = true;
 			m_acceptor.cancel();
 			for (auto&& c : m_cons)
 				c->rpccon.close();
@@ -82,38 +80,39 @@ private:
 	void setupAccept()
 	{
 		auto session = std::make_shared<Session>(m_service);
-
 		m_acceptor.asyncAccept(session, session->trp, session->rpccon, m_obj, [this, session](const spas::Error& ec)
 		{
-			if (m_shuttingDown)
-				return;
 			if (ec)
 			{
 				if (ec.code == spas::Error::Code::Cancelled)
 					return;
-				printf("Error accepting connection: %s\n", ec.msg());
+				printf("SimpleServer: Error accepting connection: %s\n", ec.msg());
 			}
 
-			auto&& addr = session->trp.getPeerAddr();
-			printf("Client %s:%d connected.\n", addr.first.c_str(), addr.second);
-
-			session->rpccon.setOnDisconnect([this, session]
-			{
-				auto&& addr = session->trp.getPeerAddr();
-				printf("Client %s:%d disconnected.\n", addr.first.c_str(), addr.second);
-				m_cons.erase(std::remove(m_cons.begin(), m_cons.end(), session));
-			});
-
-			m_cons.push_back(std::move(session));
+			prepareSession(std::move(session));
 			setupAccept();
 		});
+	}
 
+	void prepareSession(std::shared_ptr<Session> session)
+	{
+		auto&& addr = session->trp.getPeerAddr();
+		printf("SimpleServer: Client %s:%d connected.\n", addr.first.c_str(), addr.second);
+
+		// Setup a callback from when the transport closes, so we can remove the session
+		session->rpccon.setOnDisconnect([this, session]
+		{
+			auto&& addr = session->trp.getPeerAddr();
+			printf("SimpleServer: Client %s:%d disconnected.\n", addr.first.c_str(), addr.second);
+			m_cons.erase(std::remove(m_cons.begin(), m_cons.end(), session));
+		});
+
+		m_cons.push_back(std::move(session));
 	}
 
 	Local& m_obj;
 	std::thread m_ioth;
 	spas::Service m_service;
-	bool m_shuttingDown = false;
 	ObjectData m_objData;
 	SpasTransportAcceptor m_acceptor;
 	std::vector<std::shared_ptr<Session>> m_cons;

@@ -22,7 +22,7 @@ Parameters gParams;
 		}                                                    \
 	}
 
-struct ClientInfo : public cz::rpc::Session, std::enable_shared_from_this<ClientInfo>
+struct ClientInfo : public rpc::SessionData
 {
 	explicit ClientInfo(spas::Service& io)
 		: trp(io)

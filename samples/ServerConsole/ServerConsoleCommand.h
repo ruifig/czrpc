@@ -3,7 +3,7 @@
 using namespace cz::rpc;
 using namespace cz;
 
-struct ConInfo : public cz::rpc::Session, std::enable_shared_from_this<ConInfo>
+struct ConInfo : public cz::rpc::SessionData
 {
 	ConInfo(spas::Service& service)
 		: trp(service)

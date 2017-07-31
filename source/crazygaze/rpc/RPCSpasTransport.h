@@ -38,7 +38,7 @@ public:
 		typename = cz::spas::detail::IsConnectHandler<H>
 		>
 	void asyncConnect(
-		std::shared_ptr<Session> session,
+		std::shared_ptr<SessionData> session,
 		Connection<LOCAL, REMOTE>& rpccon, LOCAL_& localObj,
 		const char* ip, int port, H&& h)
 	{
@@ -67,7 +67,7 @@ public:
 		typename = std::enable_if_t<std::is_void<LOCAL>::value>,
 		typename = cz::spas::detail::IsConnectHandler<H>
 		>
-	void asyncConnect(std::shared_ptr<Session> session, Connection<LOCAL, REMOTE>& rpccon, const char* ip, int port, H&& h)
+	void asyncConnect(std::shared_ptr<SessionData> session, Connection<LOCAL, REMOTE>& rpccon, const char* ip, int port, H&& h)
 	{
 		static_assert(std::is_void<LOCAL>::value, "Specified RPC Connection has a local interface, so use the other asyncConnect");
 
@@ -90,7 +90,7 @@ public:
 		typename LOCAL, typename REMOTE, typename LOCAL_,
 		typename = std::enable_if_t<std::is_base_of<LOCAL, LOCAL_>::value>
 		>
-	std::future<spas::Error> asyncConnect(std::shared_ptr<Session> session, Connection<LOCAL, REMOTE>& rpccon, LOCAL_& localObj, const char* ip, int port)
+	std::future<spas::Error> asyncConnect(std::shared_ptr<SessionData> session, Connection<LOCAL, REMOTE>& rpccon, LOCAL_& localObj, const char* ip, int port)
 	{
 		static_assert(!std::is_void<LOCAL>::value, "Specified RPC Connection doesn't have a local interface, so use the other asyncConnect function");
 		static_assert(std::is_base_of<LOCAL, LOCAL_>::value, "localObj doesn't implement the required LOCAL interface");
@@ -109,7 +109,7 @@ public:
 		typename LOCAL, typename REMOTE,
 		typename = std::enable_if_t<std::is_void<LOCAL>::value>
 		>
-	std::future<spas::Error> asyncConnect(std::shared_ptr<Session> session, Connection<LOCAL, REMOTE>& rpccon, const char* ip, int port)
+	std::future<spas::Error> asyncConnect(std::shared_ptr<SessionData> session, Connection<LOCAL, REMOTE>& rpccon, const char* ip, int port)
 	{
 		static_assert(std::is_void<LOCAL>::value, "Specified RPC Connection has a local interface, so use the other asyncConnect");
 
@@ -129,7 +129,7 @@ public:
 		typename LOCAL, typename REMOTE, typename LOCAL_,
 		typename = std::enable_if_t<std::is_base_of<LOCAL, LOCAL_>::value>
 		>
-	spas::Error connect(std::shared_ptr<Session> session, Connection<LOCAL, REMOTE>& rpccon, LOCAL_& localObj, const char* ip, int port)
+	spas::Error connect(std::shared_ptr<SessionData> session, Connection<LOCAL, REMOTE>& rpccon, LOCAL_& localObj, const char* ip, int port)
 	{
 		static_assert(!std::is_void<LOCAL>::value, "Specified RPC Connection doesn't have a local interface, so use the other asyncConnect function");
 		static_assert(std::is_base_of<LOCAL, LOCAL_>::value, "localObj doesn't implement the required LOCAL interface");
@@ -150,7 +150,7 @@ public:
 		typename LOCAL, typename REMOTE,
 		typename = std::enable_if_t<std::is_void<LOCAL>::value>
 		>
-	spas::Error connect(std::shared_ptr<Session> session, Connection<LOCAL, REMOTE>& rpccon, const char* ip, int port)
+	spas::Error connect(std::shared_ptr<SessionData> session, Connection<LOCAL, REMOTE>& rpccon, const char* ip, int port)
 	{
 		static_assert(std::is_void<LOCAL>::value, "Specified RPC Connection has a local interface, so use the other asyncConnect");
 		auto ec = m_sock.connect(ip, port);
@@ -411,7 +411,7 @@ public:
 	//! Version for Connection<LOCAL, REMOTE>
 	template<typename LOCAL, typename REMOTE, typename LOCAL_, typename H,
 		typename = cz::spas::detail::IsConnectHandler<H>>
-	void asyncAccept(std::shared_ptr<Session> session, SpasTransport& trp, Connection<LOCAL, REMOTE>& rpccon, LOCAL_& localObj, H&& h)
+	void asyncAccept(std::shared_ptr<SessionData> session, SpasTransport& trp, Connection<LOCAL, REMOTE>& rpccon, LOCAL_& localObj, H&& h)
 	{
 		static_assert(std::is_base_of<LOCAL, LOCAL_>::value, "localObj doesn't implement the required LOCAL interface");
 
