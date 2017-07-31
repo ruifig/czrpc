@@ -4,7 +4,7 @@
 
 // Just puts together a Connection and Transport
 template<typename LOCAL, typename REMOTE>
-struct ConTrp
+struct ConTrp : cz::rpc::Session
 {
 	explicit ConTrp(spas::Service& io)
 		: trp(io)
@@ -104,7 +104,7 @@ private:
 		if (leftToAccept == 0)
 			return;
 		auto contrp = std::make_shared<ConTrp<Local, Remote>>(m_io);
-		m_acceptor.asyncAccept(contrp->trp, contrp->con, m_servedObj,
+		m_acceptor.asyncAccept(nullptr, contrp->trp, contrp->con, m_servedObj,
 			[this, leftToAccept, contrp](const spas::Error& ec)
 		{
 			int todo = leftToAccept;

@@ -162,6 +162,16 @@ public:
 		return ec;
 	}
 
+	const std::pair<std::string, int>& getLocalAddr() const
+	{
+		return m_sock.getLocalAddr();
+	}
+
+	const std::pair<std::string, int>& getPeerAddr() const
+	{
+		return m_sock.getPeerAddr();
+	}
+
 private:
 
 	//
@@ -220,7 +230,7 @@ private:
 		m_closing = true;
 		m_sock.getService().post([this, session = m_con->getSession()]()
 		{
-			m_sock.cancel();
+			m_sock.close();
 		});
 	}
 

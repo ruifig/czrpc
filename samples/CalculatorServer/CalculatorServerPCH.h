@@ -13,6 +13,7 @@
 
 #include <stdio.h>
 #include <cmath>
+#include <algorithm>
 
 #include "crazygaze/rpc/RPC.h"
 #include "crazygaze/rpc/RPCSpasTransport.h"

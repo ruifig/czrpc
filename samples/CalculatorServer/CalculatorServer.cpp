@@ -3,6 +3,8 @@
 
 #pragma warning(disable:4996)
 
+#define CALCSERVER_DEFAULT_PORT 9000
+
 using namespace cz;
 using namespace cz::rpc;
 
@@ -41,16 +43,9 @@ int main(int argc, char* argv[])
 
 	try
 	{
-		int port;
+		int port = CALCSERVER_DEFAULT_PORT;
 		if (gParams.has("port"))
-		{
 			port = std::stoi(gParams.get("port"));
-		}
-		else
-		{
-			printf("Parameter -port=PORT not specified\n");
-			return EXIT_FAILURE;
-		}
 
 		printf("Running CalculatorServer on port %d.\n", port);
 		printf("Type any key to quit.\n");
@@ -63,7 +58,6 @@ int main(int argc, char* argv[])
 			if (my_getch())
 				break;
 		}
-		getSharedData<TCPServiceThread>()->stop();
 	}
 	catch (const std::exception& e)
 	{

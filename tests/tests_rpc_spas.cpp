@@ -47,7 +47,7 @@ TEST(SpasTransport_Accept_cancel)
 	Semaphore done;
 	CalcTest calc;
 	acceptor.listen(TEST_PORT);
-	acceptor.asyncAccept(s.trp, s.con, calc, [&done](const spas::Error& ec)
+	acceptor.asyncAccept(nullptr, s.trp, s.con, calc, [&done](const spas::Error& ec)
 	{
 		CHECK_CZSPAS_EQUAL(Cancelled, ec);
 		done.notify();
@@ -82,12 +82,11 @@ TEST(NotAuth)
 	ioth.run(true, true);
 
 	ConTrp<void, Tester> client(ioth.service);
-	auto ec = client.trp.asyncConnect(client.con, "127.0.0.1", TEST_PORT).get();
+	auto ec = client.trp.asyncConnect(nullptr, client.con, "127.0.0.1", TEST_PORT).get();
 	CHECK_CZSPAS(ec);
 
 	//
-	// Calling an RPC without authenticating first (if authentication is required),
-	// will cause the transport to close;
+	// Calling an RPC without authenticating first (if authentication is required), will cause the transport to close;
 	Semaphore sem;
 	CZRPC_CALL(client.con, simple).async(
 		[&](Result<void> res)
