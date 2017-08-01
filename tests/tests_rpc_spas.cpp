@@ -16,7 +16,6 @@ CZRPC_DEFINE_CONST_LVALUE_REF(std::vector<int>)
 // Alternatively, enable support for all "const T&" with
 // CZRPC_ALLOW_CONST_LVALUE_REFS;
 
-
 namespace
 {
 	class CalcTest

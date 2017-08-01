@@ -10,8 +10,6 @@
 #define CHECK_CZSPAS_EQUAL(expected, ec) CHECK_CZSPAS_EQUAL_IMPL(cz::spas::Error::Code::expected, ec)
 #define CHECK_CZSPAS(ec) CHECK_CZSPAS_EQUAL(Success, ec)
 
-//namespace {
-
 // Just puts together a Connection and Transport
 template<typename LOCAL, typename REMOTE>
 struct Session : rpc::SessionData
@@ -478,6 +476,3 @@ SessionWrapper<Local, Remote> createClientSessionWrapper(cz::spas::Service& serv
 	auto session = createClientSession<Local,Remote>(service, localObj);
 	return SessionWrapper<Local,Remote>(session);
 }
-
-
-//} // anonymous namespace
