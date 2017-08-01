@@ -227,6 +227,10 @@ private:
 		}
 
 		// Inform the kicked player that he was kicked
+		// #TODO : I can see a problem here. The "close" will only happen once we get the reply from the client,
+		// which is "Result<void>". If the client doesn't answer and keeps the connection alive, the server will
+		// in theory never disconnect this client.
+		// This can be solved once czrpc has support for rpcs timeout
 		CZRPC_CALL(kicked->con, onMsg, "", "You were kicked").async(
 			[kicked,this] (Result<void> r)
 		{
