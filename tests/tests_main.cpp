@@ -6,6 +6,8 @@
 cz::Logger g_rpcLogger("czrpc.log");
 #endif
 
+UnitTest::Timer gTimer;
+
 namespace UnitTest
 {
 	class czrpcTestReporter : public TestReporter

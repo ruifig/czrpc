@@ -7,8 +7,18 @@ using namespace cz::spas;
 
 #include "tests_rpc_spas_helper.h"
 
+#define LONGTEST 1
+
 // #TODO : Remove this
 #define ALL_TESTS 0
+
+extern UnitTest::Timer gTimer;
+
+CZRPC_DEFINE_CONST_LVALUE_REF(std::vector<int>)
+
+// Alternatively, enable support for all "const T&" with
+// CZRPC_ALLOW_CONST_LVALUE_REFS;
+
 
 namespace
 {
@@ -27,7 +37,6 @@ namespace
 	REGISTERRPC(add)
 #include "crazygaze/rpc/RPCGenerate.h"
 
-#if ALL_TESTS
 SUITE(Acceptor)
 {
 // Does nothing. Just to check if there is anything blocking/crashing in this case
@@ -188,13 +197,6 @@ TEST(asyncConnect_future_ok)
 }
 
 } // SUITE
-
-#endif
-
-CZRPC_DEFINE_CONST_LVALUE_REF(std::vector<int>)
-
-// Alternatively, enable support for all "const T&" with
-// CZRPC_ALLOW_CONST_LVALUE_REFS;
 
 SUITE(RPC)
 {
@@ -376,7 +378,7 @@ TEST(Future)
 }
 
 // #TODO : Enable this test once we add exceptions handling to czspas
-#if ALL_TESTS
+#if 0
 // Test RPCs throwing exceptions
 TEST(ExceptionThrowing)
 {
@@ -490,143 +492,131 @@ TEST(Inheritance)
 	sem.wait();
 }
 
-#if 0
-
+//
+// Tests how many times a parameter of complex type is copied/moved
+// This doesn't really show any bugs, but makes sure we are getting the optimal behavior, since we should prefer
+// moving instead of copying
 TEST(Constructors)
 {
 	using namespace cz::rpc;
 
-	ServerProcess<Tester, void> server(TEST_PORT);
+	TestRPCServer<Tester, void> server;
+	server.startAccept().run(true, false);
 
-	TCPService io;
-	std::thread iothread = std::thread([&io]
-	{
-		io.run();
-	});
+	ServiceThread ioth;
+	ioth.run(true, false);
 
-	auto clientCon = TCPTransport<void, Tester>::create(io, "127.0.0.1", TEST_PORT).get();
+	auto client = createClientSessionWrapper<void, Tester>(ioth.service);
 
 	Foo foo(1);
 	Foo::resetCounters();
-	auto ft = CZRPC_CALL(*clientCon, testFoo1, foo).ft();
+	auto ft = CZRPC_CALL(client->con, testFoo1, foo).ft();
 	CHECK(ft.get().get() == true);
 	Foo::check(1, 0, 0);
 
 	Foo::resetCounters();
-	ft = CZRPC_CALL(*clientCon, testFoo2, foo).ft();
+	ft = CZRPC_CALL(client->con, testFoo2, foo).ft();
 	CHECK(ft.get().get() == true);
 	Foo::check(1, 1, 0);
-
-	io.stop();
-	iothread.join();
 }
 
 #define ANY_CHECK(a_, type, str)            \
-{ \
-	Any& a = a_; \
-	CHECK(a.getType() == Any::Type::type); \
-	CHECK(std::string(a.toString()) == str); \
-}
+	{ \
+		Any& a = a_; \
+		CHECK(a.getType() == Any::Type::type); \
+		CHECK(std::string(a.toString()) == str); \
+	}
 
+// Tests using "Any"
+// This calls an RPC on the server with a parameter "Any" of a specific type, and expects the server to an exact copy
+// back
 TEST(Any)
 {
 	using namespace cz::rpc;
 
-	ServerProcess<Tester, void> server(TEST_PORT);
+	TestRPCServer<Tester, void> server;
+	server.startAccept().run(true, false);
 
-	TCPService io;
-	std::thread iothread = std::thread([&io]
-	{
-		io.run();
-	});
-
-	auto clientCon = TCPTransport<void, Tester>::create(io, "127.0.0.1", TEST_PORT).get();
+	ServiceThread ioth;
+	ioth.run(true, false);
+	auto client = createClientSessionWrapper<void, Tester>(ioth.service);
 
 	{
-		auto res = CZRPC_CALL(*clientCon, testAny, Any()).ft().get();
+		auto res = CZRPC_CALL(client->con, testAny, Any()).ft().get();
 		ANY_CHECK(res.get(), None, "")
 	}
 	{
-		auto res = CZRPC_CALL(*clientCon, testAny, Any(true)).ft().get();
+		auto res = CZRPC_CALL(client->con, testAny, Any(true)).ft().get();
 		ANY_CHECK(res.get(), Bool, "true")
 	}
 	{
-		auto res = CZRPC_CALL(*clientCon, testAny, Any(int(1234))).ft().get();
+		auto res = CZRPC_CALL(client->con, testAny, Any(int(1234))).ft().get();
 		ANY_CHECK(res.get(), Integer, "1234")
 	}
 	{
-		auto res = CZRPC_CALL(*clientCon, testAny, Any(int(-1234))).ft().get();
+		auto res = CZRPC_CALL(client->con, testAny, Any(int(-1234))).ft().get();
 		ANY_CHECK(res.get(), Integer, "-1234")
 	}
 	{
-		auto res = CZRPC_CALL(*clientCon, testAny, Any(unsigned(1234))).ft().get();
+		auto res = CZRPC_CALL(client->con, testAny, Any(unsigned(1234))).ft().get();
 		ANY_CHECK(res.get(), UnsignedInteger, "1234")
 	}
 	{
-		auto res = CZRPC_CALL(*clientCon, testAny, Any(float(1234.5))).ft().get();
+		auto res = CZRPC_CALL(client->con, testAny, Any(float(1234.5))).ft().get();
 		ANY_CHECK(res.get(), Float, "1234.5000")
 	}
 	{
-		auto res = CZRPC_CALL(*clientCon, testAny, Any("hello")).ft().get();
+		auto res = CZRPC_CALL(client->con, testAny, Any("hello")).ft().get();
 		ANY_CHECK(res.get(), String, "hello")
 	}
 	{
-		auto res = CZRPC_CALL(*clientCon, testAny, Any(std::vector<unsigned char>{0,1,2,3})).ft().get();
+		auto res = CZRPC_CALL(client->con, testAny, Any(std::vector<unsigned char>{0,1,2,3})).ft().get();
 		ANY_CHECK(res.get(), Blob, "BLOB{4}");
 		std::vector<unsigned char> v;
 		CHECK(res.get().getAs(v) == true);
 		CHECK_ARRAY_EQUAL(v, std::vector<unsigned char>({0, 1, 2, 3}), 4);
 	}
-
-	io.stop();
-	iothread.join();
 }
 
 TEST(Generic)
 {
-	using namespace cz::rpc;
+	TestRPCServer<Tester, void> server;
+	server.startAccept().run(true, false);
 
-	ServerProcess<Tester, void> server(TEST_PORT);
-
-	TCPService io;
-	std::thread iothread = std::thread([&io]
-	{
-		io.run();
-	});
+	ServiceThread ioth;
+	ioth.run(true, false);
 
 	// Note that since we only want to use generic RPCs from this client we don't need to know
 	// the server type. We can use "GenericServer"
-	auto clientCon = TCPTransport<void, GenericServer>::create(io, "127.0.0.1", TEST_PORT).get();
+	auto client = createClientSessionWrapper<void, GenericServer>(ioth.service);
 
 	// Calling a non existent generic function
 	{
-		auto res = CZRPC_CALLGENERIC(*clientCon, "nonexistent").ft().get();
+		auto res = CZRPC_CALLGENERIC(client->con, "nonexistent").ft().get();
 		CHECK(res.isException());
 		CHECK(res.getException() == "Generic RPC not found");
 	}
 	{
-		auto res = CZRPC_CALLGENERIC(*clientCon, "simple", std::vector<Any>{Any(true)}).ft().get();
+		auto res = CZRPC_CALLGENERIC(client->con, "simple", std::vector<Any>{Any(true)}).ft().get();
 		CHECK(res.isException());
 		CHECK(res.getException() == "Invalid parameters for generic RPC");
 	}
 
 	{
-		auto res = CZRPC_CALLGENERIC(*clientCon, "simple").ft().get().get();
+		auto res = CZRPC_CALLGENERIC(client->con, "simple").ft().get().get();
 		CHECK(res.getType() == Any::Type::None);
 	}
 	{
-		auto res = CZRPC_CALLGENERIC(*clientCon, "noParams").ft().get().get();
+		auto res = CZRPC_CALLGENERIC(client->con, "noParams").ft().get().get();
 		CHECK(res.getType() == Any::Type::Integer);
 		CHECK(std::string(res.toString()) == "128");
 	}
 	{
-		auto res = CZRPC_CALLGENERIC(*clientCon, "add", std::vector<Any>{Any(1), Any(2)}).ft().get().get();
+		auto res = CZRPC_CALLGENERIC(client->con, "add", std::vector<Any>{Any(1), Any(2)}).ft().get().get();
 		CHECK(res.getType() == Any::Type::Integer);
 		CHECK(std::string(res.toString()) == "3");
 	}
 
-	io.stop();
-	iothread.join();
 }
 
 // Tests the case when the server wants to call a client side RPC, but the client
@@ -637,103 +627,90 @@ TEST(VoidPeer)
 
 	// The server expects the client to have a TesterClient API,
 	// but if the client is using InProcessor<void>, it should still get a reply with an error
-	ServerProcess<Tester, TesterClient> server(TEST_PORT);
+	TestRPCServer<Tester, TesterClient> server;
+	server.startAccept().run(true, false);
 
-	TCPService io;
-	std::thread iothread = std::thread([&io]
-	{
-		io.run();
-	});
+	ServiceThread ioth;
+	ioth.run(true, false);
 
 	// Instead of having a LOCAL of TesterClient, like the server expects, we
 	// use void, to test the behavior
-	auto clientCon = TCPTransport<void, Tester>::create(io, "127.0.0.1", TEST_PORT).get();
+	auto client = createClientSessionWrapper<void, Tester>(ioth.service);
 
 	// Call an RPC on the server, that in turn will try to call one on the client-side.
 	// Since the client is using InProcessor<void>, it cannot reply. It will just send back
-	// an error. The server will in turn send us back that exception for us to check
-	auto res = CZRPC_CALL(*clientCon, testClientVoid).ft().get();
-	CHECK(res.get() == "Peer doesn't have an object to process RPC calls");
-
-	io.stop();
-	iothread.join();
+	// an error. The server will in turn send us back that exception for us to check here
+	auto res = CZRPC_CALL(client->con, testClientVoid).ft().get();
+	CHECK_EQUAL("Peer doesn't have an object to process RPC calls", res.get());
 }
 
+// Tests using control RPCS, such as __getProperty/__setProperty
 TEST(ControlRPCs)
 {
 	using namespace cz::rpc;
 
-	ServerProcess<Tester, void> server(TEST_PORT);
+	TestRPCServer<Tester, void> server;
+	server.startAccept().run(true, false);
 	{
 		// Add some properties to the server
-		ObjectData(&server.obj()).setProperty("name", Any("Tester1"));
+		ObjectData(&server.getObj()).setProperty("name", Any("Tester1"));
 	}
 
-	TCPService io;
-	std::thread iothread = std::thread([&io]
-	{
-		io.run();
-	});
-
+	ServiceThread ioth;
+	ioth.run(true, false);
 	// Specifying GenericServer as REMOTE type, since we only need to call generic RPCs
-	auto clientCon = TCPTransport<void, GenericServer>::create(io, "127.0.0.1", TEST_PORT).get();
+	auto client = createClientSessionWrapper<void, GenericServer>(ioth.service);
 
 	{
-		auto res = CZRPC_CALLGENERIC(*clientCon, "__getProperty", std::vector<Any>{Any("prop1")}).ft().get();
+		auto res = CZRPC_CALLGENERIC(client->con, "__getProperty", std::vector<Any>{Any("prop1")}).ft().get();
 		CHECK(res.get().getType() == Any::Type::None);
 	}
 
 	{
-		auto res = CZRPC_CALLGENERIC(*clientCon, "__setProperty", std::vector<Any>{Any("prop1"), Any(false)}).ft().get();
+		auto res = CZRPC_CALLGENERIC(client->con, "__setProperty", std::vector<Any>{Any("prop1"), Any(false)}).ft().get();
 		CHECK(res.get().getType() == Any::Type::Bool);
 		CHECK(std::string(res.get().toString()) == "true");
-		res = CZRPC_CALLGENERIC(*clientCon, "__getProperty", std::vector<Any>{Any("prop1")}).ft().get();
+		res = CZRPC_CALLGENERIC(client->con, "__getProperty", std::vector<Any>{Any("prop1")}).ft().get();
 		CHECK(res.get().getType() == Any::Type::Bool);
 		CHECK(std::string(res.get().toString()) == "false");
 	}
 
 	{
-		auto res = CZRPC_CALLGENERIC(*clientCon, "__setProperty", std::vector<Any>{Any("prop1"), Any("Hello")}).ft().get();
+		auto res = CZRPC_CALLGENERIC(client->con, "__setProperty", std::vector<Any>{Any("prop1"), Any("Hello")}).ft().get();
 		CHECK(res.get().getType() == Any::Type::Bool);
 		CHECK(std::string(res.get().toString()) == "true");
-		res = CZRPC_CALLGENERIC(*clientCon, "__getProperty", std::vector<Any>{Any("prop1")}).ft().get();
+		res = CZRPC_CALLGENERIC(client->con, "__getProperty", std::vector<Any>{Any("prop1")}).ft().get();
 		CHECK(res.get().getType() == Any::Type::String);
 		CHECK(std::string(res.get().toString()) == "Hello");
 	}
 
 	{
-		auto res = CZRPC_CALLGENERIC(*clientCon, "__getProperty", std::vector<Any>{Any("name")}).ft().get();
+		auto res = CZRPC_CALLGENERIC(client->con, "__getProperty", std::vector<Any>{Any("name")}).ft().get();
 		CHECK(res.get().getType() == Any::Type::String);
 		CHECK(std::string(res.get().toString()) == "Tester1");
 	}
 
-	io.stop();
-	iothread.join();
 }
-
 
 TEST(Latency)
 {
 	using namespace cz::rpc;
 
-	ServerProcess<Tester, void> server(TEST_PORT);
+	TestRPCServer<Tester, void> server;
+	server.startAccept().run(true, false);
 
-	TCPService io;
-	std::thread iothread = std::thread([&io]
-	{
-		io.run();
-	});
+	ServiceThread ioth;
+	ioth.run(true, false);
 
-	UnitTest::Timer timer;
-	auto clientCon = TCPTransport<void, Tester>::create(io, "127.0.0.1", TEST_PORT).get();
+	auto client = createClientSessionWrapper<void, Tester>(ioth.service);
 
 	const int count = (LONGTEST) ? 200 : 20;
 	std::vector<double> times(count, 0.0f);
 	for(int i=0; i<count; i++)
 	{
-		auto start = timer.GetTimeInMs();
-		auto res = CZRPC_CALL(*clientCon, noParams).ft().get();
-		times[i] = timer.GetTimeInMs() - start;
+		auto start = gTimer.GetTimeInMs();
+		auto res = CZRPC_CALL(client->con, noParams).ft().get();
+		times[i] = gTimer.GetTimeInMs() - start;
 		CHECK_EQUAL(128, res.get());
 	}
 
@@ -750,30 +727,24 @@ TEST(Latency)
 	printf("        min=%0.4fms\n", low);
 	printf("        max=%0.4fms\n", high);
 	printf("        avg=%0.4fms\n", total/count);
-
-	io.stop();
-	iothread.join();
 }
 
 TEST(Throughput)
 {
 	using namespace cz::rpc;
 
-	ServerProcess<Tester, void> server(TEST_PORT);
+	TestRPCServer<Tester, void> server;
+	server.startAccept().run(true, false);
 
-	TCPService io;
-	std::thread iothread = std::thread([&io]
-	{
-		io.run();
-	});
+	ServiceThread ioth;
+	ioth.run(true, false);
 
-	UnitTest::Timer timer;
-	auto clientCon = TCPTransport<void, Tester>::create(io, "127.0.0.1", TEST_PORT).get();
+	auto client = createClientSessionWrapper<void, Tester>(ioth.service);
 
 	std::atomic<bool> finish(false);
 	double start, end;
 	auto test = std::async(std::launch::async,
-		[&timer, &finish, &clientCon, &start, &end, &server]
+		[&finish, &client, &start, &end, &server]
 	{
 		int size = 1024 * 1024 / 4;
 		if (SHORT_TESTS)
@@ -782,7 +753,7 @@ TEST(Throughput)
 		//std::vector<char> data(size, 'a');
 		std::string data(size, 'a');
 
-		start = timer.GetTimeInMs();
+		start = gTimer.GetTimeInMs();
 		int id = 0;
 		ZeroSemaphore sem;
 		uint64_t totalBytes = 0;
@@ -791,10 +762,10 @@ TEST(Throughput)
 		{
 			sem.increment();
 			if (flying.load() > 5)
-				server.obj().m_throughputSem.wait();
+				server.getObj().throughputSem.wait();
 
 			++flying;
-			CZRPC_CALL(*clientCon, testThroughput1, data, id).async(
+			CZRPC_CALL(client->con, testThroughput1, data, id).async(
 				[&sem, &flying, id, &totalBytes, s=data.size()](Result<int> res)
 			{
 				totalBytes += s;
@@ -805,7 +776,7 @@ TEST(Throughput)
 			id++;
 		}
 		sem.wait();
-		end = timer.GetTimeInMs();
+		end = gTimer.GetTimeInMs();
 		return std::make_pair(
 			(end - start) / 1000, // seconds
 			totalBytes // data sent
@@ -819,14 +790,10 @@ TEST(Throughput)
 
 	finish = true;
 	auto res = test.get();
-	io.stop();
-	iothread.join();
 
 	auto seconds = res.first;
 	auto mb = (double)res.second/(1000*1000);
 	printf("RPC throughput: %0.2f Mbit/s (%0.2f MB/s)\n", (mb*8)/seconds, mb/seconds);
 }
-
-#endif
 
 }
