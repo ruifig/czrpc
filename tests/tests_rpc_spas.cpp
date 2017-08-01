@@ -7,10 +7,7 @@ using namespace cz::spas;
 
 #include "tests_rpc_spas_helper.h"
 
-#define LONGTEST 1
-
-// #TODO : Remove this
-#define ALL_TESTS 0
+#define LONGTEST 0
 
 extern UnitTest::Timer gTimer;
 

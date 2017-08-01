@@ -14,12 +14,9 @@ ucm_add_files(
 	"crazygaze/rpc/RPCResult.h"
 	"crazygaze/rpc/RPCStream.h"
 	"crazygaze/rpc/RPCTable.h"
-	"crazygaze/rpc/RPCTCPSocket.h"
-	"crazygaze/rpc/RPCTCPSocketTransport.h"
 	"crazygaze/rpc/RPCTransport.h"
 	"crazygaze/rpc/RPCUtils.h"
 	"crazygaze/rpc/RPCSpasTransport.h"
-	"crazygaze/rpc/RPCSpasTransportUtil.h"
 	TO SOURCE_FILES
 	)
 
