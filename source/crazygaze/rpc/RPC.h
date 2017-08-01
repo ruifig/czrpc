@@ -91,6 +91,7 @@ transports you want to use
 #include "crazygaze/rpc/RPCStream.h"
 #include "crazygaze/rpc/RPCUtils.h"
 #include "crazygaze/rpc/RPCTransport.h"
+#include "crazygaze/rpc/RPCBaseConnection.h"
 #include "crazygaze/rpc/RPCTable.h"
 #include "crazygaze/rpc/RPCProcessor.h"
 #include "crazygaze/rpc/RPCConnection.h"

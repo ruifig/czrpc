@@ -98,7 +98,8 @@ public:
 	//    How many successful connections to accept. Once this is reached, the acceptor is closed
 	TestRPCServer& startAccept(int port = TEST_PORT, int maxConnections = INT_MAX)
 	{
-		m_acceptor.listen(port);
+		auto ec = m_acceptor.listen(port);
+		CHECK_CZSPAS(ec);
 		setupAccept(maxConnections);
 		return *this;
 	}
@@ -144,6 +145,11 @@ public:
 			m_service.stop();
 		if (m_th.joinable())
 			m_th.join();
+	}
+
+	Local& getObj()
+	{
+		return m_servedObj;
 	}
 
 private:
@@ -338,7 +344,7 @@ public:
 	}
 
 	ZeroSemaphore testFuturePending;
-	std::promise<int> clientCallRes; // So the unit test can wait on the future to make sure the server got the reply from the server
+	std::promise<int> clientCallRes; // So the unit test can wait on the future to make sure the server got the reply from the client
 };
 
 //! To test inheritance

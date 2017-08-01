@@ -110,7 +110,7 @@ struct InProcessor
 		data.authPassed = data.objData.getAuthToken() == "" ? true : false;
 	}
 
-	void processCall(Transport& transport, Stream& in, Header hdr, DebugInfo* dbg)
+	void processCall(BaseConnection& con, Transport& transport, Stream& in, Header hdr, DebugInfo* dbg)
 	{
 		if (dbg)
 		{
@@ -121,7 +121,7 @@ struct InProcessor
 				Table<T>::getName().c_str(), Table<T>::get(hdr.bits.rpcid)->name.c_str());
 		}
 		auto&& info = Table<Type>::get(hdr.bits.rpcid);
-		info->dispatcher(*obj, in, data, transport, hdr, dbg);
+		info->dispatcher(*obj, in, data, con, transport, hdr, dbg);
 	}
 
 	Type* obj=nullptr;
@@ -134,7 +134,7 @@ class InProcessor<void>
 public:
 	InProcessor() {}
 	void init(void* obj) {}
-	void processCall(Transport& trp, Stream& in, Header hdr, DebugInfo* dbg)
+	void processCall(BaseConnection& con, Transport& trp, Stream& in, Header hdr, DebugInfo* dbg)
 	{
 		if (dbg)
 		{

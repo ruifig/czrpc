@@ -274,8 +274,8 @@ private:
 		{
 			m_sock.getService().post([this, session = m_con->getSession()]()
 			{
-				m_con->process(rpc::BaseConnection::Direction::Both);
 				m_pendingConProcessCall.exchange(false);
+				m_con->process(rpc::BaseConnection::Direction::Both);
 			});
 		}
 	}
@@ -434,5 +434,5 @@ private:
 	spas::Acceptor m_acceptor;
 };
 
-}
-}
+} // namespace rpc
+} // namespace cz

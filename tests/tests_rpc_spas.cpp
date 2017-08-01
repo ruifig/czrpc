@@ -284,77 +284,71 @@ TEST(RetVal_NoParams)
 	int res = CZRPC_CALL(client->con, noParams).ft().get().get();
 	CHECK_EQUAL(128, res);
 
-	sem.wait();
+	CHECK_EQUAL(1, sem.getCount());
 }
 
-#if 0
-
-// Test with simple parameters and return value
 TEST(WithParams)
 {
 	using namespace cz::rpc;
-	ServerProcess<Tester, void> server(TEST_PORT);
+	TestRPCServer<Tester, void> server;
+	server.startAccept().run(true, false);
 
-	TCPService io;
-	std::thread iothread = std::thread([&io]
-	{
-		io.run();
-	});
+	ServiceThread ioth;
+	ioth.run(true, false);
 
-	auto clientCon = TCPTransport<void, Tester>::create(io, "127.0.0.1", TEST_PORT).get();
+	auto client = createClientSessionWrapper<void, Tester>(ioth.service);
 
-	ZeroSemaphore sem; // Used to make sure all rpcs were called
+	Semaphore sem;
 
 	// Test with async
-	sem.increment();
-	CZRPC_CALL(*clientCon, add, 1,2).async(
+	CZRPC_CALL(client->con, add, 1,2).async(
 		[&](Result<int> res)
 	{
-		sem.decrement();
+		sem.notify();
 		CHECK_EQUAL(3, res.get());
 	});
 
 	// Test with future
-	int res = CZRPC_CALL(*clientCon, add, 1, 2).ft().get().get();
+	int res = CZRPC_CALL(client->con, add, 1, 2).ft().get().get();
 	CHECK_EQUAL(3, res);
 
 	// Test with vector
 	std::vector<int> vec{ 1,2,3 };
-	auto v = CZRPC_CALL(*clientCon, testVector1, vec).ft().get().get();
+	auto v = CZRPC_CALL(client->con, testVector1, vec).ft().get().get();
 	CHECK_ARRAY_EQUAL(vec, v, 3);
-	v = CZRPC_CALL(*clientCon, testVector2, vec).ft().get().get();
+	v = CZRPC_CALL(client->con, testVector2, vec).ft().get().get();
 	CHECK_ARRAY_EQUAL(vec, v, 3);
 
 	// Test with tuple
 	auto tp = std::make_tuple(1, std::string("Test"));
-	tp = CZRPC_CALL(*clientCon, testTuple, tp).ft().get().get();
+	tp = CZRPC_CALL(client->con, testTuple, tp).ft().get().get();
 	CHECK(std::get<0>(tp) == 1 && std::get<1>(tp) == "Test");
 
-	sem.wait();
-	io.stop();
-	iothread.join();
+	CHECK_EQUAL(1, sem.getCount());
 }
 
+// Tests with simple parameters and return value
+// - Tests returning a successful result with a future
+// - Tests detecting a broken promise if the connection is closed before setting the future
 TEST(Future)
 {
 	using namespace cz::rpc;
-	auto server = std::make_unique<ServerProcess<Tester, void>>(TEST_PORT);
 
-	TCPService io;
-	std::thread iothread = std::thread([&io]
-	{
-		io.run();
-	});
+	TestRPCServer<Tester, void> server;
+	server.startAccept().run(true, false);
 
-	auto clientCon = TCPTransport<void, Tester>::create(io, "127.0.0.1", TEST_PORT).get();
+	ServiceThread ioth;
+	ioth.run(true, false);
+
+	auto client = createClientSessionWrapper<void, Tester>(ioth.service);
 
 	const int count = 2;
 	ZeroSemaphore sem;
 	for (int i = 0;i < count; i++)
 	{
-		sem.increment();
 		auto p = std::to_string(i);
-		CZRPC_CALL(*clientCon, testFuture, p.c_str()).async(
+		sem.increment();
+		CZRPC_CALL(client->con, testFuture, p.c_str()).async(
 			[&sem, p](Result<std::string> res)
 		{
 			CHECK_EQUAL(p, res.get());
@@ -365,80 +359,79 @@ TEST(Future)
 
 	// Test destroying the server while there is still a future pending
 	// To test this, we need to wait for the server to get the RPC call, then kill it before it sets the future as ready
+	server.getObj().testFuturePending.increment();
 	sem.increment();
-	server->obj().testFuturePending.increment();
-	CZRPC_CALL(*clientCon, testFutureFailure, "test").async(
+	CZRPC_CALL(client->con, testFutureFailure, "test").async(
 		[&sem](Result<std::string> res)
 	{
 		CHECK(res.isAborted());
 		sem.decrement();
 	});
-	server->obj().testFuturePending.wait(); // wait for the server to get the call
-	server.reset(); // destroy the server before it sets the future as ready
+	server.getObj().testFuturePending.wait(); // wait for the server to get the call
+	server.finish(); // Stop the server before it sets the future as ready
 	sem.wait(); // wait for the rpc call result (aborted)
-
-
-	io.stop();
-	iothread.join();
 }
 
 // Test RPCs throwing exceptions
 TEST(ExceptionThrowing)
 {
 	using namespace cz::rpc;
-	ServerProcess<Tester, void> server(TEST_PORT);
+	TestRPCServer<Tester, void> server;
+	server.startAccept().run(true, false);
 
-	TCPService io;
+	spas::Service service;
+
+	auto client = createClientSessionWrapper<void, Tester>(service);
+
 	ZeroSemaphore expectedUnhandledExceptions;
-	std::thread iothread = std::thread([&io, &expectedUnhandledExceptions]
+	std::thread ioth([&service, &expectedUnhandledExceptions]
 	{
 		while(true)
 		{
 			try
 			{
-				io.run();
+				service.run();
 				return;
 			}
-			catch (const Exception&)
+			catch (const Exception& exc)
 			{
 				expectedUnhandledExceptions.decrement();
+				CHECK_EQUAL("Testing exception", exc.what());
 				continue;
 			}
 			break;
 		}
 	});
 
-	auto clientCon = TCPTransport<void, Tester>::create(io, "127.0.0.1", TEST_PORT).get();
-
-	ZeroSemaphore sem; // Used to make sure all rpcs were called
-
 	// Test with async
 	expectedUnhandledExceptions.increment();
-	CZRPC_CALL(*clientCon, voidTestException,  true).async(
+	CZRPC_CALL(client->con, voidTestException,  true).async(
 		[&](auto res)
 	{
-		res.get(); // this will throw an exception, because the RPC returned an exception
+		res.get(); // because RPC returned an exception, calling .get() will throw that exception
 	});
 
 	// RPC with exception and the client using a future
 	// This will cause the future to get a broken_promise
 	expectedUnhandledExceptions.increment();
 	bool brokenPromise = false;
-	auto ft = CZRPC_CALL(*clientCon, voidTestException, true).ft();
+	auto ft = CZRPC_CALL(client->con, voidTestException, true).ft();
 	try
 	{
 		ft.get().get(); // This will throw, because the RPC returned an exception
 	}
-	catch (Exception&)
+	catch (const Exception& exc)
 	{
 		expectedUnhandledExceptions.decrement();
+		CHECK_EQUAL("Testing exception", exc.what());
 	}
 
-	sem.wait();
-	io.stop();
-	iothread.join();
 	expectedUnhandledExceptions.wait();
 }
+
+#if 0
+
+
 
 // Having the server call a function on the client
 TEST(ClientCall)

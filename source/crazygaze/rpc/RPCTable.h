@@ -214,7 +214,7 @@ template <typename R>
 struct Dispatcher<false, R>
 {
 	template <typename OBJ, typename F, typename P>
-	static void impl(OBJ& obj, F f, P&& params, InProcessorData& out, Transport& trp, Header hdr, DebugInfo* dbg)
+	static void impl(OBJ& obj, F f, P&& params, InProcessorData& out, BaseConnection& con, Transport& trp, Header hdr, DebugInfo* dbg)
 	{
 #if CZRPC_CATCH_EXCEPTIONS
 		try {
@@ -238,7 +238,7 @@ template <typename R>
 struct Dispatcher<true, R>
 {
 	template <typename OBJ, typename F, typename P>
-	static void impl(OBJ& obj, F f, P&& params, InProcessorData& out, Transport& trp, Header hdr, DebugInfo* dbg)
+	static void impl(OBJ& obj, F f, P&& params, InProcessorData& out, BaseConnection& con, Transport& trp, Header hdr, DebugInfo* dbg)
 	{
 		using Traits = FunctionTraits<F>;
 		auto resFt = callMethod(obj, f, std::move(params));
@@ -248,7 +248,9 @@ struct Dispatcher<true, R>
 			std::unique_ptr<DebugInfo> dbgptr;
 			if (dbg)
 				dbgptr = std::make_unique<DebugInfo>(*dbg);
-			auto ft = then(std::move(resFt), [&out, &trp, hdr, counter, dbg=std::move(dbgptr)](std::future<typename Traits::return_type> ft)
+			auto ft = then(
+				std::move(resFt),
+				[&out, &trp, hdr, session = con.getSession(), counter, dbg = std::move(dbgptr)](std::future<typename Traits::return_type> ft)
 			{
 				processReady(out, trp, counter, hdr, std::move(ft), dbg.get());
 			});
@@ -321,7 +323,7 @@ class TableImpl : public BaseTable
 
 	struct Info : public BaseInfo
 	{
-		std::function<void(Type&, Stream& in, InProcessorData& out, Transport& trp, Header hdr, DebugInfo* dbg)> dispatcher;
+		std::function<void(Type&, Stream& in, InProcessorData& out, BaseConnection& con, Transport& trp, Header hdr, DebugInfo* dbg)> dispatcher;
 	};
 
 	explicit TableImpl(const char* name) : BaseTable(name) {}
@@ -352,7 +354,7 @@ class TableImpl : public BaseTable
 		assert(m_rpcs.size() == 0);
 		auto info = std::make_unique<Info>();
 		info->name = "genericRPC";
-		info->dispatcher = [this](Type& obj, Stream& in, InProcessorData& out, Transport& trp, Header hdr, DebugInfo* dbg) {
+		info->dispatcher = [this](Type& obj, Stream& in, InProcessorData& out, BaseConnection& con, Transport& trp, Header hdr, DebugInfo* dbg) {
 			assert(hdr.isGenericRPC());
 			std::string name;
 			in >> name;
@@ -368,7 +370,7 @@ class TableImpl : public BaseTable
 				return;
 			}
 
-			info->dispatcher(obj, in, out, trp, hdr, dbg);
+			info->dispatcher(obj, in, out, con, trp, hdr, dbg);
 		};
 		m_rpcs.push_back(std::move(info));
 
@@ -393,7 +395,7 @@ class TableImpl : public BaseTable
 
 		auto info = std::make_unique<Info>();
 		info->name = name;
-		info->dispatcher = [this,f,info=info.get()](Type& obj, Stream& in, InProcessorData& out, Transport& trp, Header hdr, DebugInfo* dbg) {
+		info->dispatcher = [this,f,info=info.get()](Type& obj, Stream& in, InProcessorData& out, BaseConnection& con, Transport& trp, Header hdr, DebugInfo* dbg) {
 			using Traits = FunctionTraits<F>;
 			typename Traits::param_tuple params;
 
@@ -430,7 +432,7 @@ class TableImpl : public BaseTable
 			}
 
 			using R = typename Traits::return_type;
-			details::Dispatcher<Traits::isasync, R>::impl(obj, f, std::move(params), out, trp, hdr, dbg);
+			details::Dispatcher<Traits::isasync, R>::impl(obj, f, std::move(params), out, con, trp, hdr, dbg);
 		};
 		m_rpcs.push_back(std::move(info));
 	}
@@ -443,7 +445,7 @@ class TableImpl : public BaseTable
 
 		auto info = std::make_unique<Info>();
 		info->name = name;
-		info->dispatcher = [this, f, info=info.get()](Type& obj, Stream& in, InProcessorData& out, Transport& trp, Header hdr, DebugInfo* dbg) {
+		info->dispatcher = [this, f, info=info.get()](Type& obj, Stream& in, InProcessorData& out, BaseConnection& con, Transport& trp, Header hdr, DebugInfo* dbg) {
 			using Traits = FunctionTraits<F>;
 			typename Traits::param_tuple params;
 			// All control RPCs are generic (and only generic)
@@ -473,7 +475,7 @@ class TableImpl : public BaseTable
 			}
 
 			using R = typename Traits::return_type;
-			// Forcing all control RPCs to return Any simplifies things, since they are meant to be used with
+			// Forcing all control RPCs to return "Any" simplifies things, since they are meant to be used with
 			// generic RPC calls anyway (and those always return Any)
 			static_assert(std::is_same<R, Any>::value, "control RPC function needs to return Any");
 			Stream o;
