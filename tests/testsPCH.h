@@ -58,8 +58,6 @@ namespace cz {
 }
 }
 
-#include "crazygaze/rpc/RPCTCPSocketTransport.h"
-
 #include <stdio.h>
 #include <vector>
 #include <string>

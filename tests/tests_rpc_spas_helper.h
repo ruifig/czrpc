@@ -1,18 +1,60 @@
 #pragma once
 
+#define CHECK_CZSPAS_EQUAL_IMPL(expected, ec)                                                                      \
+	if ((ec.code) != (expected))                                                                 \
+	{                                                                                                         \
+		UnitTest::CheckEqual(*UnitTest::CurrentTest::Results(), Error(expected).msg(), ec.msg(), \
+		                     UnitTest::TestDetails(*UnitTest::CurrentTest::Details(), __LINE__));             \
+	}
+
+#define CHECK_CZSPAS_EQUAL(expected, ec) CHECK_CZSPAS_EQUAL_IMPL(cz::spas::Error::Code::expected, ec)
+#define CHECK_CZSPAS(ec) CHECK_CZSPAS_EQUAL(Success, ec)
+
 //namespace {
 
 // Just puts together a Connection and Transport
 template<typename LOCAL, typename REMOTE>
 struct Session : rpc::SessionData
 {
-	explicit Session(spas::Service& io)
-		: trp(io)
+	explicit Session(spas::Service& service)
+		: trp(service)
 	{
+		//printf("Session: %p constructed\n", this);
 	}
-	~Session() {}
+	~Session()
+	{
+		//printf("Session: %p destroyed\n", this);
+	}
 	Connection<LOCAL, REMOTE> con;
 	SpasTransport trp;
+};
+
+
+// A wrapper around a Session, so it closes a connection when going out of scope
+template<typename LOCAL, typename REMOTE>
+struct SessionWrapper
+{
+	explicit SessionWrapper(spas::Service& service)
+	{
+		session = std::make_shared<Session<LOCAL, REMOTE>>(service);
+	}
+
+	explicit SessionWrapper(std::shared_ptr<Session<LOCAL,REMOTE>> session)
+		: session(std::move(session))
+	{
+	}
+
+	~SessionWrapper()
+	{
+		if (session)
+			session->con.close();
+	}
+
+	Session<LOCAL, REMOTE>* operator->() const
+	{
+		return session.get();
+	}
+	std::shared_ptr<Session<LOCAL, REMOTE>> session;
 };
 
 #define TEST_PORT 9000
@@ -27,12 +69,12 @@ class TestRPCServer
 public:
 	using Local = LOCAL;
 	using Remote = REMOTE;
+	using ConType = cz::rpc::Connection<Local, Remote>;
 
 	explicit TestRPCServer()
 		: m_objData(&m_servedObj)
-		, m_acceptor(m_io)
+		, m_acceptor(m_service)
 	{
-		m_clients = getSharedData<Clients>();
 	}
 
 	~TestRPCServer()
@@ -40,14 +82,10 @@ public:
 		finish();
 	}
 
-	static std::shared_ptr<Session<Local, Remote>> getCurrent()
+	std::shared_ptr<Session<Local, Remote>> getCurrent()
 	{
-		auto con = cz::rpc::Connection<Local, Remote>::getCurrent();
-		auto clients = getSharedData<Clients>();
-		if (!clients)
-			return nullptr;
-
-		for (auto&& c : *clients)
+		auto con = ConType::getCurrent();
+		for (auto&& c : m_clients)
 			if (con == &c->con)
 				return c;
 		return nullptr;
@@ -80,19 +118,30 @@ public:
 		m_th = std::thread([this, keepAlive]
 		{
 			// If required, add the dummy Work to the service, so that Service::run doesn't exit immediately
-			std::unique_ptr<spas::Service::Work> work;
 			if (keepAlive)
-				work = std::make_unique<spas::Service::Work>(m_io);
-			m_io.run();
+				m_keepAliveWork = std::make_unique<spas::Service::Work>(m_service);
+			m_service.run();
 		});
 
 		return *this;
 	}
 
+	void cancelAll()
+	{
+		m_service.post([this]()
+		{
+			m_acceptor.cancel();
+			for (auto&& c : m_clients)
+				c->con.close();
+		});
+	}
+
 	void finish()
 	{
+		cancelAll();
+		m_keepAliveWork = nullptr;
 		if (m_autoStop)
-			m_io.stop();
+			m_service.stop();
 		if (m_th.joinable())
 			m_th.join();
 	}
@@ -103,9 +152,9 @@ private:
 	{
 		if (leftToAccept == 0)
 			return;
-		auto contrp = std::make_shared<ConTrp<Local, Remote>>(m_io);
-		m_acceptor.asyncAccept(nullptr, contrp->trp, contrp->con, m_servedObj,
-			[this, leftToAccept, contrp](const spas::Error& ec)
+		auto session = std::make_shared<Session<Local, Remote>>(m_service);
+		m_acceptor.asyncAccept(session, session->trp, session->con, m_servedObj,
+			[this, leftToAccept, session](const spas::Error& ec)
 		{
 			int todo = leftToAccept;
 			if (ec)
@@ -116,22 +165,31 @@ private:
 			}
 			else
 			{
-				m_clients->push_back(contrp);
+				m_clients.push_back(session);
 				todo--;
+
+				session->con.setOnDisconnect([this, session]()
+				{
+					onDisconnect(session);
+				});
 			}
 			setupAccept(todo);
 		});
 	}
 
+	void onDisconnect(std::shared_ptr<Session<Local, Remote>> session)
+	{
+		m_clients.erase(std::remove(m_clients.begin(), m_clients.end(), session));
+	}
+
 	Local m_servedObj;
 	ObjectData m_objData;
-	spas::Service m_io;
+	spas::Service m_service;
 	std::thread m_th;
 	SpasTransportAcceptor m_acceptor;
 	bool m_autoStop = false;
-
-	using Clients = std::vector<std::shared_ptr<Session<Local, Remote>>>;
-	std::shared_ptr<Clients> m_clients;
+	std::unique_ptr<cz::spas::Service::Work> m_keepAliveWork;
+	std::vector<std::shared_ptr<Session<Local, Remote>>> m_clients;
 };
 
 //! Helper class to run a Service in a separate thread.
@@ -140,6 +198,7 @@ struct ServiceThread
 	spas::Service service;
 	std::thread th;
 	bool autoStop = false;
+	std::unique_ptr<cz::spas::Service::Work> keepAliveWork;
 
 	explicit ServiceThread() { }
 	~ServiceThread()
@@ -153,9 +212,8 @@ struct ServiceThread
 		CHECK(th.joinable() == false);
 		th = std::thread([this, keepAlive]()
 		{
-			std::unique_ptr<spas::Service::Work> work;
 			if (keepAlive)
-				work = std::make_unique<spas::Service::Work>(service);
+				keepAliveWork = std::make_unique<spas::Service::Work>(service);
 			service.run();
 		});
 
@@ -164,6 +222,7 @@ struct ServiceThread
 
 	void finish()
 	{
+		keepAliveWork = nullptr;
 		if (autoStop)
 			service.stop();
 		if (th.joinable())
@@ -367,12 +426,13 @@ int Tester::testClientAddCall(int a, int b)
 // can check if everything is still working and not blocked somewhere.
 std::future<std::string> Tester::testClientVoid()
 {
-	auto client = TestRPCServer<Tester, TesterClient>::getCurrent();
-	CHECK(client != nullptr);
-
+	auto con = cz::rpc::Connection<Tester, TesterClient>::getCurrent();
+	CHECK(con != nullptr);
+	//auto session = std::static_pointer_cast<Session<Tester, TesterClient>>(con->getSession());
+	//CHECK(session != nullptr);
 	auto pr = std::make_shared<std::promise<std::string>>();
-	CZRPC_CALL(client->con, clientAdd, 1, 2).async(
-		[this, client, pr](Result<int> res)
+	CZRPC_CALL(*con, clientAdd, 1, 2).async(
+		[this, pr](Result<int> res)
 	{
 		CHECK(res.isException());
 		pr->set_value(res.getException());
@@ -380,6 +440,23 @@ std::future<std::string> Tester::testClientVoid()
 
 	return pr->get_future();
 }
+
+template<typename Local, typename Remote>
+std::shared_ptr<Session<Local, Remote>> createClientSession(cz::spas::Service& service)
+{
+	auto session = std::make_shared<Session<Local, Remote>>(service);
+	auto ec = session->trp.connect(session, session->con, "127.0.0.1", TEST_PORT);
+	CHECK_CZSPAS(ec);
+	return session;
+}
+
+template<typename Local, typename Remote>
+SessionWrapper<Local, Remote> createClientSessionWrapper(cz::spas::Service& service)
+{
+	auto session = createClientSession<Local,Remote>(service);
+	return SessionWrapper<Local,Remote>(session);
+}
+
 
 
 //} // anonymous namespace

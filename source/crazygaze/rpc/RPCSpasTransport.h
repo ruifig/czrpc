@@ -5,14 +5,6 @@
 #include "RPCConnection.h"
 #include "RPCUtils.h"
 
-#define CHECK_CZSPAS_EQUAL(expected, ec)                                                                      \
-	if ((ec.code) != (Error::Code::expected))                                                                 \
-	{                                                                                                         \
-		UnitTest::CheckEqual(*UnitTest::CurrentTest::Results(), Error(Error::Code::expected).msg(), ec.msg(), \
-		                     UnitTest::TestDetails(*UnitTest::CurrentTest::Details(), __LINE__));             \
-	}
-#define CHECK_CZSPAS(ec) CHECK_CZSPAS_EQUAL(Success, ec)
-
 namespace cz
 {
 namespace rpc
@@ -170,6 +162,13 @@ public:
 	const std::pair<std::string, int>& getPeerAddr() const
 	{
 		return m_sock.getPeerAddr();
+	}
+
+
+	//! Only to be used internally for unit tests
+	spas::Socket& _getSocket()
+	{
+		return m_sock;
 	}
 
 private:

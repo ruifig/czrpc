@@ -24,9 +24,9 @@ namespace
 	REGISTERRPC(add)
 #include "crazygaze/rpc/RPCGenerate.h"
 
+#if DERPDERP
 SUITE(Acceptor)
 {
-
 // Does nothing. Just to check if there is anything blocking/crashing in this case
 TEST(SpasTransport_Nothing)
 {
@@ -95,7 +95,98 @@ TEST(SpasTransport_Accept_ok)
 	CHECK_EQUAL(1, done.getCount());
 }
 
+void test_asyncConnect_lambda(spas::Error::Code expected)
+{
+	TestRPCServer<Tester> server;
+
+	if (expected != spas::Error::Code::Timeout)
+		server.startAccept();
+	server.run(false, false, "");
+
+	ServiceThread ioth;
+	Session<void, Tester> client(ioth.service);
+	Semaphore done;
+	client.trp.asyncConnect(nullptr, client.con, "127.0.0.1", TEST_PORT, [&](const spas::Error& ec)
+	{
+		CHECK_CZSPAS_EQUAL_IMPL(expected, ec);
+		done.notify();
+		if (expected == cz::spas::Error::Code::Success)
+			client.con.close();
+	});
+
+	if (expected == spas::Error::Code::Cancelled)
+	{
+		// Close the connection, to cause async handlers to be called with the Cancelled error
+		client.trp._getSocket().close();
+	}
+
+	ioth.run(false, false);
+	ioth.finish();
+	server.cancelAll();
+	CHECK_EQUAL(1, done.getCount());
 }
+
+TEST(asyncConnect_lambda_cancel)
+{
+	test_asyncConnect_lambda(cz::spas::Error::Code::Cancelled);
+}
+
+TEST(asyncConnect_lambda_error)
+{
+	test_asyncConnect_lambda(cz::spas::Error::Code::Timeout);
+}
+
+TEST(asyncConnect_lambda_ok)
+{
+	test_asyncConnect_lambda(cz::spas::Error::Code::Success);
+}
+
+
+void test_asyncConnect_future(cz::spas::Error::Code expected)
+{
+	TestRPCServer<Tester> server;
+	if (expected != spas::Error::Code::Timeout)
+		server.startAccept();
+	server.run(false, false, "");
+
+	ServiceThread ioth;
+	Session<void, Tester> client(ioth.service);
+	auto ft = client.trp.asyncConnect(nullptr, client.con, "127.0.0.1", TEST_PORT);
+
+	if (expected == spas::Error::Code::Cancelled)
+	{
+		// Close the connection, to cause async handlers to be called with the Cancelled error
+		client.trp._getSocket().close();
+	}
+
+	ioth.run(false, false);
+	auto ec = ft.get();
+	CHECK_CZSPAS_EQUAL_IMPL(expected, ec);
+	if (expected == cz::spas::Error::Code::Success)
+		client.con.close();
+
+	ioth.finish();
+	server.cancelAll();
+}
+
+TEST(asyncConnect_future_cancel)
+{
+	test_asyncConnect_future(cz::spas::Error::Code::Cancelled);
+}
+
+TEST(asyncConnect_future_error)
+{
+	test_asyncConnect_future(cz::spas::Error::Code::Timeout);
+}
+
+TEST(asyncConnect_future_ok)
+{
+	test_asyncConnect_future(cz::spas::Error::Code::Success);
+}
+
+} // SUITE
+
+#endif
 
 CZRPC_DEFINE_CONST_LVALUE_REF(std::vector<int>)
 
@@ -105,24 +196,20 @@ CZRPC_DEFINE_CONST_LVALUE_REF(std::vector<int>)
 SUITE(RPC)
 {
 
-#if 0
-
 TEST(NotAuth)
 {
 	TestRPCServer<Tester> server;
-	server.startAccept().run(false, true, "meow");
+	server.startAccept(TEST_PORT, 1).run(true, true, "meow");
 
 	ServiceThread ioth;
 	ioth.run(true, true);
 
-	ConTrp<void, Tester> client(ioth.service);
-	auto ec = client.trp.asyncConnect(nullptr, client.con, "127.0.0.1", TEST_PORT).get();
-	CHECK_CZSPAS(ec);
+	auto session = createClientSession<void, Tester>(ioth.service);
 
 	//
 	// Calling an RPC without authenticating first (if authentication is required), will cause the transport to close;
 	Semaphore sem;
-	CZRPC_CALL(client.con, simple).async(
+	CZRPC_CALL(session->con, simple).async(
 		[&](Result<void> res)
 	{
 		CHECK(res.isAborted());
@@ -131,81 +218,76 @@ TEST(NotAuth)
 	sem.wait();
 
 	// Test with future
-	auto ft = CZRPC_CALL(client.con, simple).ft();
+	// NOTE: The connection is already close because of the previous RPC, but it should still abort any RPC calls
+	// made after that
+	auto ft = CZRPC_CALL(session->con, simple).ft();
 	auto ftRes = ft.get();
 	CHECK(ftRes.isAborted());
 }
 
-// RPC without return value or parameters
-TEST(Simple)
+// Simple RPC without parameters or return value
+TEST(Simple_and_auth)
 {
 	using namespace cz::rpc;
 	// Also test using authentication
-	ServerProcess<Tester, void> server(TEST_PORT, "meow");
+	TestRPCServer<Tester, void> server;
+	server.startAccept(TEST_PORT, 1).run(false, false, "meow");
 
-	TCPService io;
-	std::thread iothread = std::thread([&io]
-	{
-		io.run();
-	});
+	ServiceThread ioth;
+	ioth.run(true, false);
 
-	auto clientCon = TCPTransport<void,Tester>::create(io, "127.0.0.1", TEST_PORT).get();
+	auto client = createClientSessionWrapper<void, Tester>(ioth.service);
 
-	ZeroSemaphore sem; // Used to make sure all rpcs were called
-	sem.increment();
-
+	Semaphore sem; 
 	// Authenticate first
 	bool authRes = false;
-	CZRPC_CALLGENERIC(*clientCon, "__auth", std::vector<Any>{ Any("meow") }).ft().get().get().getAs(authRes);
+	CZRPC_CALLGENERIC(client->con, "__auth", std::vector<Any>{ Any("meow") }).ft().get().get().getAs(authRes);
 	CHECK(authRes == true);
 
 	// Test with async
-	CZRPC_CALL(*clientCon, simple).async(
-		[&](auto)
+	CZRPC_CALL(client->con, simple).async(
+		[&](Result<void> res)
 	{
-		sem.decrement();
+		CHECK(res.isValid());
+		sem.notify();
 	});
 
 	// Test with future
-	CZRPC_CALL(*clientCon, simple).ft().get().get();
+	Result<void> res = CZRPC_CALL(client->con, simple).ft().get();
+	CHECK(res.isValid());
 
-	sem.wait();
-	io.stop();
-	iothread.join();
+	CHECK_EQUAL(1, sem.getCount());
 }
 
-TEST(NoParams)
+TEST(RetVal_NoParams)
 {
 	using namespace cz::rpc;
-	ServerProcess<Tester, void> server(TEST_PORT);
+	TestRPCServer<Tester, void> server;
+	server.startAccept().run(false, false);
 
-	TCPService io;
-	std::thread iothread = std::thread([&io]
-	{
-		io.run();
-	});
+	ServiceThread ioth;
+	ioth.run(true, false);
 
-	auto clientCon = TCPTransport<void, Tester>::create(io, "127.0.0.1", TEST_PORT).get();
+	auto client = createClientSessionWrapper<void, Tester>(ioth.service);
 
-	ZeroSemaphore sem; // Used to make sure all rpcs were called
-	sem.increment();
+	Semaphore sem;
 
 	// Test with async
-	CZRPC_CALL(*clientCon, noParams).async(
+	CZRPC_CALL(client->con, noParams).async(
 		[&](Result<int> res)
 	{
-		sem.decrement();
 		CHECK_EQUAL(128, res.get());
+		sem.notify();
 	});
 
 	// Test with future
-	int res = CZRPC_CALL(*clientCon, noParams).ft().get().get();
+	int res = CZRPC_CALL(client->con, noParams).ft().get().get();
 	CHECK_EQUAL(128, res);
 
 	sem.wait();
-	io.stop();
-	iothread.join();
 }
+
+#if 0
 
 // Test with simple parameters and return value
 TEST(WithParams)
