@@ -463,6 +463,21 @@ SessionWrapper<Local, Remote> createClientSessionWrapper(cz::spas::Service& serv
 	return SessionWrapper<Local,Remote>(session);
 }
 
+template<typename Local, typename Remote>
+std::shared_ptr<Session<Local, Remote>> createClientSession(cz::spas::Service& service, Local& localObj)
+{
+	auto session = std::make_shared<Session<Local, Remote>>(service);
+	auto ec = session->trp.connect(session, session->con, localObj, "127.0.0.1", TEST_PORT);
+	CHECK_CZSPAS(ec);
+	return session;
+}
+
+template<typename Local, typename Remote>
+SessionWrapper<Local, Remote> createClientSessionWrapper(cz::spas::Service& service, Local& localObj)
+{
+	auto session = createClientSession<Local,Remote>(service, localObj);
+	return SessionWrapper<Local,Remote>(session);
+}
 
 
 //} // anonymous namespace

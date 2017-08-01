@@ -19,6 +19,7 @@ ucm_add_files(
 	"crazygaze/rpc/RPCTransport.h"
 	"crazygaze/rpc/RPCUtils.h"
 	"crazygaze/rpc/RPCSpasTransport.h"
+	"crazygaze/rpc/RPCSpasTransportUtils.h"
 	TO SOURCE_FILES
 	)
 

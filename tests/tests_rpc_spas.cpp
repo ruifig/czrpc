@@ -7,6 +7,9 @@ using namespace cz::spas;
 
 #include "tests_rpc_spas_helper.h"
 
+// #TODO : Remove this
+#define ALL_TESTS 0
+
 namespace
 {
 	class CalcTest
@@ -24,7 +27,7 @@ namespace
 	REGISTERRPC(add)
 #include "crazygaze/rpc/RPCGenerate.h"
 
-#if DERPDERP
+#if ALL_TESTS
 SUITE(Acceptor)
 {
 // Does nothing. Just to check if there is anything blocking/crashing in this case
@@ -372,6 +375,8 @@ TEST(Future)
 	sem.wait(); // wait for the rpc call result (aborted)
 }
 
+// #TODO : Enable this test once we add exceptions handling to czspas
+#if ALL_TESTS
 // Test RPCs throwing exceptions
 TEST(ExceptionThrowing)
 {
@@ -428,39 +433,33 @@ TEST(ExceptionThrowing)
 
 	expectedUnhandledExceptions.wait();
 }
-
-#if 0
-
-
+#endif
 
 // Having the server call a function on the client
 TEST(ClientCall)
 {
 	using namespace cz::rpc;
-	ServerProcess<Tester, TesterClient> server(TEST_PORT);
-	TCPService io;
-	std::thread iothread = std::thread([&io]
-	{
-		io.run();
-	});
+	TestRPCServer<Tester, TesterClient> server;
+	server.startAccept().run(true, false);
 
+	ServiceThread ioth;
+	ioth.run(true, false);
 	TesterClient clientObj;
-	auto clientCon = TCPTransport<TesterClient, Tester>::create(io, clientObj, "127.0.0.1", TEST_PORT).get();
+	auto client = createClientSessionWrapper<TesterClient, Tester>(ioth.service, clientObj);
 
-	ZeroSemaphore pending;
+	Semaphore sem;
 
-	std::promise<int> res1;
-	CZRPC_CALL(*clientCon, testClientAddCall, 1,2).async(
+	// We call "testClientAddCall" on the server, which in turn calls "clientAdd" on the client
+	CZRPC_CALL(client->con, testClientAddCall, 1,2).async(
 		[&](Result<int> res)
 	{
-		res1.set_value(res.get());
+		sem.notify();
+		CHECK_EQUAL(3, res.get());
 	});
+	sem.wait();
 
-	CHECK_EQUAL(3, res1.get_future().get());
-	CHECK_EQUAL(3, server.obj().clientCallRes.get_future().get());
-
-	io.stop();
-	iothread.join();
+	// Check if the server got the reply from the client's "testClientAddCall"
+	CHECK_EQUAL(3, server.getObj().clientCallRes.get_future().get());
 }
 
 // The server is running a specialize TesterEx that overrides some virtuals,
@@ -469,32 +468,29 @@ TEST(Inheritance)
 {
 	using namespace cz::rpc;
 
-	// The server is running a TesterEx
-	ServerProcess<TesterEx, void> server(TEST_PORT);
+	// The server is running a TesterEx, which inherits from Tester
+	TestRPCServer<TesterEx, void> server;
+	server.startAccept().run(true, false);
 
-	TCPService io;
-	std::thread iothread = std::thread([&io]
-	{
-		io.run();
-	});
+	ServiceThread ioth;
+	ioth.run(true, false);
 
 	// The client connects as using Tester
-	auto clientCon = TCPTransport<void, Tester>::create(io, "127.0.0.1", TEST_PORT).get();
+	auto client = createClientSessionWrapper<void, Tester>(ioth.service);
 
-	ZeroSemaphore pending;
-	pending.increment();
-	CZRPC_CALL(*clientCon, virtualFunc).async(
+	Semaphore sem;
+	// Calling "virtualFunc" should call TesterEx::virtualFuc does, not Tester::virtualFunc, even though the client
+	// only knows about the "Tester" interface
+	CZRPC_CALL(client->con, virtualFunc).async(
 		[&](const Result<std::string>& res)
 	{
-		pending.decrement();
+		sem.notify();
 		CHECK_EQUAL("TesterEx", res.get().c_str());
 	});
-
-	pending.wait();
-
-	io.stop();
-	iothread.join();
+	sem.wait();
 }
+
+#if 0
 
 TEST(Constructors)
 {
