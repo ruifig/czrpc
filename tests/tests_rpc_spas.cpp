@@ -7,6 +7,8 @@ using namespace cz::spas;
 
 #include "tests_rpc_spas_helper.h"
 
+#define ALL_TESTS 0
+
 #define LONGTEST 0
 
 extern UnitTest::Timer gTimer;
@@ -33,6 +35,7 @@ namespace
 	REGISTERRPC(add)
 #include "crazygaze/rpc/RPCGenerate.h"
 
+#if ALL_TESTS
 SUITE(Acceptor)
 {
 // Does nothing. Just to check if there is anything blocking/crashing in this case
@@ -194,8 +197,12 @@ TEST(asyncConnect_future_ok)
 
 } // SUITE
 
+#endif
+
 SUITE(RPC)
 {
+
+#if ALL_TESTS
 
 TEST(NotAuth)
 {
@@ -401,8 +408,10 @@ TEST(ExceptionFromRPC)
 	sem.wait();
 }
 
+#endif
+
 // #TODO : Enable this test once we add exceptions handling to czspas
-#if 0
+#if 1
 // Test RPCs throwing exceptions
 TEST(ExceptionThrowing)
 {
@@ -458,8 +467,13 @@ TEST(ExceptionThrowing)
 	}
 
 	expectedUnhandledExceptions.wait();
+
+	service.stop();
+	ioth.join();
 }
 #endif
+
+#if ALL_TESTS
 
 // Having the server call a function on the client
 TEST(ClientCall)
@@ -819,5 +833,7 @@ TEST(Throughput)
 	auto mb = (double)res.second/(1000*1000);
 	printf("RPC throughput: %0.2f Mbit/s (%0.2f MB/s)\n", (mb*8)/seconds, mb/seconds);
 }
+
+#endif
 
 }
