@@ -373,6 +373,34 @@ TEST(Future)
 	sem.wait(); // wait for the rpc call result (aborted)
 }
 
+// Tests raising exceptions from the RPC function.
+// When an RPC throws an exception, czrpc wraps it and sends it to the client.
+TEST(ExceptionFromRPC)
+{
+	using namespace cz::rpc;
+	TestRPCServer<Tester, void> server;
+	server.startAccept().run(true, false);
+
+	ServiceThread ioth;
+	ioth.run(true, false);
+
+	auto client = createClientSessionWrapper<void, Tester>(ioth.service);
+
+	Semaphore sem;
+	CZRPC_CALL(client->con, intTestException, true).async(
+		[&](Result<int> res)
+	{
+		// Trying to call res.get() will throw an exception.
+		// int r = res.get();
+
+		CHECK(res.isException());
+		CHECK_EQUAL("Testing exception", res.getException());
+		sem.notify();
+	});
+
+	sem.wait();
+}
+
 // #TODO : Enable this test once we add exceptions handling to czspas
 #if 0
 // Test RPCs throwing exceptions
