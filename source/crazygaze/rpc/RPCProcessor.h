@@ -124,6 +124,11 @@ struct InProcessor
 		info->dispatcher(*obj, in, data, con, transport, hdr, dbg);
 	}
 
+	void clear()
+	{
+		data.clear();
+	}
+
 	Type* obj=nullptr;
 	InProcessorData data;
 };
@@ -144,6 +149,10 @@ public:
 		}
 		//assert(0 && "Incoming RPC not allowed for void local type");
 		details::Send::error(trp, hdr, "Peer doesn't have an object to process RPC calls", dbg);
+	}
+
+	void clear()
+	{
 	}
 };
 

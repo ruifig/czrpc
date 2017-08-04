@@ -8,6 +8,7 @@ ucm_add_files(
 		"tests_any.cpp"
 		"tests_main.cpp"
 		"tests_rpc_spas.cpp"
+		"tests_rpc_spas_helper.cpp"
 		"tests_rpc_spas_helper.h"
 		"tests_traits.cpp"
 		"testsPCH.cpp" "testsPCH.h"

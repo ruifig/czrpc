@@ -4,6 +4,7 @@ ucm_add_files(
 	"crazygaze/rpc/RPC.h"
 	"crazygaze/rpc/RPCAny.h"
 	"crazygaze/rpc/RPCCallstack.h"
+	"crazygaze/rpc/RPCBaseConnection.h"
 	"crazygaze/rpc/RPCConnection.h"
 	"crazygaze/rpc/RPCGenerate.h"
 	"crazygaze/rpc/RPCGenericServer.h"

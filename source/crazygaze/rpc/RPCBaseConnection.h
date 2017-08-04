@@ -20,11 +20,7 @@ public:
 
 	virtual void process(Direction what=Direction::Both) = 0;
 	virtual bool isRunningInThread() = 0;
-
-	void close()
-	{
-		m_transport->close();
-	}
+	virtual void close() = 0;
 
 	const Transport* getTransport()
 	{
@@ -42,17 +38,13 @@ protected:
 	{
 		m_transport = &transport;
 		m_transport->m_con = this;
-		m_strongSession = std::move(session);
-		m_weakSession = m_strongSession;
+		m_weakSession = session;
 	}
 
 	Transport* m_transport = nullptr;
-	// The strong reference is kept until the transport disconnects, or the user explicitly closes the connection
-	// This keeps a session alive even if there are no pending operations.
-	std::shared_ptr<SessionData> m_strongSession;
-	// This keeps a weak reference, and it's the one from where everything gets a session pointers.
-	// This allows the transport to still get a valid session pointer during shutdown, since at the point the strong
-	// reference might not be valid anymore.
+	// This keeps a weak reference, and it's from this czrpc gets any strong references to pass to async handlers.
+	// NOTE: This also allows the transport to still get a valid session pointer during shutdown if it needs to queue
+	// up and execute any more async handlers during shutdown
 	std::weak_ptr<SessionData> m_weakSession;
 };
 

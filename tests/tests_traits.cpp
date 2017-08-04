@@ -133,7 +133,6 @@ TEST(Stream)
 		CHECK_EQUAL(0, s.readSize());
 	}
 
-	printf("\n");
 }
 
 //

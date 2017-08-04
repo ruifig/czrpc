@@ -1,4 +1,5 @@
 #include "testsPCH.h"
+#include "tests_rpc_spas_helper.h"
 
 #define LOOP_TESTS 0
 
@@ -28,10 +29,12 @@ namespace UnitTest
 		virtual void ReportTestStart(TestDetails const& test) override
 		{
 			printf("TEST START: %s\n", test.testName);
+			gSessionLeakDetector.clear();
 		}
 
 		virtual void ReportTestFinish(TestDetails const& test, float) override
 		{
+			CHECK_EQUAL(0, gSessionLeakDetector.count());
 			printf("TEST FINISH: %s\n", test.testName);
 		}
 

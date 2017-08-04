@@ -102,9 +102,9 @@ public:
 
 	template<typename R, typename C> friend class Call;
 
-	//! If using this constructor, then use #init method to initialize the object.
 	Connection()
 	{
+		//printf("%p : Constructor\n", this);
 	}
 
 	void init(Local* localObj, Transport& transport, std::shared_ptr<SessionData> session)
@@ -115,6 +115,7 @@ public:
 
 	virtual ~Connection()
 	{
+		//printf("%p : Destructor\n", this);
 	}
 
 	template<typename F, typename... Args>
@@ -179,6 +180,11 @@ public:
 		return getCurrent() == this;
 	}
 
+	virtual void close() override
+	{
+		m_transport->close();
+	}
+
 	virtual void process(Direction what) override
 	{
 		// Place a callstack marker, so other code can detect we are serving an RPC
@@ -191,6 +197,10 @@ public:
 		if (!ok)
 		{
 			m_remotePrc.abortReplies();
+
+			// We need to clear any futures we are holding, since those can hold strong references to the session
+			m_localPrc.clear();
+
 			if (m_onDisconnect)
 			{
 				m_onDisconnect();

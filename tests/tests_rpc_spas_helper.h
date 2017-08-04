@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Foo.h"
+
 #define CHECK_CZSPAS_EQUAL_IMPL(expected, ec)                                                                      \
 	if ((ec.code) != (expected))                                                                 \
 	{                                                                                                         \
@@ -10,21 +12,60 @@
 #define CHECK_CZSPAS_EQUAL(expected, ec) CHECK_CZSPAS_EQUAL_IMPL(cz::spas::Error::Code::expected, ec)
 #define CHECK_CZSPAS(ec) CHECK_CZSPAS_EQUAL(Success, ec)
 
-// Just puts together a Connection and Transport
-template<typename LOCAL, typename REMOTE>
-struct Session : rpc::SessionData
+// Makes sure there are no cyclic dependencies that keep sessions alive
+#define CHECK_SESSIONS() \
+	CZSPAS_SCOPE_EXIT{ CHECK_EQUAL(0, gSessionDataCounter.load()); }
+
+
+//
+// Session puts together a Connection and Transport
+// Doesn't necessarly need to inherit from std::enable_shared_from_this, but I'm doing so to make it easier to debug.
+// 
+// Helper to make sure we are not leaking Session objects due to cyclic dependencies.
+struct SessionLeakDetector
 {
-	explicit Session(spas::Service& service)
+	std::mutex mtx;
+	std::vector<cz::rpc::SessionData*> sessions;
+	size_t count()
+	{
+		std::lock_guard<std::mutex> lk_(mtx);
+		return sessions.size();
+	}
+
+	void clear()
+	{
+		std::lock_guard<std::mutex> lk_(mtx);
+		return sessions.clear();
+	}
+	void add(cz::rpc::SessionData* ptr)
+	{
+		std::lock_guard<std::mutex> lk_(mtx);
+		sessions.push_back(ptr);
+	}
+	void remove(cz::rpc::SessionData* ptr)
+	{
+		std::lock_guard<std::mutex> lk_(mtx);
+		sessions.erase(std::remove(sessions.begin(), sessions.end(), ptr));
+	}
+};
+extern SessionLeakDetector gSessionLeakDetector;
+
+template<typename LOCAL, typename REMOTE>
+struct Session : cz::rpc::SessionData, public std::enable_shared_from_this<cz::rpc::SessionData>
+{
+	explicit Session(cz::spas::Service& service)
 		: trp(service)
 	{
+		gSessionLeakDetector.add(this);
 		//printf("Session: %p constructed\n", this);
 	}
 	~Session()
 	{
+		gSessionLeakDetector.remove(this);
 		//printf("Session: %p destroyed\n", this);
 	}
-	Connection<LOCAL, REMOTE> con;
-	SpasTransport trp;
+	cz::rpc::Connection<LOCAL, REMOTE> con;
+	cz::rpc::SpasTransport trp;
 };
 
 
@@ -32,7 +73,7 @@ struct Session : rpc::SessionData
 template<typename LOCAL, typename REMOTE>
 struct SessionWrapper
 {
-	explicit SessionWrapper(spas::Service& service)
+	explicit SessionWrapper(cz::spas::Service& service)
 	{
 		session = std::make_shared<Session<LOCAL, REMOTE>>(service);
 	}
@@ -187,10 +228,10 @@ private:
 	}
 
 	Local m_servedObj;
-	ObjectData m_objData;
-	spas::Service m_service;
+	cz::rpc::ObjectData m_objData;
+	cz::spas::Service m_service;
 	std::thread m_th;
-	SpasTransportAcceptor m_acceptor;
+	cz::rpc::SpasTransportAcceptor m_acceptor;
 	bool m_autoStop = false;
 	std::unique_ptr<cz::spas::Service::Work> m_keepAliveWork;
 	std::vector<std::shared_ptr<Session<Local, Remote>>> m_clients;
@@ -199,7 +240,7 @@ private:
 //! Helper class to run a Service in a separate thread.
 struct ServiceThread
 {
-	spas::Service service;
+	cz::spas::Service service;
 	std::thread th;
 	bool autoStop = false;
 	std::unique_ptr<cz::spas::Service::Work> keepAliveWork;
@@ -217,7 +258,7 @@ struct ServiceThread
 		th = std::thread([this, keepAlive]()
 		{
 			if (keepAlive)
-				keepAliveWork = std::make_unique<spas::Service::Work>(service);
+				keepAliveWork = std::make_unique<cz::spas::Service::Work>(service);
 			service.run();
 		});
 
@@ -336,7 +377,7 @@ public:
 		});
 	}
 
-	Any testAny(Any v)
+	cz::rpc::Any testAny(cz::rpc::Any v)
 	{
 		return v;
 	}
@@ -408,43 +449,6 @@ public:
 	REGISTERRPC(clientAdd)
 #include "crazygaze/rpc/RPCGenerate.h"
 
-// Server side calls a RPC on the client...
-int Tester::testClientAddCall(int a, int b)
-{
-	auto client = cz::rpc::Connection<Tester, TesterClient>::getCurrent();
-	CHECK(client != nullptr);
-	CZRPC_CALL(*client, clientAdd, a, b).async(
-		[this, r = a+b](Result<int> res)
-	{
-		CHECK_EQUAL(r, res.get());
-		clientCallRes.set_value(res.get());
-	});
-
-	return a + b;
-}
-
-// This tests what happens when the server tries to call an RPC on a client which doesn't have a local object.
-// In other words, the client's connection is in the form Connection<void,SomeRemoteInterface>
-// In this case, the client having a InProcessor<void>, should send back an error for all RPC calls it receives.
-// In turn, the server sends back this error as a reply to the original RPC call from the client, so the unit test
-// can check if everything is still working and not blocked somewhere.
-std::future<std::string> Tester::testClientVoid()
-{
-	auto con = cz::rpc::Connection<Tester, TesterClient>::getCurrent();
-	CHECK(con != nullptr);
-	//auto session = std::static_pointer_cast<Session<Tester, TesterClient>>(con->getSession());
-	//CHECK(session != nullptr);
-	auto pr = std::make_shared<std::promise<std::string>>();
-	CZRPC_CALL(*con, clientAdd, 1, 2).async(
-		[this, pr](Result<int> res)
-	{
-		CHECK(res.isException());
-		pr->set_value(res.getException());
-	});
-
-	return pr->get_future();
-}
-
 template<typename Local, typename Remote>
 std::shared_ptr<Session<Local, Remote>> createClientSession(cz::spas::Service& service)
 {
@@ -458,7 +462,7 @@ template<typename Local, typename Remote>
 SessionWrapper<Local, Remote> createClientSessionWrapper(cz::spas::Service& service)
 {
 	auto session = createClientSession<Local,Remote>(service);
-	return SessionWrapper<Local,Remote>(session);
+	return SessionWrapper<Local,Remote>(std::move(session));
 }
 
 template<typename Local, typename Remote>
@@ -474,5 +478,10 @@ template<typename Local, typename Remote>
 SessionWrapper<Local, Remote> createClientSessionWrapper(cz::spas::Service& service, Local& localObj)
 {
 	auto session = createClientSession<Local,Remote>(service, localObj);
-	return SessionWrapper<Local,Remote>(session);
+	return SessionWrapper<Local,Remote>(std::move(session));
 }
+
+CZRPC_DEFINE_CONST_LVALUE_REF(std::vector<int>)
+// Alternatively, enable support for all "const T&" with
+// CZRPC_ALLOW_CONST_LVALUE_REFS;
+

@@ -1,5 +1,4 @@
 #include "testsPCH.h"
-#include "Foo.h"
 
 using namespace cz;
 using namespace cz::rpc;
@@ -7,16 +6,9 @@ using namespace cz::spas;
 
 #include "tests_rpc_spas_helper.h"
 
-#define ALL_TESTS 0
-
 #define LONGTEST 0
 
 extern UnitTest::Timer gTimer;
-
-CZRPC_DEFINE_CONST_LVALUE_REF(std::vector<int>)
-
-// Alternatively, enable support for all "const T&" with
-// CZRPC_ALLOW_CONST_LVALUE_REFS;
 
 namespace
 {
@@ -35,7 +27,6 @@ namespace
 	REGISTERRPC(add)
 #include "crazygaze/rpc/RPCGenerate.h"
 
-#if ALL_TESTS
 SUITE(Acceptor)
 {
 // Does nothing. Just to check if there is anything blocking/crashing in this case
@@ -197,12 +188,8 @@ TEST(asyncConnect_future_ok)
 
 } // SUITE
 
-#endif
-
 SUITE(RPC)
 {
-
-#if ALL_TESTS
 
 TEST(NotAuth)
 {
@@ -350,8 +337,9 @@ TEST(Future)
 
 	auto client = createClientSessionWrapper<void, Tester>(ioth.service);
 
-	const int count = 2;
 	ZeroSemaphore sem;
+
+	const int count = 2;
 	for (int i = 0;i < count; i++)
 	{
 		auto p = std::to_string(i);
@@ -408,12 +396,8 @@ TEST(ExceptionFromRPC)
 	sem.wait();
 }
 
-#endif
-
-// #TODO : Enable this test once we add exceptions handling to czspas
-#if 1
-// Test RPCs throwing exceptions
-TEST(ExceptionThrowing)
+// Test  throwing exceptions from rpc handlers
+TEST(ExceptionFromReplyHandler)
 {
 	using namespace cz::rpc;
 	TestRPCServer<Tester, void> server;
@@ -465,15 +449,15 @@ TEST(ExceptionThrowing)
 		expectedUnhandledExceptions.decrement();
 		CHECK_EQUAL("Testing exception", exc.what());
 	}
-
 	expectedUnhandledExceptions.wait();
+
+	// Now call an RPC and handle it without throwing, to test if the Service is still running fine
+	auto res = CZRPC_CALL(client->con, add, 1, 2).ft().get();
+	CHECK_EQUAL(3, res.get());
 
 	service.stop();
 	ioth.join();
 }
-#endif
-
-#if ALL_TESTS
 
 // Having the server call a function on the client
 TEST(ClientCall)
@@ -833,7 +817,5 @@ TEST(Throughput)
 	auto mb = (double)res.second/(1000*1000);
 	printf("RPC throughput: %0.2f Mbit/s (%0.2f MB/s)\n", (mb*8)/seconds, mb/seconds);
 }
-
-#endif
 
 }

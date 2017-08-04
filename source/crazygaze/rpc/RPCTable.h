@@ -92,6 +92,11 @@ struct InProcessorData
 
 	~InProcessorData()
 	{
+		clear();
+	}
+
+	void clear()
+	{
 		auto tmp = pending([&](PendingFutures& pending)
 		{
 			decltype(pending.futures) tmp;
