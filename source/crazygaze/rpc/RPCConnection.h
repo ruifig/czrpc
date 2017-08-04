@@ -207,9 +207,6 @@ public:
 				// Release any resources kept by the handler
 				m_onDisconnect = nullptr;
 			}
-			// Release our strong reference to the session data.
-			// If the transport will still need to keep the session alive, it can get it from the weak_ptr.
-			m_strongSession = nullptr;
 		}
 	}
 
