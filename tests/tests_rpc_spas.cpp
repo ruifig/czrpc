@@ -396,7 +396,9 @@ TEST(ExceptionFromRPC)
 	sem.wait();
 }
 
-// Test  throwing exceptions from rpc handlers
+// Test throwing exceptions from rpc handlers
+// When the user throws an exception from an rpc handler, we can just call Service::run to resume
+// 
 TEST(ExceptionFromReplyHandler)
 {
 	using namespace cz::rpc;
@@ -410,6 +412,10 @@ TEST(ExceptionFromReplyHandler)
 	ZeroSemaphore expectedUnhandledExceptions;
 	std::thread ioth([&service, &expectedUnhandledExceptions]
 	{
+		//
+		// Continuously call Service::run until we get a normal exit.
+		// Whenever an rpc handler throws an exception, we catch here, do something with it if necessary, and call
+		// Service::run again.
 		while(true)
 		{
 			try
