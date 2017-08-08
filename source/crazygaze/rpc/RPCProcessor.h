@@ -30,7 +30,7 @@ struct OutProcessor
 			using R = typename ParamTraits<typename FunctionTraits<F>::return_type>::store_type;
 			if (in)
 			{
-				if (hdr.bits.success)
+				if (hdr.isSuccess())
 				{
 					if (dbg)
 					{
@@ -117,10 +117,10 @@ struct InProcessor
 			CZRPC_LOG(Log, CZRPC_LOGSTR_RECEIVE"size=%u,counter=%u,%u:%s::%s",
 				dbg->num,
 				in.writeSize(),
-				hdr.bits.counter, hdr.bits.rpcid,
-				Table<T>::getName().c_str(), Table<T>::get(hdr.bits.rpcid)->name.c_str());
+				hdr.getCounter(), hdr.getRPCId(),
+				Table<T>::getName().c_str(), Table<T>::get(hdr.getRPCId())->name.c_str());
 		}
-		auto&& info = Table<Type>::get(hdr.bits.rpcid);
+		auto&& info = Table<Type>::get(hdr.getRPCId());
 		info->dispatcher(*obj, in, data, con, transport, hdr, dbg);
 	}
 
@@ -145,7 +145,7 @@ public:
 		{
 			CZRPC_LOG(Log, CZRPC_LOGSTR_RECEIVE"size=%u,%u,%u:void::NA",
 				dbg->num,
-				in.writeSize(), hdr.bits.counter, hdr.bits.rpcid);
+				in.writeSize(), hdr.getCounter(), hdr.getRPCId());
 		}
 		//assert(0 && "Incoming RPC not allowed for void local type");
 		details::Send::error(trp, hdr, "Peer doesn't have an object to process RPC calls", dbg);

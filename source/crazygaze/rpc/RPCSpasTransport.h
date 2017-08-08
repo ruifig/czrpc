@@ -3,6 +3,7 @@
 #include "../../../czspas/source/crazygaze/spas/spas.h"
 #include "RPCTransport.h"
 #include "RPCConnection.h"
+#include "RPCTable.h"
 #include "RPCUtils.h"
 
 namespace cz
@@ -70,7 +71,7 @@ public:
 			if (!ec)
 			{
 				rpccon.init(nullptr, *this, session);
-				startReadSize();
+				startReadHeader();
 			}
 
 			h(ec);
@@ -131,7 +132,7 @@ public:
 
 		LOCAL* rpcObj = static_cast<LOCAL*>(&localObj);
 		rpccon.init(rpcObj, *this, std::move(session));
-		startReadSize();
+		startReadHeader();
 		return ec;
 	}
 
@@ -150,7 +151,7 @@ public:
 			return ec;
 
 		rpccon.init(nullptr, *this, std::move(session));
-		startReadSize();
+		startReadHeader();
 		return ec;
 	}
 
@@ -323,11 +324,11 @@ private:
 		checkConProcessCallTrigger();
 	}
 
-	void startReadSize()
+	void startReadHeader()
 	{
 		assert(m_incoming.size() == 0);
-		m_incoming.insert(m_incoming.end(), 4, 0);
-		spas::asyncReceive(m_sock, m_incoming.data(), 4,
+		m_incoming.insert(m_incoming.end(), sizeof(Header), 0);
+		spas::asyncReceive(m_sock, m_incoming.data(), sizeof(Header),
 			[this, session = m_con->getSession()](const spas::Error& ec, size_t transfered)
 		{
 			if (ec)
@@ -342,9 +343,19 @@ private:
 
 	void startReadData()
 	{
-		auto rpcSize = *reinterpret_cast<uint32_t*>(&m_incoming[0]);
-		m_incoming.insert(m_incoming.end(), rpcSize - 4, 0);
-		spas::asyncReceive(m_sock, &m_incoming[4], rpcSize - 4,
+		Header* hdr = reinterpret_cast<rpc::Header*>(&m_incoming[0]);
+		auto todo = hdr->getSize() - sizeof(Header);
+
+		// If we received all the data in the header (e.g: The rpc doesn't have any parameters),
+		// then we are done
+		if (todo == 0)
+		{
+			receiveDone(0);
+			return;
+		}
+
+		m_incoming.insert(m_incoming.end(), todo, 0);
+		spas::asyncReceive(m_sock, &m_incoming[sizeof(Header)], todo,
 			[this, session = m_con->getSession()](const spas::Error& ec, size_t transfered)
 		{
 			if (ec)
@@ -352,16 +363,21 @@ private:
 				onClosing();
 				return;
 			}
-
-			assert(transfered == m_incoming.size() - 4);
-			m_in([this](In& in)
-			{
-				in.q.push(std::move(m_incoming));
-			});
-			startReadSize();
-			checkConProcessCallTrigger();
+			receiveDone(transfered);
 		});
 	}
+
+	void receiveDone(size_t transfered)
+	{
+		assert(transfered == m_incoming.size() - sizeof(Header));
+		m_in([this](In& in)
+		{
+			in.q.push(std::move(m_incoming));
+		});
+		startReadHeader();
+		checkConProcessCallTrigger();
+	}
+
 
 };
 
@@ -423,7 +439,7 @@ public:
 			if (!ec)
 			{
 				rpccon.init(rpcObj, trp, session);
-				trp.startReadSize();
+				trp.startReadHeader();
 			}
 			h(ec);
 		});

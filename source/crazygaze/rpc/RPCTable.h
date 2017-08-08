@@ -6,48 +6,123 @@ namespace rpc
 {
 
 // Small utility struct to make it easier to work with the RPC headers
-struct Header
+// The previous version used bit fields, which made for shorter code, but bitfield packing is compiler dependent,
+// so now it uses old school bit manipulation
+class Header
 {
+public:
+	// NOTE:
+	// Internally, it used the following bit layout
+	//
+	// hasDbg | isReply | success | size | rpcid | counter 
+	//
+	// You can tweak how to best use the header bits for your needs.
+	// Sum of all enums must be 64 (64bits).
 	enum
 	{
+		// For the flags(hasDbg, isReply, success). DONT CHANGE THIS FIELD
+		kFlagsBits = 3,
+		// Maximum size for a single RPC
 		kSizeBits = 32,
+		// This dictates how many rpc functions a single table can have
 		kRPCIdBits = 7,
-		kCounterBits = 22,
+		// This is used together with "kRPCIdBits" to form a key that uniquely identifies a single RPC call.
+		// For example, imagine you call the same RPC twice. Internally, czrpc needs to know how to differentiate the
+		// two.
+		// By having a counter that is incremented with each rpc call, two calls of the same rpc function can be
+		// differentiated.
+		kCounterBits = 22
 	};
-	explicit Header()
+
+private:
+
+	void setBit(bool val, unsigned shift)
 	{
-		static_assert(sizeof(*this) == sizeof(uint64_t), "Invalid size. Check the bitfields");
-		all_ = 0;
+		uint64_t v = val ? 1 : 0;
+		m_all &= ~((uint64_t)1 << shift); // clear the bit
+		m_all |= (v << shift); // set the bit
+	}
+	bool getBit(unsigned shift) const
+	{
+		return (m_all & ((uint64_t)1 << shift)) ? true : false;
 	}
 
-	struct Bits
+	void setBits(unsigned numBits, unsigned val, unsigned shift)
 	{
-		unsigned size : kSizeBits;
-		unsigned counter : kCounterBits;
-		unsigned rpcid : kRPCIdBits;
-		unsigned hasDbg : 1;   // Does this have a debug section before the payload ?
-		unsigned isReply : 1;  // Is it a reply to a RPC call ?
-		unsigned success : 1;  // Was the RPC call a success ?
-	};
+		CZRPC_ASSERT((uint64_t)val < (uint64_t)1 << numBits);
+		m_all &= ~((((uint64_t)1 << numBits) - 1) << shift);
+		m_all |= (uint64_t)val << shift;
+	}
+	unsigned getBits(unsigned numBits, unsigned shift) const
+	{
+		return (m_all >> shift) & (((uint64_t)1 << numBits) - 1);
+	}
 
-	uint32_t key() const { return (bits.counter << kRPCIdBits) | bits.rpcid; }
-	bool isGenericRPC() const { return bits.rpcid == 0; }
+	uint64_t m_all;
 
-	union {
-		Bits bits;
-		uint64_t all_;
-	};
+public:
+	explicit Header()
+	{
+		// make sure no field has more than 32 bits;
+		static_assert(kSizeBits <= 32, "No field can have more than 32 bits");
+		static_assert(kRPCIdBits <= 32, "No field can have more than 32 bits");
+		static_assert(kCounterBits <= 32, "No field can have more than 32 bits");
+		static_assert((kFlagsBits + kSizeBits + kRPCIdBits + kCounterBits) == 64, "Invalid header size");
+		static_assert(sizeof(*this) == sizeof(uint64_t), "Invalid size");
+		m_all = 0;
+	}
+
+	void setHasDbg(bool val)
+	{
+		setBit(val, 2 + kSizeBits + kRPCIdBits + kCounterBits);
+	}
+	void setIsReply(bool val)
+	{
+		setBit(val, 1 + kSizeBits + kRPCIdBits + kCounterBits);
+	}
+	void setSuccess(bool val)
+	{
+		setBit(val, 0 + kSizeBits + kRPCIdBits + kCounterBits);
+	}
+	void setSize(unsigned val)
+	{
+		setBits(kSizeBits, val, kRPCIdBits + kCounterBits);
+	}
+	void setRPCId(unsigned val)
+	{
+		setBits(kRPCIdBits, val, kCounterBits);
+	}
+	void setCounter(unsigned val)
+	{
+		setBits(kCounterBits, val, 0);
+	}
+
+	uint32_t key() const
+	{
+		return (((uint64_t)1 << (kRPCIdBits + kCounterBits)) - 1) & m_all;
+	}
+
+	bool hasDbg() const { return getBit(2 + kSizeBits + kRPCIdBits + kCounterBits); }
+	bool isReply() const { return getBit(1 + kSizeBits + kRPCIdBits + kCounterBits); }
+	bool isSuccess() const { return getBit(0 + kSizeBits + kRPCIdBits + kCounterBits); }
+	unsigned getSize() const { return getBits(kSizeBits, kRPCIdBits + kCounterBits); }
+	unsigned getRPCId() const { return getBits(kRPCIdBits, kCounterBits); }
+	unsigned getCounter() const { return getBits(kCounterBits, 0); }
+	bool isGenericRPC() const { return getRPCId() == 0; }
+
+	const uint64_t& raw() const { return m_all;  }
+	uint64_t& raw() { return m_all;  }
 };
 
 inline Stream& operator<<(Stream& s, const Header& v)
 {
-	s << v.all_;
+	s << v.raw();
 	return s;
 }
 
 inline Stream& operator>>(Stream& s, Header& v)
 {
-	s >> v.all_;
+	s >> v.raw();
 	return s;
 }
 
@@ -155,10 +230,10 @@ struct Send
 		Stream o;
 		o << hdr; // reserve space for the header
 		o << what;
-		hdr.bits.hasDbg = false;
-		hdr.bits.isReply = true;
-		hdr.bits.success = false;
-		hdr.bits.size = o.writeSize();
+		hdr.setHasDbg(false);
+		hdr.setIsReply(true);
+		hdr.setSuccess(false);
+		hdr.setSize(o.writeSize());
 		*reinterpret_cast<Header*>(o.ptr(0)) = hdr;
 		if (dbg)
 		{
@@ -170,10 +245,11 @@ struct Send
 
 	static void result(Transport& trp, Header hdr, Stream& o, DebugInfo* dbg)
 	{
-		hdr.bits.hasDbg = false;
-		hdr.bits.isReply = true;
-		hdr.bits.success = true;
-		hdr.bits.size = o.writeSize();
+		hdr.setHasDbg(false);
+		hdr.setIsReply(true);
+		hdr.setSuccess(true);
+		hdr.setSize(o.writeSize());
+		 
 		*reinterpret_cast<Header*>(o.ptr(0)) = hdr;
 		if (dbg)
 		{

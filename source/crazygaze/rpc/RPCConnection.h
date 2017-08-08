@@ -1,6 +1,5 @@
 #pragma once
 
-
 namespace cz
 {
 namespace rpc
@@ -65,7 +64,7 @@ protected:
 		: m_con(con)
 	{
 		Header hdr;
-		hdr.bits.rpcid = rpcid;
+		hdr.setRPCId(rpcid);
 		m_data << hdr; // reserve space for the header
 	}
 	
@@ -74,7 +73,7 @@ protected:
 		// debug info needs to be right after the header
 		CZRPC_ASSERT(m_data.writeSize() == sizeof(Header));
 		auto hdr = reinterpret_cast<Header*>(m_data.ptr(0));
-		hdr->bits.hasDbg = true;
+		hdr->setHasDbg(true);
 		DebugInfo dbg(file, line);
 		m_data << dbg;
 		return dbg.num;
@@ -278,13 +277,13 @@ protected:
 			Stream in(std::move(data));
 			in >> hdr;
 			std::unique_ptr<DebugInfo> dbg;
-			if (hdr.bits.hasDbg)
+			if (hdr.hasDbg())
 			{
 				dbg = std::make_unique<DebugInfo>();
 				in >> *dbg;
 			}
 				
-			if (hdr.bits.isReply)
+			if (hdr.isReply())
 				m_remotePrc.processReply(in, hdr);
 			else
 				m_localPrc.processCall(*this, *m_transport, in, hdr, dbg.get());
@@ -298,7 +297,7 @@ protected:
 	static DebugInfo* getDbgInfo(Stream& data)
 	{
 		auto hdr = getHeader(data);
-		if (hdr->bits.hasDbg)
+		if (hdr->hasDbg())
 			return reinterpret_cast<DebugInfo*>(hdr + 1);
 		else
 			return nullptr;
@@ -330,13 +329,13 @@ protected:
 	bool send(Stream&& data, H&& handler)
 	{
 		auto hdr = getHeader(data);
-		hdr->bits.size = data.writeSize();
-		hdr->bits.counter = ++m_remotePrc.replyIdCounter;
+		hdr->setSize(data.writeSize());
+		hdr->setCounter(++m_remotePrc.replyIdCounter);
 		auto dbg = getDbgInfo(data);
 		if (dbg)
 		{
 			CZRPC_LOG(Log, CZRPC_LOGSTR_SEND"hdr=(size=%u, counter=%u",
-				dbg->num, hdr->bits.size, hdr->bits.counter);
+				dbg->num, hdr->getSize(), hdr->getCounter());
 		}
 		m_remotePrc.template addReplyHandler<F>(hdr->key(), std::forward<H>(handler), dbg);
 		return m_transport->send(data.extract());
