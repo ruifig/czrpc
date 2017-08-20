@@ -99,14 +99,21 @@ private:
 	static std::shared_ptr<SharedData> shared(void* owner)
 	{
 		static std::mutex mtx;
-		static std::unordered_map<void*, std::weak_ptr<SharedData>> objs;
+		using Map = std::unordered_map<void*, std::weak_ptr<SharedData>>;
+		// NOTE: Using a unique_ptr, instead of putting it on the stack so we can deallocate all memory
+		static std::unique_ptr<Map> objs;
 
 		std::lock_guard<std::mutex> lk(mtx);
-		auto it = objs.find(owner);
-		if (it==objs.end())
+
+		// Create if necessary
+		if (!objs)
+			objs = std::make_unique<Map>();
+
+		auto it = objs->find(owner);
+		if (it==objs->end())
 		{
 			auto p = std::make_shared<SharedData>();
-			objs.insert(std::make_pair(owner, p));
+			objs->insert(std::make_pair(owner, p));
 			return p;
 		}
 		else
@@ -114,7 +121,10 @@ private:
 			auto p = it->second.lock();
 			if (p)
 				return p;
-			objs.erase(it);
+			objs->erase(it);
+			// If empty, then delete the map, to avoid any false memory leaks if using czrpc from a DLL
+			if (objs->size() == 0)
+				objs = nullptr;
 			return nullptr;
 		}
 	}
