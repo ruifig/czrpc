@@ -100,10 +100,22 @@ public:
 	using ThisType = Connection<Local, Remote>;
 
 	template<typename R, typename C> friend class Call;
+private:
+
+	// Moved the Table<T>::getTbl to an seperate function, so I can have the Table<void> specialization which
+	// does nothing
+	template<typename T>
+	static void touchTable(int counter) { Table<T>::getTbl(counter); }
+	// Specialization for void, which does nothing
+	template<> static void touchTable<void>(int counter) { }
+
+public:
 
 	Connection()
 	{
 		//printf("%p : Constructor\n", this);
+		touchTable<Local>(1);
+		touchTable<Remote>(1);
 	}
 
 	void init(Local* localObj, Transport& transport, std::shared_ptr<SessionData> session)
@@ -115,6 +127,8 @@ public:
 	virtual ~Connection()
 	{
 		//printf("%p : Destructor\n", this);
+		touchTable<Local>(-1);
+		touchTable<Remote>(-1);
 	}
 
 	template<typename F, typename... Args>

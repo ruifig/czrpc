@@ -36,22 +36,51 @@ public:
 		RPCTABLE_CONTENTS
 	}
 
-	static const Table<RPCTABLE_CLASS>& getTbl()
+	//!
+	// A work around to get rid of false warnings for memory leaks when using czrpc in a DLL.
+	// A Connection instance using a Table needs to can this with 1 in the constructor, then with -1 in the
+	// destructor. Once no more connections need it, it will get destroyed.
+	static const Table<RPCTABLE_CLASS>* getTbl(int counterInc)
 	{
-		static Table<RPCTABLE_CLASS> tbl;
-		return tbl;
+		static std::mutex mtx;
+		static int counter;
+		static std::unique_ptr<Table<RPCTABLE_CLASS>> tbl;
+		if (counterInc == 0)
+		{
+			// If counterInc is 0, whoever is calling this should have already called it with counterInc>0 to
+			// create the table, so in this case I believe we don't even need a mutex by design, since the tbl
+			// pointer will be read only for all the threads until all threads make their getTbl(-1) calls
+			// to release the table
+			assert(tbl.get() != nullptr);
+			return tbl.get();
+		}
+		else
+		{
+			std::unique_lock<std::mutex> lock(mtx);
+			counter += counterInc;
+			if (counter > 0)
+			{
+				if (tbl.get() == nullptr)
+					tbl = std::make_unique<Table<RPCTABLE_CLASS>>();
+			}
+			else
+			{
+				tbl = nullptr;
+			}
+			return tbl.get();
+		}
 	}
 
 	static const std::string& getName()
 	{
-		return getTbl().m_name;
+		return getTbl(0)->m_name;
 	}
 
 	static const Info* get(uint32_t rpcid)
 	{
-		auto& tbl = getTbl();
-		assert(tbl.isValid(rpcid));
-		return static_cast<Info*>(tbl.m_rpcs[rpcid].get());
+		auto tbl = getTbl(0);
+		assert(tbl->isValid(rpcid));
+		return static_cast<Info*>(tbl->m_rpcs[rpcid].get());
 	}
 };
 
