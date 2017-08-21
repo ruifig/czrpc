@@ -11,6 +11,9 @@ public:
 	virtual ~SessionData() {}
 };
 
+// Forward declaration
+class BaseConnection;
+
 class Transport
 {
   public:
@@ -35,7 +38,7 @@ class Transport
 	virtual void onSendReady() {}
 
 protected:
-	friend class BaseConnection;
+	friend BaseConnection;
 	BaseConnection* m_con = nullptr;
 };
 }

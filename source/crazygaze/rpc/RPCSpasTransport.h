@@ -46,7 +46,7 @@ public:
 			if (!ec)
 			{
 				rpccon.init(rpcObj, *this, session);
-				startReadSize();
+				startReadHeader();
 			}
 
 			h(ec);

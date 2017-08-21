@@ -5,7 +5,7 @@ namespace cz
 namespace rpc
 {
 
-namespace
+namespace detail
 {
 	struct ReplyInfo
 	{
@@ -19,7 +19,7 @@ struct OutProcessor
 {
 	using Type = T;
 	uint32_t replyIdCounter = 0;
-	std::unordered_map<uint32_t, ReplyInfo> replies;
+	std::unordered_map<uint32_t, detail::ReplyInfo> replies;
 
 	template<typename F, typename H>
 	void addReplyHandler(uint32_t key, H&& handler, DebugInfo* dbg)
@@ -64,7 +64,7 @@ struct OutProcessor
 	{
 		auto it = replies.find(hdr.key());
 		assert(it != replies.end());
-		ReplyInfo r = std::move(it->second);
+		detail::ReplyInfo r = std::move(it->second);
 		replies.erase(it);
 		r.h(&in, hdr, r.dbg.get());
 	}

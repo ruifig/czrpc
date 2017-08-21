@@ -102,7 +102,7 @@ private:
 		printf("%s: %s\n", name=="" ? "SYSTEM" : name.c_str(), msg.c_str());
 	}
 
-	std::atomic<bool> m_finished = false;
+	std::atomic<bool> m_finished {false};
 	ConType m_con;
 	SpasTransport m_trp;
 };

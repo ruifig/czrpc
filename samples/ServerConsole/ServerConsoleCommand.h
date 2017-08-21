@@ -46,7 +46,7 @@ struct Data
 {
 	std::unordered_map<std::string, std::shared_ptr<ConInfo>> cons;
 	spas::Service service;
-	std::atomic<bool> finish = false;
+	std::atomic<bool> finish {false};
 };
 
 extern Data* gData;

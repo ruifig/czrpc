@@ -2,10 +2,10 @@
 
 #include "Foo.h"
 
-#define CHECK_CZSPAS_EQUAL_IMPL(expected, ec)                                                                      \
-	if ((ec.code) != (expected))                                                                 \
+#define CHECK_CZSPAS_EQUAL_IMPL(expected, ec)                                                                 \
+	if ((ec.code) != (expected))                                                                              \
 	{                                                                                                         \
-		UnitTest::CheckEqual(*UnitTest::CurrentTest::Results(), Error(expected).msg(), ec.msg(), \
+		UnitTest::CheckEqual(*UnitTest::CurrentTest::Results(), cz::spas::Error(expected).msg(), ec.msg(),    \
 		                     UnitTest::TestDetails(*UnitTest::CurrentTest::Details(), __LINE__));             \
 	}
 
@@ -159,7 +159,7 @@ public:
 		{
 			// If required, add the dummy Work to the service, so that Service::run doesn't exit immediately
 			if (keepAlive)
-				m_keepAliveWork = std::make_unique<spas::Service::Work>(m_service);
+				m_keepAliveWork = std::make_unique<cz::spas::Service::Work>(m_service);
 			m_service.run();
 		});
 
@@ -199,12 +199,12 @@ private:
 			return;
 		auto session = std::make_shared<Session<Local, Remote>>(m_service);
 		m_acceptor.asyncAccept(session, session->trp, session->con, m_servedObj,
-			[this, leftToAccept, session](const spas::Error& ec)
+			[this, leftToAccept, session](const cz::spas::Error& ec)
 		{
 			int todo = leftToAccept;
 			if (ec)
 			{
-				if (ec.code == spas::Error::Code::Cancelled)
+				if (ec.code == cz::spas::Error::Code::Cancelled)
 					return;
 				CZRPC_LOG(Log, "Failed to accept connection: %s", ec.msg());
 			}

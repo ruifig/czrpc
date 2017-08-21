@@ -97,6 +97,11 @@ TEST(SpasTransport_Accept_ok)
 	CHECK_EQUAL(1, done.getCount());
 }
 
+// Windows and Linux deal with asynchronous connects success/failure differently, so testing this is a bit akward.
+// Example if trying a connect to 120.0.0.1 when no server is listening:
+// On Windows we get a timeout error
+// On Linux, it doesn't wait for a timeout. It gives an error right away. So, to test a timeout, we need to try
+// and connect to some external ip (e.g: 254.254.254.254)
 void test_asyncConnect_lambda(spas::Error::Code expected)
 {
 	TestRPCServer<Tester> server;
@@ -108,7 +113,10 @@ void test_asyncConnect_lambda(spas::Error::Code expected)
 	ServiceThread ioth;
 	Session<void, Tester> client(ioth.service);
 	Semaphore done;
-	client.trp.asyncConnect(nullptr, client.con, "127.0.0.1", TEST_PORT, [&](const spas::Error& ec)
+	client.trp.asyncConnect(
+		nullptr, client.con,
+		expected==spas::Error::Code::Timeout ? "254.254.254.254" : "127.0.0.1",
+		TEST_PORT, [&](const spas::Error& ec)
 	{
 		CHECK_CZSPAS_EQUAL_IMPL(expected, ec);
 		done.notify();
@@ -143,7 +151,8 @@ TEST(asyncConnect_lambda_ok)
 	test_asyncConnect_lambda(cz::spas::Error::Code::Success);
 }
 
-
+// NOTE: To test a timeout, we need to try to connecto to an external IP (e.g: 254.254.254), since Linux
+// will bypass the timeout if we try and connecto to localhost
 void test_asyncConnect_future(cz::spas::Error::Code expected)
 {
 	TestRPCServer<Tester> server;
@@ -153,7 +162,8 @@ void test_asyncConnect_future(cz::spas::Error::Code expected)
 
 	ServiceThread ioth;
 	Session<void, Tester> client(ioth.service);
-	auto ft = client.trp.asyncConnect(nullptr, client.con, "127.0.0.1", TEST_PORT);
+	auto ft = client.trp.asyncConnect(nullptr, client.con,
+	  expected==cz::spas::Error::Code::Timeout ? "254.254.254.254" : "127.0.0.1", TEST_PORT);
 
 	if (expected == spas::Error::Code::Cancelled)
 	{
