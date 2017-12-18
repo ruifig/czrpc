@@ -28,9 +28,12 @@ public:
 		destroy();
 	}
 
-	// Constructing from an unsupported type leaves it set to None
+
+	// Constructing from an unsupported type tries to convert it to json and store it as a string
 	template<typename T>
-	explicit Any(const T&) : m_type(Type::None)
+	explicit Any(const T& v)
+		: m_type(Type::String)
+		, m_str(to_json(v))
 	{
 	}
 
@@ -441,13 +444,13 @@ static bool toTuple(const std::vector<Any>& v, Tuple& t)
 	return details::convert_any<Tuple, std::tuple_size<Tuple>::value == 0, 0>::convert(v, t);
 }
 
+
 } // namespace rpc
 } // namespace cz
 
 // Allow const references for some types czrpc uses internally
 CZRPC_DEFINE_CONST_LVALUE_REF(std::vector<cz::rpc::Any>)
 CZRPC_DEFINE_CONST_LVALUE_REF(std::string)
-
 
 #if defined(_MSC_VER)
 	#pragma warning(pop)
