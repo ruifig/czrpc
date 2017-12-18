@@ -25,7 +25,7 @@ struct OutProcessor
 	void addReplyHandler(uint32_t key, H&& handler, DebugInfo* dbg)
 	{
 		auto& r = replies[key];
-		r.h = [handler = std::move(handler)](Stream* in, Header hdr, DebugInfo* dbg)
+		r.h = [handler = std::move(handler)](Stream* in, Header hdr, DebugInfo* dbg) mutable
 		{
 			using R = typename ParamTraits<typename FunctionTraits<F>::return_type>::store_type;
 			if (in)
@@ -103,10 +103,10 @@ struct InProcessor
 
 	InProcessor() {}
 
-	void init(Type* obj)
+	void init(Type* obj_)
 	{
-		this->obj = obj;
-		data.init(obj);
+		this->obj = obj_;
+		data.init(obj_);
 		data.authPassed = data.objData.getAuthToken() == "" ? true : false;
 	}
 

@@ -329,6 +329,14 @@ TEST(WithParams)
 	tp = CZRPC_CALL(client->con, testTuple, tp).ft().get().get();
 	CHECK(std::get<0>(tp) == 1 && std::get<1>(tp) == "Test");
 
+	// Test with custom type, to test the custom ParamTraits
+	CustomType ct1{ 1, 2.0f, "Hi" };
+	CustomType ct2 = CZRPC_CALL(client->con, testCustomType, ct1).ft().get().get();
+	CHECK_EQUAL(ct1.a, ct2.a);
+	CHECK_EQUAL(ct1.b, ct2.b);
+	CHECK_EQUAL(ct1.c, ct2.c);
+
+
 	CHECK_EQUAL(1, sem.getCount());
 }
 

@@ -46,7 +46,7 @@ public:
 			if (!ec)
 			{
 				rpccon.init(rpcObj, *this, session);
-				startReadHeader();
+				start();
 			}
 
 			h(ec);
@@ -71,7 +71,7 @@ public:
 			if (!ec)
 			{
 				rpccon.init(nullptr, *this, session);
-				startReadHeader();
+				start();
 			}
 
 			h(ec);
@@ -132,7 +132,7 @@ public:
 
 		LOCAL* rpcObj = static_cast<LOCAL*>(&localObj);
 		rpccon.init(rpcObj, *this, std::move(session));
-		startReadHeader();
+		start();
 		return ec;
 	}
 
@@ -151,7 +151,7 @@ public:
 			return ec;
 
 		rpccon.init(nullptr, *this, std::move(session));
-		startReadHeader();
+		start();
 		return ec;
 	}
 
@@ -172,6 +172,11 @@ public:
 		return m_sock;
 	}
 
+	// #TODO : Revise this
+	bool isConnected() const
+	{
+		return m_open;
+	}
 private:
 
 	//
@@ -241,6 +246,7 @@ private:
 
 private:
 	friend class SpasTransportAcceptor;
+	bool m_open = false;
 	bool m_closing = false;
 	spas::Socket m_sock;
 	struct Out
@@ -324,6 +330,12 @@ private:
 		checkConProcessCallTrigger();
 	}
 
+	void start()
+	{
+		m_open = true;
+		startReadHeader();
+	}
+
 	void startReadHeader()
 	{
 		assert(m_incoming.size() == 0);
@@ -382,16 +394,9 @@ private:
 };
 
 
-//template<typename LOCAL, typename REMOTE>
 class SpasTransportAcceptor
 {
 public:
-#if 0
-	using LocalType = LOCAL;
-	using RemoteType = REMOTE;
-	using ConnectionType = Connection<LocalType, RemoteType>;
-#endif
-
 	SpasTransportAcceptor(spas::Service& io)
 		: m_acceptor(io)
 	{
@@ -416,14 +421,6 @@ public:
 		return m_acceptor.listen(port);
 	}
 
-#if 0
-	template< typename H, typename = spas::detail::IsConnectHandler<H> >
-	void asyncAccept(SpasTransport& trp, H&& h)
-	{
-		m_acceptor.asyncAccept(trp.m_sock, std::forward<H>(h));
-	}
-#endif
-
 	//! Version for Connection<LOCAL, REMOTE>
 	template<typename LOCAL, typename REMOTE, typename LOCAL_, typename H,
 		typename = cz::spas::detail::IsConnectHandler<H>>
@@ -439,7 +436,7 @@ public:
 			if (!ec)
 			{
 				rpccon.init(rpcObj, trp, session);
-				trp.startReadHeader();
+				trp.start();
 			}
 			h(ec);
 		});

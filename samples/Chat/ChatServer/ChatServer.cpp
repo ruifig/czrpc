@@ -152,8 +152,6 @@ private:
 		{
 			auto it = m_clients.find(ConType::getCurrent());
 			return (it == m_clients.end()) ? nullptr : it->second.get();
-			if (it == m_clients.end())
-				return nullptr;
 		}
 		else
 		{

@@ -75,6 +75,44 @@ private:
 	int m_readpos = 0;
 };
 
+//
+// StreamDirection and StreamWrapper is an experimental way to allow the user to define only one function that
+// specifies the fields to serialize for a given type, so there is no need to create both the ParamTraits<T>::write and
+// ParamTraits<T>::read.
+// This might be removed in the future
+enum StreamDirection
+{
+	Read,
+	Write
+};
+
+template<StreamDirection D>
+struct StreamWrapper { };
+
+template<>
+struct StreamWrapper<Read>
+{ 
+	StreamWrapper(Stream& s) : s(s) {}
+	template<typename T>
+	inline void op(T& v)
+	{
+		ParamTraits<T>::read(s, v);
+	}
+	Stream& s;
+};
+
+template<>
+struct StreamWrapper<Write>
+{ 
+	StreamWrapper(Stream& s) : s(s) {}
+	template<typename T>
+	inline void op(const T& v)
+	{
+		ParamTraits<T>::write(s, v);
+	}
+	Stream& s;
+};
+
 template <typename T>
 Stream& operator<<(Stream& s, const T& v) {
 	ParamTraits<T>::write(s, v);
@@ -82,9 +120,16 @@ Stream& operator<<(Stream& s, const T& v) {
 }
 
 template <typename T>
-Stream& operator>>(Stream& s, T& v) {
+inline Stream& operator>>(Stream& s, T& v) {
 	ParamTraits<T>::read(s, v);
     return s;
+}
+
+template<StreamDirection D, typename T>
+inline StreamWrapper<D>& operator^(StreamWrapper<D>& s, T& v)
+{
+	s.op(v);
+	return s;
 }
 
 }  // namespace rpc

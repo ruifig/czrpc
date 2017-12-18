@@ -11,9 +11,11 @@ transports you want to use
 	#define CZRPC_CATCH_EXCEPTIONS 1
 #endif
 
-// If defined AND set to 1, it will use Boost Asio, instead of standalone Asio
-#if !defined(CZRPC_HAS_BOOST)
-	#define CZRPC_HAS_BOOST 0
+// If on Windows, allow transforming RPC calls into PPL tasks, so the user can for example use continuations
+#if _WIN32
+	#define CZRPC_HAS_PPLTASK 1
+#else
+	#define CZRPC_HAS_PPLTASK 0
 #endif
 
 #ifdef _WIN32
@@ -83,6 +85,9 @@ transports you want to use
 #include <functional>
 #include <assert.h>
 #include <cstring>
+#if CZRPC_HAS_PPLTASK
+	#include <ppl.h>
+#endif
 #include "crazygaze/rpc/RPCCallstack.h"
 #include "crazygaze/rpc/RPCParamTraits.h"
 #include "crazygaze/rpc/RPCAny.h"

@@ -105,6 +105,35 @@ struct ParamTraits {
 	}                                              \
 	}
 
+// Specializes ParamTraits for TYPE, and uses a generic serialization function that uses the operator ^ to
+// This allows the user to have just one function that specifies all the fields to serialize/deserialize for a given
+// type.
+// E.g:
+//	template<cz::rpc::StreamDirection D>
+//	void generic_serialize(cz::rpc::StreamWrapper<D>& s, CustomType& v)
+//	{
+//		s ^ v.a;
+//		s ^ v.b;
+//		s ^ v.c;
+//	}
+#define CZRPC_DEFINE_PARAMTRAITS_FROM_GENERIC(TYPE)                           \
+	template <>                                                               \
+	struct ::cz::rpc::ParamTraits<TYPE> : ::cz::rpc::DefaultParamTraits<TYPE> \
+	{                                                                         \
+		template <typename S>                                                 \
+		static void write(S& s, const TYPE& v)                                \
+		{                                                                     \
+			auto sw = StreamWrapper<Write>(s);                                \
+			generic_serialize(sw, const_cast<TYPE&>(v));                      \
+		}                                                                     \
+		template <typename S>                                                 \
+		static void read(S& s, TYPE& v)                                       \
+		{                                                                     \
+			auto sw = StreamWrapper<Read>(s);                                 \
+			generic_serialize(sw, v);                                         \
+		}                                                                     \
+	};
+
 // void type is valid
 template <>
 struct ParamTraits<void> {
@@ -200,22 +229,49 @@ template <>
 struct ParamTraits<std::string> {
 	using store_type = std::string;
 	static constexpr bool valid = true;
-    template <typename S>
-    static void write(S& s, const char* v) {
-        details::StringTraits::write(s, v);
-    }
+	template <typename S>
+	static void write(S& s, const char* v) {
+		details::StringTraits::write(s, v);
+	}
 
-    template <typename S>
-    static void write(S& s, const std::string& v) {
-        details::StringTraits::write(s, v);
-    }
+	template <typename S>
+	static void write(S& s, const std::string& v) {
+		details::StringTraits::write(s, v);
+	}
 
-    template <typename S>
-    static void read(S& s, std::string& v) {
-        details::StringTraits::read(s, v);
-    }
+	template <typename S>
+	static void read(S& s, std::string& v) {
+		details::StringTraits::read(s, v);
+	}
 
 	static std::string&& get(std::string&& v)
+	{
+		return std::move(v);
+	}
+};
+
+// std::pair
+template <typename FIRST, typename SECOND>
+struct ParamTraits<std::pair<FIRST,SECOND>>
+{
+	static constexpr bool valid = ParamTraits<FIRST>::valid && ParamTraits<SECOND>::valid;
+	static_assert(
+		valid == true,
+		"Invalid std::pair type. Check if FIRST and SECOND are both valid rpc parameters");
+	using store_type = std::pair<FIRST, SECOND>;
+    template <typename S>
+    static void write(S& s, const store_type& v) {
+		s << v.first;
+		s << v.second;
+    }
+
+    template <typename S>
+    static void read(S& s, store_type& v) {
+		s >> v.first;
+		s >> v.second;
+    }
+
+	static store_type&& get(store_type&& v)
 	{
 		return std::move(v);
 	}

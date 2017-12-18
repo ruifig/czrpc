@@ -40,6 +40,15 @@ public:
 		destroy();
 	}
 
+	Result& operator=(const Result& other)
+	{
+		if (this == &other)
+			return *this;
+		destroy();
+		copyFrom(other);
+		return *this;
+	}
+
 	Result& operator=(Result&& other)
 	{
 		if (this == &other)
@@ -153,6 +162,15 @@ public:
 	~Result()
 	{
 		destroy();
+	}
+
+	Result& operator=(const Result& other)
+	{
+		if (this == &other)
+			return *this;
+		destroy();
+		copyFrom(other);
+		return *this;
 	}
 
 	Result& operator=(Result&& other)

@@ -12,6 +12,13 @@ namespace details
 	typedef Any(*GenericRPCFunc)(const std::string&, const std::vector<Any>&);
 }
 
+class WorkQueue
+{
+public:
+	virtual ~WorkQueue() {}
+	virtual void push(std::function<void()> f) = 0;
+};
+
 template<typename F, typename C>
 class Call
 {
@@ -44,6 +51,18 @@ public:
 		m_commited = true;
 	}
 
+	template<typename H>
+	void async(WorkQueue* workQueue, H&& handler)
+	{
+		async([workQueue, handler = std::forward<H>(handler)](Result<typename RTraits::store_type> res) mutable
+		{
+			workQueue->push([handler=std::forward<H>(handler), res=std::move(res)]() mutable
+			{
+				handler(std::move(res));
+			});
+		});
+	}
+
 	std::future<class Result<typename RTraits::store_type>> ft()
 	{
 		auto pr = std::make_shared<std::promise<Result<typename RTraits::store_type>>>();
@@ -55,6 +74,19 @@ public:
 
 		return ft;
 	}
+
+#if CZRPC_HAS_PPLTASK
+	concurrency::task<class Result<typename RTraits::store_type>> ppltask()
+	{
+		using ResType = Result<typename RTraits::store_type>;
+		concurrency::task_completion_event<ResType> ce;
+		async([ce](ResType&& res)
+		{
+			ce.set(std::move(res));
+		});
+		return concurrency::create_task(ce);
+	}
+#endif
 
 protected:
 
@@ -279,8 +311,6 @@ protected:
 	virtual bool processIn()
 	{
 		std::vector<char> data;
-		size_t done = 0;
-
 		while(true)
 		{
 			if (!m_transport->receive(data))
@@ -327,7 +357,6 @@ protected:
 		auto dbg = getDbgInfo(data);
 		if (dbg)
 		{
-			auto hdr = getHeader(data);
 			CZRPC_LOG(Log, CZRPC_LOGSTR_COMMIT"", dbg->num);
 		}
 		

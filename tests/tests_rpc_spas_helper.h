@@ -275,6 +275,24 @@ struct ServiceThread
 	}
 };
 
+struct CustomType
+{
+	int a;
+	float b;
+	std::string c;
+};
+
+template<cz::rpc::StreamDirection D>
+void generic_serialize(cz::rpc::StreamWrapper<D>& s, CustomType& v)
+{
+	s ^ v.a;
+	s ^ v.b;
+	s ^ v.c;
+}
+
+CZRPC_DEFINE_PARAMTRAITS_FROM_GENERIC(CustomType)
+CZRPC_DEFINE_CONST_LVALUE_REF(CustomType)
+
 // Class to be used as server side RPC interface, to test as much stuff as we can
 class Tester
 {
@@ -382,6 +400,11 @@ public:
 		return v;
 	}
 
+	CustomType testCustomType(const CustomType& v)
+	{
+		return v;
+	}
+
 	ZeroSemaphore testFuturePending;
 	std::promise<int> clientCallRes; // So the unit test can wait on the future to make sure the server got the reply from the client
 };
@@ -431,7 +454,8 @@ public:
 	REGISTERRPC(testFoo2) \
 	REGISTERRPC(testFuture) \
 	REGISTERRPC(testFutureFailure) \
-	REGISTERRPC(testAny)
+	REGISTERRPC(testAny) \
+	REGISTERRPC(testCustomType)
 
 #define RPCTABLE_CLASS Tester
 	#define RPCTABLE_CONTENTS RPCTABLE_TESTER_CONTENTS
@@ -484,4 +508,7 @@ SessionWrapper<Local, Remote> createClientSessionWrapper(cz::spas::Service& serv
 CZRPC_DEFINE_CONST_LVALUE_REF(std::vector<int>)
 // Alternatively, enable support for all "const T&" with
 // CZRPC_ALLOW_CONST_LVALUE_REFS;
+
+
+
 
