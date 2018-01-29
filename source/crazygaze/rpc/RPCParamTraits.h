@@ -161,6 +161,35 @@ struct ParamTraits<T,
 };
 
 //
+// Macros to makes it easier to serialize enums
+//
+#define CZRPC_HELPER_ENUM_DEFINE(ENUM, TYPE)                                   \
+  template <>                                                                  \
+  struct ::cz::rpc::ParamTraits<ENUM> : ::cz::rpc::DefaultParamTraits<TYPE> {  \
+    using store_type = ENUM;                                                   \
+    static constexpr bool valid = true;                                        \
+    template <typename S> static void write(S &s, ENUM v) {                    \
+      TYPE tmp = TYPE(v);                                                      \
+      s.write(&tmp, sizeof(tmp));                                              \
+    }                                                                          \
+    template <typename S> static void read(S &s, ENUM &v) {                    \
+      TYPE tmp;                                                                \
+      s.read(&tmp, sizeof(tmp));                                               \
+      v = ENUM(tmp);                                                           \
+    }                                                                          \
+    static ENUM get(ENUM v) { return v; }                                      \
+  };
+
+#define CZRPC_DEFINE_PARAMTRAITS_ENUM_8(TYPE) \
+	CZRPC_HELPER_ENUM_DEFINE(TYPE, uint8_t)
+
+#define CZRPC_DEFINE_PARAMTRAITS_ENUM_16(TYPE) \
+	CZRPC_HELPER_ENUM_DEFINE(TYPE, uint16_t)
+
+#define CZRPC_DEFINE_PARAMTRAITS_ENUM_32(TYPE) \
+	CZRPC_HELPER_ENUM_DEFINE(TYPE, uint32_t)
+
+//
 // std::string and const char*
 //
 namespace details {
