@@ -62,9 +62,9 @@ public:
 	private:
 		friend class Callstack<Key, Value>;
 		friend class Callstack<Key, Value>::Iterator;
-		Key* m_key;
-		Value* m_val;
-		Context* m_next;
+		Key* m_key = nullptr;
+		Value* m_val = nullptr;
+		Context* m_next = nullptr;
 	};
 
 	class Iterator

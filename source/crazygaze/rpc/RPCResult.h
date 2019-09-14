@@ -17,7 +17,10 @@ class Result
 public:
 	using Type = T;
 
-	Result() : m_state(State::Aborted) {}
+	Result()
+		: m_state(State::Aborted)
+	{
+	}
 
 	explicit Result(Type&& val)
 		: m_state(State::Valid)
@@ -25,7 +28,7 @@ public:
 	{
 	}
 
-	Result(Result&& other)
+	Result(Result&& other) noexcept
 	{
 		moveFrom(std::move(other));
 	}
@@ -49,7 +52,7 @@ public:
 		return *this;
 	}
 
-	Result& operator=(Result&& other)
+	Result& operator=(Result&& other) noexcept
 	{
 		if (this == &other)
 			return *this;
@@ -149,7 +152,7 @@ class Result<void>
 public:
 	Result() : m_state(State::Aborted) {}
 
-	Result(Result&& other)
+	Result(Result&& other) noexcept
 	{
 		moveFrom(std::move(other));
 	}
@@ -173,7 +176,7 @@ public:
 		return *this;
 	}
 
-	Result& operator=(Result&& other)
+	Result& operator=(Result&& other) noexcept
 	{
 		if (this == &other)
 			return *this;

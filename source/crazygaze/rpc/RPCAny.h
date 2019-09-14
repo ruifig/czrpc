@@ -86,7 +86,7 @@ public:
 		copyFrom(other);
 	}
 
-	Any(Any&& other)
+	Any(Any&& other) noexcept
 	{
 		moveFrom(std::move(other));
 	}
@@ -101,7 +101,7 @@ public:
 		return *this;
 	}
 
-	Any& operator=(Any&& other)
+	Any& operator=(Any&& other) noexcept
 	{
 		if (this != &other)
 		{

@@ -130,7 +130,7 @@ struct DebugInfo
 {
 	unsigned num;
 	int line;
-	char file[256];
+	char file[256] = "";
 	DebugInfo() {}
 	DebugInfo(const char* file_, int line_)
 	{

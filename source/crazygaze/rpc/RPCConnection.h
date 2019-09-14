@@ -27,7 +27,7 @@ private:
 	typedef ParamTraits<RType> RTraits;
 public:
 
-	Call(Call&& other)
+	Call(Call&& other) noexcept
 		: m_con(other.m_con)
 		, m_data(std::move(other.m_data))
 		, m_commited(other.m_commited)
