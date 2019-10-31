@@ -105,7 +105,7 @@ struct ParamTraits {
 	}                                              \
 	}
 
-// Specializes ParamTraits for TYPE, and uses a generic serialization function that uses the operator ^ to
+// Specializes ParamTraits for TYPE, and uses a generic serialization function that uses the operator ^.
 // This allows the user to have just one function that specifies all the fields to serialize/deserialize for a given
 // type.
 // E.g:

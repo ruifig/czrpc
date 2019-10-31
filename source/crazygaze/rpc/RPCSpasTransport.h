@@ -416,6 +416,11 @@ public:
 		return m_acceptor.listen(bindIP, port, backlog, reuseAddr);
 	}
 
+	std::pair<std::string, int> getLocalAddress() const
+	{
+		return m_acceptor.getLocalAddr();
+	}
+
 	spas::Error listen(int port)
 	{
 		return m_acceptor.listen(port);
