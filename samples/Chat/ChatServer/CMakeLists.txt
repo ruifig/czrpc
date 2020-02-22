@@ -1,8 +1,8 @@
-cz_setup_sample(ChatServer
+setup_czrpc_sample(ChatServer
 		"ChatServer.cpp"
 		"targetver.h"
-		"ChatServerPCH.cpp" "ChatServerPCH.h"
 		)
-set_target_properties(ChatServer PROPERTIES FOLDER "samples/chat")
+
+set_target_properties(ChatServer PROPERTIES FOLDER "samples/czrpc/chat")
 target_link_libraries(ChatServer ChatCommon)
 

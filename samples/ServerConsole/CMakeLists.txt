@@ -1,8 +1,7 @@
-cz_setup_sample(ServerConsole
+setup_czrpc_sample(ServerConsole
 		"ServerConsole.cpp"
 		"ServerConsoleCommand.cpp"
 		"ServerConsoleCommand.h"
 		"targetver.h"
-		"ServerConsolePCH.cpp" "ServerConsolePCH.h"
 		)
 

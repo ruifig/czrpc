@@ -18,8 +18,8 @@
 #include "crazygaze/rpc/RPC.h"
 #include "crazygaze/rpc/RPCSpasTransport.h"
 
-#include "../SamplesCommon/StringUtil.h"
-#include "../SamplesCommon/Parameters.h"
-#include "../SamplesCommon/SimpleServer.h"
-#include "../SamplesCommon/Misc.h"
+#include "../Common/StringUtil.h"
+#include "../Common/Parameters.h"
+#include "../Common/SimpleServer.h"
+#include "../Common/Misc.h"
 

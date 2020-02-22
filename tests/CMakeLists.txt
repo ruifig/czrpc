@@ -1,9 +1,6 @@
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.16)
 
-include(../cmake/ucm.cmake)
-include(../cmake/utils.cmake)
-
-ucm_add_files(
+add_executable(czrpc_tests
 		"Foo.h" "Foo.cpp"
 		"tests_any.cpp"
 		"tests_main.cpp"
@@ -11,12 +8,9 @@ ucm_add_files(
 		"tests_rpc_spas_helper.cpp"
 		"tests_rpc_spas_helper.h"
 		"tests_traits.cpp"
-		"testsPCH.cpp" "testsPCH.h"
-		TO SOURCE_FILES
 		)
 
-add_executable(tests ${SOURCE_FILES})
-cz_set_precompiled_header(tests "testsPCH.h" "testsPCH.cpp")
-target_link_libraries(tests czrpc UnitTest++)
-cz_set_postfix(tests)
+target_precompile_headers(czrpc_tests PUBLIC "testsPCH.h")
+target_link_libraries(czrpc_tests cz::rpc UnitTest++)
+set_property(TARGET czrpc_tests PROPERTY FOLDER "unit tests/czrpc")
 

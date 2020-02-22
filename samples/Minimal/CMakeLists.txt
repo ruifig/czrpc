@@ -1,6 +1,5 @@
-cz_setup_sample(Minimal
+setup_czrpc_sample(Minimal
 		"Minimal.cpp"
 		"targetver.h"
-		"MinimalPCH.cpp" "MinimalPCH.h"
 		)
 

@@ -13,5 +13,5 @@
 #define TCPINFO(...) ((void)0)
 #include "crazygaze/rpc/RPC.h"
 #include "crazygaze/rpc/RPCSpasTransport.h"
-#include "../SamplesCommon/StringUtil.h"
-#include "../SamplesCommon/Misc.h"
+#include "../Common/StringUtil.h"
+#include "../Common/Misc.h"

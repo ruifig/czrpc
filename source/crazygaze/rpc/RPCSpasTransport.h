@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../../czspas/source/crazygaze/spas/spas.h"
+#include "crazygaze/spas/spas.h"
 #include "RPCTransport.h"
 #include "RPCConnection.h"
 #include "RPCTable.h"
