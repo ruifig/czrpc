@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-add_library(Common STATIC
+add_library(czrpc_sample_Common STATIC
 		"Misc.cpp"
 		"Misc.h"
 		"Parameters.cpp"
@@ -10,9 +10,10 @@ add_library(Common STATIC
 		"StringUtil.cpp"
 		"StringUtil.h"
 		"targetver.h"
+		"CommonPCH.h"
 		)
 
-target_precompile_headers(Common PUBLIC "CommonPCH.h")
-set_property(TARGET Common PROPERTY FOLDER "samples/czrpc")
-target_link_libraries(Common PUBLIC cz::rpc)
+target_precompile_headers(czrpc_sample_Common PUBLIC "CommonPCH.h")
+set_property(TARGET czrpc_sample_Common PROPERTY FOLDER "${PROJECT_NAME}/samples")
+target_link_libraries(czrpc_sample_Common PUBLIC cz::rpc)
 

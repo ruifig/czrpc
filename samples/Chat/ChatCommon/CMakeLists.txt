@@ -2,8 +2,8 @@ set(SOURCE_FILES
 	"ChatInterface.h"
 	)
 
-add_library(ChatCommon INTERFACE)
-target_include_directories(ChatCommon INTERFACE "")
-add_custom_target(ChatCommon_ SOURCES ${SOURCE_FILES})
-set_target_properties(ChatCommon_ PROPERTIES FOLDER "samples/czrpc/chat")
+add_library(czrpc_sample_ChatCommon INTERFACE)
+target_include_directories(czrpc_sample_ChatCommon INTERFACE "")
+add_custom_target(czrpc_sample_ChatCommon_ SOURCES ${SOURCE_FILES})
+set_target_properties(czrpc_sample_ChatCommon_ PROPERTIES FOLDER "${PROJECT_NAME}/samples/chat")
 

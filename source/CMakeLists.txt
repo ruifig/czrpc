@@ -28,23 +28,15 @@ add_library(cz::rpc ALIAS czrpc)
 
 target_include_directories(czrpc INTERFACE "")
 
-###############################################################################################
-# Try and add czspas as a transport
-###############################################################################################
-
-# If there is a czspas folder present and the parent project didn't define a czspas target
-# then we define it
-# We check if the parent project added czspas and if not we look locally
-if (EXISTS "${CMAKE_CURRENT_LIST_DIR}/czspas" AND NOT TARGET cz::spas)
-	message("czspas folder found in czrpc. Adding czspas as a target")
-	add_subdirectory(czspas)
-endif()
-
-# Finally, if czspas target exists, then we add it
+# We need the czspas target
 if (TARGET cz::spas)
 	target_link_libraries(czrpc INTERFACE cz::spas)
+else()
+	message(FATAL_ERROR "czspas target not found. Either have the root project add czspas as a target, or clone czspas repository into czrpc's own root folder ( ${PROJECT_SOURCE_DIR} )")
 endif()
 
 # Dummy target so that header only libraries show up in the IDE
 add_custom_target(czrpc_ SOURCES ${SOURCE_FILES})
+set_target_properties(czrpc_ PROPERTIES FOLDER "${PROJECT_NAME}")
+
 

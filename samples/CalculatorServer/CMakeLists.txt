@@ -4,5 +4,6 @@ setup_czrpc_sample(CalculatorServer
 		"CalculatorInterface.h"
 		"CalculatorServer.cpp"
 		"targetver.h"
+		"CalculatorServerPCH.h"
 		)
 
