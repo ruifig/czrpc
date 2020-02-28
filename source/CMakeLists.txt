@@ -37,6 +37,6 @@ endif()
 
 # Dummy target so that header only libraries show up in the IDE
 add_custom_target(czrpc_ SOURCES ${SOURCE_FILES})
-set_target_properties(czrpc_ PROPERTIES FOLDER "${PROJECT_NAME}")
+set_target_properties(czrpc_ PROPERTIES FOLDER "${CZ_IDE_FOLDER}${PROJECT_NAME}")
 
 

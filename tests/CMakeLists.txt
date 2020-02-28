@@ -13,5 +13,5 @@ add_executable(czrpc_tests
 
 target_precompile_headers(czrpc_tests PUBLIC "testsPCH.h")
 target_link_libraries(czrpc_tests cz::rpc UnitTest++)
-set_property(TARGET czrpc_tests PROPERTY FOLDER "${PROJECT_NAME}")
+set_property(TARGET czrpc_tests PROPERTY FOLDER "${CZ_IDE_FOLDER}${PROJECT_NAME}")
 

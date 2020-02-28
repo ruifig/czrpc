@@ -4,6 +4,6 @@ setup_czrpc_sample (ChatClient
 		"ChatClientPCH.h"
 		)
 
-set_target_properties(czrpc_sample_ChatClient PROPERTIES FOLDER "${PROJECT_NAME}/samples/chat")
+set_target_properties(czrpc_sample_ChatClient PROPERTIES FOLDER "${CZ_IDE_FOLDER}${PROJECT_NAME}/samples/chat")
 target_link_libraries(czrpc_sample_ChatClient czrpc_sample_ChatCommon)
 

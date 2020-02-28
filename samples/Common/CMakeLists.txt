@@ -14,6 +14,6 @@ add_library(czrpc_sample_Common STATIC
 		)
 
 target_precompile_headers(czrpc_sample_Common PUBLIC "CommonPCH.h")
-set_property(TARGET czrpc_sample_Common PROPERTY FOLDER "${PROJECT_NAME}/samples")
+set_property(TARGET czrpc_sample_Common PROPERTY FOLDER "${CZ_IDE_FOLDER}${PROJECT_NAME}/samples")
 target_link_libraries(czrpc_sample_Common PUBLIC cz::rpc)
 
