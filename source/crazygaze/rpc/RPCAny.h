@@ -412,8 +412,11 @@ struct ParamTraits<Any>
 		return std::move(v);
 	}
 
-	// Intentionally left undefined, since it's not supposed to be used
-	static std::string to_json(const store_type& v);
+	static std::string to_json(const store_type& v)
+	{
+		// This is not supposed to be reached
+		return "\"NA\"";
+	}
 };
 
 namespace details
