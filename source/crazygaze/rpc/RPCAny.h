@@ -9,124 +9,7 @@ namespace cz
 {
 namespace rpc
 {
-	namespace detail
-	{
-		struct json_impl
-		{
-			static std::string to_json(const char* val)
-			{
-				std::string res = "\"";
-				while (*val)
-				{
-					switch (*val)
-					{
-					case '\b':
-						res += "\\b";
-						break;
-					case '\f':
-						res += "\\f";
-						break;
-					case '\n':
-						res += "\\n";
-						break;
-					case '\r':
-						res += "\\r";
-						break;
-					case '\t':
-						res += "\\t";
-						break;
-					case '"':
-						res += "\\\"";
-						break;
-					case '\\':
-						res += "\\\\";
-						break;
-					default:
-						res += *val;
-					}
-					val++;
-				}
-				return  res + "\"";
-			}
 
-			template<typename T>
-			static std::string to_string_impl(const T& v)
-			{
-				if constexpr (std::is_same_v<T, std::string> || std::is_same_v < T, const char*>)
-				{
-					return v;
-				}
-				else
-				{
-					return cz::rpc::to_json(v);
-				}
-			}
-
-			template<typename Tuple, std::size_t... Idx>
-			static std::string to_json_tuple_impl(const Tuple& t, std::index_sequence<Idx...>)
-			{
-				std::vector<std::string> res({ to_string_impl(std::get<Idx>(t))... });
-				return cz::rpc::to_json(res);
-			}
-		};
-	}
-
-	template<
-		typename T,
-		typename = std::enable_if<std::is_arithmetic_v<T>>::type
-	>
-	std::string to_json(T val)
-	{
-		return std::to_string(val);
-	}
-
-	inline std::string to_json(bool val)
-	{
-		return std::string(val ? "true" : "false");
-	}
-
-	inline std::string to_json(const char* val)
-	{
-		return detail::json_impl::to_json(val);
-	}
-
-	inline std::string to_json(const std::string& val)
-	{
-		return detail::json_impl::to_json(val.c_str());
-	}
-
-	// std::vector of any T that can be converted to json
-	template<typename T>
-	std::string to_json(const std::vector<T>& val)
-	{
-		if (val.size() == 0)
-			return "[]";
-
-		std::string res;
-		for (auto&& v : val)
-			res += "," + to_json(v);
-		res += "]";
-		res[0] = '[';
-
-		return res;
-	}
-
-	// std::pair of any FIRST,SECOND that can be converted to json
-	// #RVF : Not sure this is appropriate.
-	// The user might not want fields named 'first' and 'second'
-	template<typename FIRST, typename SECOND>
-	std::string to_json(const std::pair<FIRST,SECOND>& val)
-	{
-		std::string res = "{\"first\":" + to_json(val.first);
-		res += ", \"second\":" + to_json(val.second) + "}";
-		return res;
-	}
-
-	template<typename... Args>
-	std::string to_json(const std::tuple<Args...>& val)
-	{
-		return detail::json_impl::to_json_tuple_impl(val, std::index_sequence_for<Args...>());
-	}
 
 class Any
 {
@@ -150,7 +33,7 @@ public:
 	template<typename T>
 	explicit Any(const T& v)
 		: m_type(Type::String)
-		, m_str(to_json(v))
+		, m_str(ParamTraits<T>::to_json(v))
 	{
 	}
 
@@ -528,6 +411,9 @@ struct ParamTraits<Any>
 	{
 		return std::move(v);
 	}
+
+	// Intentionally left undefined, since it's not supposed to be used
+	static std::string to_json(const store_type& v);
 };
 
 namespace details

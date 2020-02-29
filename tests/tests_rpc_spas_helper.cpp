@@ -43,3 +43,4 @@ std::future<std::string> Tester::testClientVoid()
 
 	return pr->get_future();
 }
+

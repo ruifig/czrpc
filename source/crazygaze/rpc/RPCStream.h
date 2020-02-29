@@ -83,7 +83,8 @@ private:
 enum StreamDirection
 {
 	Read,
-	Write
+	Write,
+	WriteJson
 };
 
 template<StreamDirection D>
@@ -111,6 +112,21 @@ struct StreamWrapper<Write>
 		ParamTraits<T>::write(s, v);
 	}
 	Stream& s;
+};
+
+// #RVF Test this
+template<>
+struct StreamWrapper<WriteJson>
+{ 
+	StreamWrapper() {}
+	template<typename T>
+	inline void op(const T& v)
+	{
+		if (!s.empty())
+			s += ", ";
+		s += ParamTraits<T>::to_json(v);
+	}
+	std::string s;
 };
 
 template <typename T>

@@ -289,22 +289,22 @@ void generic_serialize(cz::rpc::StreamWrapper<D>& s, CustomType& v)
 	s ^ v.b;
 	s ^ v.c;
 }
+CZRPC_DEFINE_PARAMTRAITS_FROM_GENERIC(CustomType)
 
 namespace cz::rpc
 {
 	inline std::string to_json(const CustomType& val)
 	{
 		std::string res;
-		res += "," + rpc::to_json("a") + ":" + rpc::to_json(val.a);
-		res += "," + rpc::to_json("b") + ":" + rpc::to_json(val.b);
-		res += "," + rpc::to_json("c") + ":" + rpc::to_json(val.c);
+		res += "," + rpc::detail::to_json("a") + ":" + rpc::ParamTraits<int>::to_json(val.a);
+		res += "," + rpc::detail::to_json("b") + ":" + rpc::ParamTraits<float>::to_json(val.b);
+		res += "," + rpc::detail::to_json("c") + ":" + rpc::ParamTraits<std::string>::to_json(val.c);
 		res[0] = '{';
 		res += "}";
 		return std::move(res);
 	}
 }
 
-CZRPC_DEFINE_PARAMTRAITS_FROM_GENERIC(CustomType)
 CZRPC_DEFINE_CONST_LVALUE_REF(CustomType)
 
 // Class to be used as server side RPC interface, to test as much stuff as we can

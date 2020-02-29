@@ -3,6 +3,126 @@
 namespace cz {
 namespace rpc {
 
+	namespace detail {
+		struct json_impl
+		{
+			static std::string to_json(const char* val)
+			{
+				std::string res = "\"";
+				while (*val)
+				{
+					switch (*val)
+					{
+					case '\b':
+						res += "\\b";
+						break;
+					case '\f':
+						res += "\\f";
+						break;
+					case '\n':
+						res += "\\n";
+						break;
+					case '\r':
+						res += "\\r";
+						break;
+					case '\t':
+						res += "\\t";
+						break;
+					case '"':
+						res += "\\\"";
+						break;
+					case '\\':
+						res += "\\\\";
+						break;
+					default:
+						res += *val;
+					}
+					val++;
+				}
+				return  res + "\"";
+			}
+
+			template<typename T>
+			static std::string to_string_impl(const T& v)
+			{
+				if constexpr (std::is_same_v<T, std::string> || std::is_same_v < T, const char*>)
+				{
+					return v;
+				}
+				else
+				{
+					return ParamTraits<T>::to_json(v);
+				}
+			}
+
+			template<typename Tuple, std::size_t... Idx>
+			static std::string to_json_tuple_impl(const Tuple& t, std::index_sequence<Idx...>)
+			{
+				std::vector<std::string> res({ to_string_impl(std::get<Idx>(t))... });
+				return cz::rpc::detail::to_json(res);
+			}
+		};
+
+		template<
+			typename T,
+			typename = std::enable_if<std::is_arithmetic_v<T>>::type
+		>
+			std::string to_json(T val)
+		{
+			return std::to_string(val);
+		}
+
+		inline std::string to_json(bool val)
+		{
+			return std::string(val ? "true" : "false");
+		}
+
+		inline std::string to_json(const char* val)
+		{
+			return detail::json_impl::to_json(val);
+		}
+
+		inline std::string to_json(const std::string& val)
+		{
+			return detail::json_impl::to_json(val.c_str());
+		}
+
+		// std::vector of any T that can be converted to json
+		template<typename T>
+		std::string to_json(const std::vector<T>& val)
+		{
+			if (val.size() == 0)
+				return "[]";
+
+			std::string res;
+			for (auto&& v : val)
+				res += "," + ParamTraits<T>::to_json(v);
+			res += "]";
+			res[0] = '[';
+
+			return res;
+		}
+
+		// std::pair of any FIRST,SECOND that can be converted to json
+		// #RVF : Not sure this is appropriate.
+		// The user might not want fields named 'first' and 'second'
+		template<typename FIRST, typename SECOND>
+		std::string to_json(const std::pair<FIRST, SECOND>& val)
+		{
+			std::string res = "{\"first\":" + ParamTraits<FIRST>::to_json(val.first);
+			res += ", \"second\":" + ParamTraits<SECOND>::to_json(val.second) + "}";
+			return res;
+		}
+
+		template<typename... Args>
+		std::string to_json(const std::tuple<Args...>& val)
+		{
+			return detail::json_impl::to_json_tuple_impl(val, std::index_sequence_for<Args...>());
+		}
+
+
+	} // namespace detail
+
 template <typename T>
 struct DefaultParamTraits {
     using store_type = T;
@@ -116,6 +236,8 @@ struct ParamTraits {
 //		s ^ v.b;
 //		s ^ v.c;
 //	}
+//
+// Also, there must be a to_json function defined by the user
 #define CZRPC_DEFINE_PARAMTRAITS_FROM_GENERIC(TYPE)                           \
 	template <>                                                               \
 	struct ::cz::rpc::ParamTraits<TYPE> : ::cz::rpc::DefaultParamTraits<TYPE> \
@@ -131,6 +253,12 @@ struct ParamTraits {
 		{                                                                     \
 			auto sw = StreamWrapper<Read>(s);                                 \
 			generic_serialize(sw, v);                                         \
+		}                                                                     \
+		static std::string to_json(const TYPE& v)                             \
+		{                                                                     \
+			StreamWrapper<WriteJson> sw;                                      \
+			generic_serialize(sw, const_cast<TYPE&>(v));                      \
+			return sw.s;                                                      \
 		}                                                                     \
 	};
 
@@ -158,6 +286,11 @@ struct ParamTraits<T,
     static void read(S& s, store_type& v) {
         s.read(&v, sizeof(v));
     }
+
+	static std::string to_json(store_type v)
+	{
+		return detail::to_json(v);
+	}
 };
 
 //
@@ -178,6 +311,7 @@ struct ParamTraits<T,
       v = ENUM(tmp);                                                           \
     }                                                                          \
     static ENUM get(ENUM v) { return v; }                                      \
+    static std::string to_json(store_type v) { return detail::to_json((unsigned int)v);} \
   };
 
 #define CZRPC_DEFINE_PARAMTRAITS_ENUM_8(TYPE) \
@@ -277,6 +411,11 @@ struct ParamTraits<std::string> {
 	{
 		return std::move(v);
 	}
+
+	static std::string to_json(const std::string& v)
+	{
+		return detail::to_json(v);
+	}
 };
 
 // std::pair
@@ -303,6 +442,11 @@ struct ParamTraits<std::pair<FIRST,SECOND>>
 	static store_type&& get(store_type&& v)
 	{
 		return std::move(v);
+	}
+
+	static std::string to_json(const store_type& v)
+	{
+		return detail::to_json(v);
 	}
 };
 
@@ -344,6 +488,12 @@ struct ParamTraits<
 	}
 
 	static std::vector<T>&& get(std::vector<T>&& v) { return std::move(v); }
+
+	static std::string to_json(const store_type& v)
+	{
+		return detail::to_json(v);
+	}
+
 };
 
 //
@@ -379,6 +529,11 @@ struct ParamTraits<
 	}
 
 	static std::vector<T>&& get(std::vector<T>&& v) { return std::move(v); }
+
+	static std::string to_json(const store_type& v)
+	{
+		return detail::to_json(v);
+	}
 };
 
 //
@@ -462,6 +617,11 @@ struct ParamTraits<std::tuple<T...>>
 	}
 
 	static tuple_type&& get(tuple_type&& v) { return std::move(v); }
+
+	static std::string to_json(const store_type& v)
+	{
+		return detail::to_json(v);
+	}
 };
 
 }  // namespace rpc
